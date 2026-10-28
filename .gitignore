@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.temp
+coverage/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local Codex/workspace material
+work/
