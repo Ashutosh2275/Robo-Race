@@ -22,6 +22,8 @@ Run with `npm test`. The controls suite evaluates all 16 possible W/S/A/D held-s
 - Chrome opened the local game at `http://127.0.0.1:5173/` and the live race started.
 - Holding W advanced the race through the first ordered gate and raised the speed HUD.
 - D-only produced a positive yaw reading; A-only produced a negative yaw reading, confirming right/left rotation in the running game.
-- W+D advanced through a gate with positive yaw, demonstrating forward-right curved motion.
-- After key release, the telemetry commands returned to zero and the displayed speed returned to zero; Escape paused the race with neutral command telemetry.
-- The pause/resume, joystick multitouch, window blur and physical-phone portions remain a manual checklist; they were not claimed as verified in this browser pass.
+- W+D advanced through a gate with positive yaw; W+A advanced through a gate with negative yaw, demonstrating both forward curves.
+- S produced reverse motion after the physical controller's torque-limited direction transition; Space braking returned speed to zero.
+- After key release, telemetry returned to zero, the robot slowed to a stop, and Escape paused with neutral commands. Resume and Restart Race restored play, zeroed race progress and restarted the countdown.
+- Opening Settings cleared drive commands; pressing W while Settings remained open left telemetry neutral. High and Medium presets updated then restored their tuning values.
+- Joystick multitouch, window/tab focus loss, actual phone testing, and the S+A/S+D reverse curves were not verified in a physical device/browser pass; reverse curves are covered by the deterministic physics tests and the remaining items stay on the manual checklist.
