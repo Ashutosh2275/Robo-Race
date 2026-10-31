@@ -17,20 +17,20 @@ test('A maps to a left turn and D maps to a right turn', () => {
   const a = state();
   const aTracks = mixDifferentialSteering(0, 0, -1);
   integrateDrive(a, aTracks.left, aTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(a.yaw > 0);
+  assert.ok(a.yaw < 0);
 
   const d = state();
   const dTracks = mixDifferentialSteering(0, 0, 1);
   integrateDrive(d, dTracks.left, dTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(d.yaw < 0);
+  assert.ok(d.yaw > 0);
 });
 
 test('full throttle plus steering produces a responsive arc instead of a wide drift', () => {
   const s = state();
   const tracks = mixDifferentialSteering(1, 1, -1);
   for (let i = 0; i < 60; i++) integrateDrive(s, tracks.left, tracks.right, asphalt, { x: 0, z: 0 }, config, 1 / 120);
-  assert.ok(s.yaw > .3, `expected a clear left arc, got ${s.yaw.toFixed(3)} rad`);
-  assert.ok(s.x > 0, 'robot should still make forward progress while turning');
+  assert.ok(s.yaw < -.3, `expected a clear left arc, got ${s.yaw.toFixed(3)} rad`);
+  assert.ok(s.x < 0, 'robot should make forward progress along its left-turning arc');
 });
 
 test('gravity accelerates a neutral robot downhill along the ground tangent', () => {
@@ -40,11 +40,51 @@ test('gravity accelerates a neutral robot downhill along the ground tangent', ()
   assert.ok(s.x < 0);
 });
 
+test('neutral input smoothly damps level-ground coasting but steep gravity still wins', () => {
+  const level = state({ vx: 5 });
+  integrateDrive(level, 0, 0, asphalt, { x: 0, z: 0 }, { ...config, coastDeceleration: 2.7 }, .5);
+  assert.ok(level.vx < 4, `neutral level coasting should decay, got ${level.vx.toFixed(2)} m/s`);
+  const slope = state({ yaw: Math.PI / 2 });
+  integrateDrive(slope, 0, 0, asphalt, { x: .8, z: 0 }, { ...config, coastDeceleration: 2.7 }, .2);
+  assert.ok(slope.vx < 0, 'steep downhill gravity must overcome unpowered drivetrain drag');
+});
+
+test('a forward-to-reverse command transition is torque-limited, not an instant velocity flip', () => {
+  const s = state({ vz: 4 });
+  integrateDrive(s, -1, -1, asphalt, { x: 0, z: 0 }, { ...config, coastDeceleration: 2.7 }, .08);
+  assert.ok(s.vz > 0, 'short reverse input should first brake forward momentum');
+  for (let i = 0; i < 120; i++) integrateDrive(s, -1, -1, asphalt, { x: 0, z: 0 }, config, 1 / 120);
+  assert.ok(s.vz < 0, 'continued reverse input should eventually drive backward');
+});
+
 test('low grip lets gravity beat the motors uphill and reports track slip', () => {
   const s = state({ yaw: Math.PI / 2 });
   const result = integrateDrive(s, 1, 1, { grip: .22, rollingResistance: .2 }, { x: .8, z: 0 }, config, .1);
   assert.ok(result.motorSlip > .5);
   assert.ok(s.vx < 0);
+});
+
+test('each track reports driven belt speed independently of chassis progress', () => {
+  const s = state({ yaw: Math.PI / 2 });
+  const result = integrateDrive(s, 1, 1, { grip: .12, rollingResistance: .2 }, { x: .8, z: 0 }, config, .1);
+  assert.ok(result.trackSpeedLeft > 0 && result.trackSpeedRight > 0);
+  assert.ok(result.motorSlip > .5);
+  assert.ok(s.vx < 0, 'limited traction should allow the chassis to slide downhill while belts are driven uphill');
+  const neutral = integrateDrive(state(), 0, 0, asphalt, { x: .4, z: 0 }, config, .1);
+  assert.equal(neutral.trackSpeedLeft, 0);
+  assert.equal(neutral.trackSpeedRight, 0);
+});
+
+test('limited surface grip also reduces turning authority while the belts keep spinning', () => {
+  const asphaltState = state();
+  const slickState = state();
+  const a = mixDifferentialSteering(0, 0, -1);
+  integrateDrive(asphaltState, a.left, a.right, asphalt, { x: 0, z: 0 }, config, .1);
+  const slick = integrateDrive(slickState, a.left, a.right, { grip: .18, rollingResistance: .1 }, { x: 0, z: 0 }, config, .1);
+  assert.ok(asphaltState.yaw < 0);
+  assert.ok(Math.abs(slickState.yaw) < Math.abs(asphaltState.yaw));
+  assert.ok(slick.motorSlip > 0);
+  assert.ok(slick.trackSpeedLeft < 0 && slick.trackSpeedRight > 0);
 });
 
 test('a higher-grip motor can climb a moderate grade', () => {

@@ -1,13 +1,15 @@
 export type Vec2 = { x: number; z: number };
 export type DriveState = { x: number; z: number; vx: number; vz: number; yaw: number; angular: number };
-export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number };
+export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number; coastDeceleration?: number };
 export type Surface = { grip: number; rollingResistance: number };
 
 // Positive steering input is a right turn (D / right stick); negative is left (A / left stick).
 export function mixDifferentialSteering(left: number, right: number, steerRight: number) {
   return {
-    left: Math.max(-1, Math.min(1, left - steerRight * 0.75)),
-    right: Math.max(-1, Math.min(1, right + steerRight * 0.75)),
+    // Turning right speeds the left track and slows the right one; turning
+    // left does the inverse. This also gives the correct opposite-track pivot.
+    left: Math.max(-1, Math.min(1, left + steerRight * 0.75)),
+    right: Math.max(-1, Math.min(1, right - steerRight * 0.75)),
   };
 }
 
@@ -37,13 +39,27 @@ export function integrateDrive(
   const gravityZ = -config.gravity * slope.z / gradeDenom;
   const normalGravity = config.gravity / Math.sqrt(gradeDenom);
   const tractionLimit = Math.max(0.05, surface.grip * normalGravity);
-  const motorForce = Math.max(-tractionLimit, Math.min(tractionLimit, motorRequest));
+  // Each track has its own torque request and traction ceiling. A single weak
+  // contact patch therefore slips without granting the other track unlimited grip.
+  const leftRequest = brake ? 0 : left * config.motorAcceleration;
+  const rightRequest = brake ? 0 : right * config.motorAcceleration;
+  const leftForce = Math.max(-tractionLimit, Math.min(tractionLimit, leftRequest));
+  const rightForce = Math.max(-tractionLimit, Math.min(tractionLimit, rightRequest));
+  const motorForce = (leftForce + rightForce) * 0.5;
 
   state.vx += gravityX * dt;
   state.vz += gravityZ * dt;
   let longitudinal = state.vx * forward.x + state.vz * forward.z;
   let lateral = state.vx * rightAxis.x + state.vz * rightAxis.z;
   longitudinal += motorForce * dt;
+
+  // The unpowered drive train and rubber tracks resist coasting. Keep this a
+  // distinct, grip-limited force so a steep enough slope can still pull the
+  // robot downhill and neutral input does not masquerade as a parking brake.
+  if (!brake && Math.abs(left) + Math.abs(right) < 1e-5) {
+    const coastLimit = Math.min(config.coastDeceleration ?? 2.7, tractionLimit);
+    longitudinal += Math.max(-coastLimit, Math.min(coastLimit, -longitudinal)) * dt;
+  }
 
   // Tire/track friction opposes lateral drift up to the contact patch's grip limit.
   const lateralDemand = -lateral * 7.5;
@@ -68,7 +84,12 @@ export function integrateDrive(
   state.vx = forward.x * longitudinal + rightAxis.x * lateral;
   state.vz = forward.z * longitudinal + rightAxis.z * lateral;
 
-  const angularTarget = (left - right) * config.turnRate;
+  // In the scene's +Z-forward convention, positive yaw points to +X (right).
+  // Differential yaw follows the actual traction-limited force difference,
+  // so low-grip turns lose authority instead of steering as if grip were free.
+  const angularTarget = config.motorAcceleration > 0
+    ? (leftForce - rightForce) / config.motorAcceleration * config.turnRate
+    : 0;
   const angularBlend = 1 - Math.exp(-config.turnResponse * dt);
   state.angular += (angularTarget - state.angular) * angularBlend;
   state.yaw += state.angular * dt;
@@ -78,8 +99,14 @@ export function integrateDrive(
   return {
     longitudinalSpeed: longitudinal,
     lateralSpeed: lateral,
-    motorSlip: Math.abs(motorRequest) < 1e-5 ? 0 : 1 - Math.min(1, Math.abs(motorForce / motorRequest)),
+    motorSlip: Math.max(
+      Math.abs(leftRequest) < 1e-5 ? 0 : 1 - Math.min(1, Math.abs(leftForce / leftRequest)),
+      Math.abs(rightRequest) < 1e-5 ? 0 : 1 - Math.min(1, Math.abs(rightForce / rightRequest)),
+      Math.abs(motorRequest) < 1e-5 ? 0 : 1 - Math.min(1, Math.abs(motorForce / motorRequest)),
+    ),
     tractionLimit,
+    trackSpeedLeft: brake ? 0 : left * config.maxSpeed,
+    trackSpeedRight: brake ? 0 : right * config.maxSpeed,
   };
 }
 
