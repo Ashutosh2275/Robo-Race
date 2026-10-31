@@ -185,14 +185,14 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return 0.62 * Math.min(tAscent, tDescent);
   }
 
-  // Speed breakers at x = -2.1, -1.05, 0.0 at z = 8.0
-  if (Math.abs(z - 8.0) < 1.25) {
+  // Speed breakers at x = -2.1, -1.05, 0.0 at z = 8.0 (Obstacle 3: smooth competition humps)
+  if (Math.abs(z - 8.0) < 1.85) {
     let bump = 0;
     for (let i = 0; i < 3; i++) {
       const bx = -2.1 + i * 1.05;
       const d = Math.abs(x - bx);
-      if (d < 0.42) {
-        bump = Math.max(bump, 0.03 + 0.22 * Math.pow(Math.sin(Math.PI * (d + 0.42) / 0.84), 0.75));
+      if (d < 0.45) {
+        bump = Math.max(bump, 0.03 + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
       }
     }
     if (bump > 0) return bump;

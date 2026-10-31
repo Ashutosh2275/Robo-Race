@@ -86,69 +86,108 @@ for (const x of [-16, 0, 16]) {
 const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.1, 150);
 camera.position.set(0, 8, 14);
 
-function generateSurfaceTexture(base: string, marks: string[], kind: 'grain' | 'stone' | 'wood' | 'slick') {
+function generateSurfaceTexture(base: string, marks: string[], kind: 'grain' | 'stone' | 'wood' | 'slick' | 'asphalt' | 'chevron') {
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 512;
   const x = c.getContext('2d')!;
   x.fillStyle = base;
-  x.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 260; i++) {
-    const a = (i * 73) % 256;
-    const b = (i * 151 + 29) % 256;
-    x.fillStyle = marks[i % marks.length];
-    if (kind === 'grain') {
-      x.globalAlpha = 0.28;
-      x.fillRect(a, b, 1 + (i % 3), 1);
-    } else if (kind === 'stone') {
-      x.globalAlpha = 0.55;
+  x.fillRect(0, 0, 512, 512);
+
+  if (kind === 'asphalt') {
+    // Ultra-realistic asphalt: high-frequency aggregate grit + subtle tyre rubber marks
+    for (let i = 0; i < 1800; i++) {
+      const a = (i * 163) % 512;
+      const b = (i * 307 + 73) % 512;
+      x.fillStyle = marks[i % marks.length];
+      x.globalAlpha = 0.18 + (i % 5) * 0.08;
+      const r = 1 + (i % 3);
+      x.fillRect(a, b, r, r);
+    }
+    // Subtle skid mark streaks
+    x.fillStyle = '#111314';
+    x.globalAlpha = 0.09;
+    for (let k = 0; k < 4; k++) {
+      x.fillRect(0, 80 + k * 110, 512, 34 + (k % 2) * 16);
+    }
+  } else if (kind === 'chevron') {
+    // Chevron tread cleats pattern for continuous rubber tracks
+    x.fillStyle = '#101211';
+    x.fillRect(0, 0, 512, 512);
+    x.strokeStyle = '#282d2a';
+    x.lineWidth = 14;
+    x.lineCap = 'round';
+    for (let y = 16; y < 512; y += 48) {
       x.beginPath();
-      x.ellipse(a, b, 2 + i % 5, 1 + i % 3, (i % 7) * 0.3, 0, Math.PI * 2);
-      x.fill();
-    } else if (kind === 'wood') {
-      x.globalAlpha = 0.35;
-      x.lineWidth = 1 + (i % 2);
-      x.beginPath();
-      x.moveTo(a, 0);
-      x.lineTo(a + ((i % 5) - 2) * 4, 256);
+      x.moveTo(64, y);
+      x.lineTo(256, y + 26);
+      x.lineTo(448, y);
       x.stroke();
-    } else {
-      x.globalAlpha = 0.25;
-      x.lineWidth = 2;
-      x.beginPath();
-      x.ellipse(a, b, 8 + i % 13, 2 + i % 4, (i % 9) * 0.2, 0, Math.PI * 2);
-      x.stroke();
+    }
+  } else {
+    for (let i = 0; i < 400; i++) {
+      const a = (i * 73) % 512;
+      const b = (i * 151 + 29) % 512;
+      x.fillStyle = marks[i % marks.length];
+      if (kind === 'grain') {
+        x.globalAlpha = 0.32;
+        x.fillRect(a, b, 2 + (i % 3), 2);
+      } else if (kind === 'stone') {
+        x.globalAlpha = 0.60;
+        x.beginPath();
+        x.ellipse(a, b, 4 + i % 6, 2 + i % 4, (i % 7) * 0.3, 0, Math.PI * 2);
+        x.fill();
+      } else if (kind === 'wood') {
+        x.globalAlpha = 0.40;
+        x.lineWidth = 2 + (i % 3);
+        x.beginPath();
+        x.moveTo(a, 0);
+        x.lineTo(a + ((i % 5) - 2) * 8, 512);
+        x.stroke();
+      } else {
+        x.globalAlpha = 0.28;
+        x.lineWidth = 3;
+        x.beginPath();
+        x.ellipse(a, b, 14 + i % 18, 4 + i % 6, (i % 9) * 0.2, 0, Math.PI * 2);
+        x.stroke();
+      }
     }
   }
   x.globalAlpha = 1;
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(3, 3);
+  t.repeat.set(4, 4);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 
 const mats = {
-  floor: new THREE.MeshStandardMaterial({ color: '#323537', roughness: 0.92, map: generateSurfaceTexture('#323537', ['#404345', '#2a2c2d', '#494c4e'], 'grain') }),
-  lane: new THREE.MeshStandardMaterial({ color: '#44484a', roughness: 0.86, map: generateSurfaceTexture('#44484a', ['#4e5356', '#3b3e40'], 'grain') }),
-  barrier: new THREE.MeshStandardMaterial({ color: '#e8e5db', roughness: 0.75 }),
-  yellow: new THREE.MeshStandardMaterial({ color: '#e5ad2a', roughness: 0.68 }),
-  coverYellow: new THREE.MeshStandardMaterial({ color: '#cb9f2a', roughness: 0.82, metalness: 0.08 }),
-  black: new THREE.MeshStandardMaterial({ color: '#141719', roughness: 0.72, metalness: 0.18 }),
-  rubber: new THREE.MeshStandardMaterial({ color: '#181b19', roughness: 0.95, map: generateSurfaceTexture('#181b19', ['#262b27', '#111312'], 'grain') }),
-  metal: new THREE.MeshStandardMaterial({ color: '#556066', roughness: 0.40, metalness: 0.78 }),
-  wheel: new THREE.MeshStandardMaterial({ color: '#c4c1b5', roughness: 0.65, metalness: 0.32 }),
-  wood: new THREE.MeshStandardMaterial({ color: '#7a6045', roughness: 0.86, map: generateSurfaceTexture('#7a6045', ['#8d7254', '#644e37'], 'wood') }),
-  red: new THREE.MeshStandardMaterial({ color: '#c33027', roughness: 0.62 }),
-  green: new THREE.MeshStandardMaterial({ color: '#88a679', roughness: 0.92 }),
-  sand: new THREE.MeshStandardMaterial({ color: '#bca06e', roughness: 0.98, map: generateSurfaceTexture('#bca06e', ['#cca874', '#9e8053'], 'grain') }),
-  gravel: new THREE.MeshStandardMaterial({ color: '#808078', roughness: 0.98, map: generateSurfaceTexture('#808078', ['#a5a498', '#66665e'], 'stone') }),
-  turf: new THREE.MeshStandardMaterial({ color: '#4e6648', roughness: 0.96 }),
-  ice: new THREE.MeshStandardMaterial({ color: '#526162', roughness: 0.16, metalness: 0.45, map: generateSurfaceTexture('#526162', ['#a0b2b4', '#3d4849'], 'slick') }),
-  bridge: new THREE.MeshStandardMaterial({ color: '#626b70', roughness: 0.52, metalness: 0.38 }),
-  oil: new THREE.MeshStandardMaterial({ color: '#090b0a', roughness: 0.06, metalness: 0.88 }),
-  water: new THREE.MeshStandardMaterial({ color: '#2b788a', roughness: 0.12, metalness: 0.15, transparent: true, opacity: 0.78 }),
-  fire: new THREE.MeshStandardMaterial({ color: '#e54d1d', emissive: '#ff5e13', emissiveIntensity: 1.8, roughness: 0.4 }),
+  floor: new THREE.MeshStandardMaterial({ color: '#272a2c', roughness: 0.94, map: generateSurfaceTexture('#272a2c', ['#383b3d', '#1f2122', '#414446'], 'grain') }),
+  asphalt: new THREE.MeshStandardMaterial({ color: '#1f2224', roughness: 0.88, metalness: 0.05, map: generateSurfaceTexture('#1f2224', ['#2e3133', '#161819', '#393c3e'], 'asphalt') }),
+  laneStripeWhite: new THREE.MeshStandardMaterial({ color: '#f2f4f7', roughness: 0.55 }),
+  laneStripeYellow: new THREE.MeshStandardMaterial({ color: '#e8af28', roughness: 0.60 }),
+  curbRed: new THREE.MeshStandardMaterial({ color: '#c72b22', roughness: 0.62 }),
+  curbWhite: new THREE.MeshStandardMaterial({ color: '#f0f0eb', roughness: 0.65 }),
+  barrier: new THREE.MeshStandardMaterial({ color: '#e5e2d8', roughness: 0.72 }),
+  yellow: new THREE.MeshStandardMaterial({ color: '#e5ad2a', roughness: 0.65 }),
+  coverYellow: new THREE.MeshStandardMaterial({ color: '#cb9f2a', roughness: 0.78, metalness: 0.12 }),
+  black: new THREE.MeshStandardMaterial({ color: '#141618', roughness: 0.75, metalness: 0.15 }),
+  rubber: new THREE.MeshStandardMaterial({ color: '#161917', roughness: 0.95, map: generateSurfaceTexture('#161917', ['#242926', '#101211'], 'chevron') }),
+  metal: new THREE.MeshStandardMaterial({ color: '#5a646a', roughness: 0.35, metalness: 0.82 }),
+  wheel: new THREE.MeshStandardMaterial({ color: '#c8c5ba', roughness: 0.50, metalness: 0.45 }),
+  wood: new THREE.MeshStandardMaterial({ color: '#7a5e42', roughness: 0.85, map: generateSurfaceTexture('#7a5e42', ['#8c6e4e', '#614831'], 'wood') }),
+  red: new THREE.MeshStandardMaterial({ color: '#c82e25', roughness: 0.58 }),
+  green: new THREE.MeshStandardMaterial({ color: '#7ca86f', roughness: 0.88 }),
+  sand: new THREE.MeshStandardMaterial({ color: '#baa06f', roughness: 0.98, map: generateSurfaceTexture('#baa06f', ['#cca874', '#9e8053'], 'grain') }),
+  gravel: new THREE.MeshStandardMaterial({ color: '#7d7d76', roughness: 0.98, map: generateSurfaceTexture('#7d7d76', ['#a5a498', '#63635b'], 'stone') }),
+  turf: new THREE.MeshStandardMaterial({ color: '#4a6844', roughness: 0.95 }),
+  ice: new THREE.MeshStandardMaterial({ color: '#566668', roughness: 0.14, metalness: 0.50, map: generateSurfaceTexture('#566668', ['#a8b8ba', '#3a4445'], 'slick') }),
+  bridge: new THREE.MeshStandardMaterial({ color: '#687176', roughness: 0.45, metalness: 0.55 }),
+  oil: new THREE.MeshStandardMaterial({ color: '#090a0a', roughness: 0.04, metalness: 0.92 }),
+  water: new THREE.MeshStandardMaterial({ color: '#20748b', roughness: 0.08, metalness: 0.18, transparent: true, opacity: 0.78 }),
+  fire: new THREE.MeshStandardMaterial({ color: '#e84917', emissive: '#ff540a', emissiveIntensity: 2.2, roughness: 0.35 }),
+  headlightLens: new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff6df', emissiveIntensity: 3.5, roughness: 0.1, transparent: true, opacity: 0.92 }),
+  taillightLens: new THREE.MeshStandardMaterial({ color: '#ff2222', emissive: '#ff1111', emissiveIntensity: 2.0, roughness: 0.2 }),
 };
 
 function box(parent: THREE.Object3D, mat: THREE.Material, p: THREE.Vector3, s: THREE.Vector3, rot = 0, cast = true) {
@@ -182,9 +221,60 @@ function solidBox(id: string, x: number, z: number, w: number, d: number, h: num
   colliders.push({ id, x, z, hx: w / 2, hz: d / 2, y, height: h, rot, walkable });
 }
 
-// Main Arena Floors
-box(course, mats.floor, V(0, -0.24, 0), V(38, 0.45, 30), 0, false);
-box(course, mats.lane, V(0, 0.005, 0), V(36, 0.05, 28), 0, false);
+// Main Arena Floors & Dedicated Path-Based Racing Circuit
+box(course, mats.floor, V(0, -0.24, 0), V(40, 0.45, 32), 0, false);
+
+// Path-based asphalt track helper with white boundary lines and dashed centerlines
+function createPavedTrackCorridor(x: number, z: number, lengthX: number, lengthZ: number, rot = 0) {
+  // Paved dark asphalt racing surface
+  box(course, mats.asphalt, V(x, 0.015, z), V(lengthX, 0.02, lengthZ), rot, false);
+
+  // White boundary stripes along corridor edges
+  if (lengthX >= lengthZ) {
+    const halfZ = lengthZ / 2;
+    box(course, mats.laneStripeWhite, V(x, 0.026, z - halfZ + 0.06), V(lengthX, 0.01, 0.12), rot, false);
+    box(course, mats.laneStripeWhite, V(x, 0.026, z + halfZ - 0.06), V(lengthX, 0.01, 0.12), rot, false);
+    // Dashed yellow centerline
+    for (let dx = -lengthX / 2 + 1.2; dx < lengthX / 2 - 1.0; dx += 2.4) {
+      box(course, mats.laneStripeYellow, V(x + dx, 0.026, z), V(1.2, 0.01, 0.10), rot, false);
+    }
+  } else {
+    const halfX = lengthX / 2;
+    box(course, mats.laneStripeWhite, V(x - halfX + 0.06, 0.026, z), V(0.12, 0.01, lengthZ), rot, false);
+    box(course, mats.laneStripeWhite, V(x + halfX - 0.06, 0.026, z), V(0.12, 0.01, lengthZ), rot, false);
+    // Dashed yellow centerline
+    for (let dz = -lengthZ / 2 + 1.2; dz < lengthZ / 2 - 1.0; dz += 2.4) {
+      box(course, mats.laneStripeYellow, V(x, 0.026, z + dz), V(0.10, 0.01, 1.2), rot, false);
+    }
+  }
+}
+
+// Red and white racing rumble kerbs
+function createRumbleKerb(x: number, z: number, lengthX: number, lengthZ: number) {
+  const count = Math.max(4, Math.floor(Math.max(lengthX, lengthZ) / 0.45));
+  for (let i = 0; i < count; i++) {
+    const t = i / count;
+    const px = lengthX >= lengthZ ? x - lengthX / 2 + (i + 0.5) * (lengthX / count) : x;
+    const pz = lengthX < lengthZ ? z - lengthZ / 2 + (i + 0.5) * (lengthZ / count) : z;
+    const w = lengthX >= lengthZ ? lengthX / count : lengthX;
+    const d = lengthX < lengthZ ? lengthZ / count : lengthZ;
+    box(course, i % 2 === 0 ? mats.curbRed : mats.curbWhite, V(px, 0.035, pz), V(w, 0.04, d), 0, false);
+  }
+}
+
+// Build dedicated 4.0m wide circuit corridors
+createPavedTrackCorridor(-5.5, 8.0, 18.5, 4.0); // Start -> Slalom -> Breakers
+createPavedTrackCorridor(7.5, 8.0, 8.0, 4.0);   // Ramp approach & bridge corridor
+createPavedTrackCorridor(13.4, 6.2, 4.0, 6.5);  // Turn 1 connection
+createPavedTrackCorridor(4.5, 0.0, 15.0, 4.0);  // Mixed terrain stretch
+createPavedTrackCorridor(-6.0, -4.0, 13.0, 4.0); // Hazard Alley corridor
+createPavedTrackCorridor(-7.5, -7.7, 9.0, 4.0); // Twin Planks straight
+createPavedTrackCorridor(-13.5, -12.0, 8.0, 4.0); // Finish straight
+
+// Rumble kerbs along turn apexes
+createRumbleKerb(13.5, 9.8, 3.8, 0.45);
+createRumbleKerb(15.2, 5.0, 0.45, 4.2);
+createRumbleKerb(-4.2, -9.6, 0.45, 3.8);
 
 // Perimeter Barriers
 for (const [id, x, z, w, d] of [
@@ -226,38 +316,64 @@ function gantry(x: number, z: number, label: string, color: THREE.Material) {
 gantry(-14.2, 8.0, 'START', mats.green);
 gantry(-15.0, -12.0, 'FINISH', mats.yellow);
 
-// Slalom Barriers with guaranteed 2.8m clear driving lane
+// Slalom Barriers with guaranteed 3.0m clear driving lane
 for (let i = 0; i < 5; i++) {
   const x = -9.2 + i * 1.35;
-  const z = 8.0 + (i % 2 === 0 ? 1.05 : -1.05);
-  solidBox(`slalom_barrier_${i}`, x, z, 1.4, 0.38, 0.78, i % 2 === 0 ? mats.yellow : mats.barrier, 0.06, 0.39);
+  const z = 8.0 + (i % 2 === 0 ? 1.15 : -1.15);
+  solidBox(`slalom_barrier_${i}`, x, z, 1.35, 0.36, 0.78, i % 2 === 0 ? mats.yellow : mats.barrier, 0.06, 0.39);
 }
 
-// Speed Breakers (3 rounded bumps)
+// Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)
 for (let i = 0; i < 3; i++) {
   const x = -2.1 + i * 1.05;
-  const bump = box(course, i % 2 ? mats.yellow : mats.black, V(x, 0.12, 8.0), V(0.42, 0.24, 2.5));
+  // Smooth cylinder half spanning the full 3.8m corridor width
+  const bumpGeo = new THREE.CylinderGeometry(0.42, 0.42, 3.8, 24, 1, false, 0, Math.PI);
+  const bump = new THREE.Mesh(bumpGeo, i % 2 === 0 ? mats.yellow : mats.black);
+  bump.rotation.z = Math.PI / 2;
+  bump.rotation.y = Math.PI / 2;
+  bump.scale.set(0.21, 1, 1); // height ≈ 0.09m
+  bump.position.set(x, 0.025, 8.0);
   bump.castShadow = true;
-  colliders.push({ id: `speed_breaker_${i}`, x, z: 8.0, hx: 0.42, hz: 1.25, y: 0.12, height: 0.24, rot: 0, walkable: true });
+  bump.receiveShadow = true;
+  course.add(bump);
+  colliders.push({ id: `speed_breaker_${i}`, x, z: 8.0, hx: 0.45, hz: 1.9, y: 0.05, height: 0.09, rot: 0, walkable: true });
 }
 
-// Curved Wooden Ramp (length 3.0, width 3.0, height 0.88)
-const rampMesh = box(course, mats.wood, V(4.8, 0.44, 8.0), V(3.0, 0.88, 3.0));
-rampMesh.castShadow = true;
-colliders.push({ id: 'curved_ramp', x: 4.8, z: 8.0, hx: 1.5, hz: 1.5, y: 0.44, height: 0.88, rot: 0, walkable: true });
+// Curved Wooden Ramp at x = 4.8, z = 8.0 (length 3.0, width 3.2, peak height 0.88)
+// Realistic arched wooden timber decking with bevelled transition
+const rampGroup = new THREE.Group();
+rampGroup.position.set(4.8, 0, 8.0);
+course.add(rampGroup);
+
+// Stepped plank arch matching evaluateCourseHeight
+const plankCount = 18;
+for (let p = 0; p < plankCount; p++) {
+  const u = (p + 0.5) / plankCount;
+  const px = (u - 0.5) * 3.0;
+  const py = 0.03 + 0.88 * Math.min(Math.sin(u * Math.PI), 1) * 0.5;
+  const plank = box(rampGroup, mats.wood, V(px, py, 0), V(3.0 / plankCount + 0.02, py * 2, 3.2));
+  plank.castShadow = true;
+}
+colliders.push({ id: 'curved_ramp', x: 4.8, z: 8.0, hx: 1.5, hz: 1.6, y: 0.44, height: 0.88, rot: 0, walkable: true });
 for (const side of [-1, 1]) {
-  solidBox(`ramp_curb_${side}`, 4.8, 8.0 + side * 1.58, 3.1, 0.16, 0.35, mats.black, 0, 0.95);
+  solidBox(`ramp_curb_${side}`, 4.8, 8.0 + side * 1.68, 3.1, 0.16, 0.35, mats.black, 0, 0.95);
 }
 
 // Raised Bridge Structure (approach at 7.8, deck at 9.6, descent at 11.4, height 0.62)
-const bridgeApproach = box(course, mats.wood, V(7.8, 0.31, 8.0), V(1.6, 0.62, 2.6));
-colliders.push({ id: 'bridge_approach', x: 7.8, z: 8.0, hx: 0.8, hz: 1.3, y: 0.31, height: 0.62, rot: 0, walkable: true });
+// Smooth angled approach ramp
+const bridgeApproach = box(course, mats.wood, V(7.8, 0.31, 8.0), V(1.6, 0.62, 2.8));
+bridgeApproach.castShadow = true;
+colliders.push({ id: 'bridge_approach', x: 7.8, z: 8.0, hx: 0.8, hz: 1.4, y: 0.31, height: 0.62, rot: 0, walkable: true });
 
-const bridgeDeck = box(course, mats.bridge, V(9.6, 0.50, 8.0), V(2.2, 0.24, 2.6));
-colliders.push({ id: 'bridge_deck', x: 9.6, z: 8.0, hx: 1.1, hz: 1.3, y: 0.50, height: 0.24, rot: 0, walkable: true });
+// Diamond-plate steel bridge deck
+const bridgeDeck = box(course, mats.bridge, V(9.6, 0.50, 8.0), V(2.2, 0.24, 2.8));
+bridgeDeck.castShadow = true;
+colliders.push({ id: 'bridge_deck', x: 9.6, z: 8.0, hx: 1.1, hz: 1.4, y: 0.50, height: 0.24, rot: 0, walkable: true });
 
-const bridgeDescent = box(course, mats.wood, V(11.4, 0.31, 8.0), V(1.6, 0.62, 2.6));
-colliders.push({ id: 'bridge_descent', x: 11.4, z: 8.0, hx: 0.8, hz: 1.3, y: 0.31, height: 0.62, rot: 0, walkable: true });
+// Smooth angled descent ramp
+const bridgeDescent = box(course, mats.wood, V(11.4, 0.31, 8.0), V(1.6, 0.62, 2.8));
+bridgeDescent.castShadow = true;
+colliders.push({ id: 'bridge_descent', x: 11.4, z: 8.0, hx: 0.8, hz: 1.4, y: 0.31, height: 0.62, rot: 0, walkable: true });
 
 // Bridge Safety Railings
 for (const z of [6.65, 9.35]) {
@@ -405,7 +521,8 @@ for (let ix = 0; ix < 8; ix++) {
 // -------------------------------------------------------------
 const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   const g = new THREE.Group();
-  g.position.set(cp.x, 0.02, cp.z);
+  const gateY = evaluateCourseHeight(cp.x, cp.z);
+  g.position.set(cp.x, gateY, cp.z);
   g.rotation.y = cp.yaw;
   course.add(g);
 
@@ -450,11 +567,18 @@ const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE);
 // 7. Fixed Rigid Robot Model with Realistic Mechatronics (Part 3)
 // -------------------------------------------------------------
 const robot = new THREE.Group();
+robot.rotation.order = 'YXZ';
 scene.add(robot);
 
 // RIGID CENTRAL CHASSIS: strictly un-morphed, locked scale (1,1,1)
+// All mechanical components are children of robotBody so that the complete vehicle
+// pitches, yaws, rolls, and flips as ONE coherent rigid body!
+const robotBody = new THREE.Group();
+robotBody.rotation.order = 'YXZ';
+robot.add(robotBody);
+
 const chassis = new THREE.Group();
-robot.add(chassis);
+robotBody.add(chassis);
 
 // Main bottom chassis tray
 box(chassis, mats.black, V(0, 0.38, 0), V(1.36, 0.18, 1.52));
@@ -469,29 +593,60 @@ for (const z of [-0.70, 0.70]) {
 
 // Mechatronics in the open bay:
 // 1. 4S LiPo Battery pack (blue wrapped rectangular block with warning label)
-const batteryMesh = box(chassis, new THREE.MeshStandardMaterial({ color: '#2b5ea8', roughness: 0.65 }), V(-0.24, 0.52, -0.05), V(0.48, 0.16, 0.72));
+const batteryMesh = box(chassis, new THREE.MeshStandardMaterial({ color: '#2558a0', roughness: 0.55 }), V(-0.24, 0.52, -0.05), V(0.48, 0.16, 0.72));
 box(chassis, mats.yellow, V(-0.24, 0.605, -0.05), V(0.24, 0.015, 0.4)); // Battery label
 
-// 2. Dual Brushless Motors (left and right with cooling ribs)
-cyl(chassis, mats.metal, V(-0.46, 0.44, -0.48), 0.13, 0.30, 'z');
-cyl(chassis, mats.metal, V(0.46, 0.44, -0.48), 0.13, 0.30, 'z');
-
-// 3. Dual ESCs with anodized heat sinks
-for (const x of [-0.18, 0.18]) {
-  box(chassis, new THREE.MeshStandardMaterial({ color: '#882222', roughness: 0.4, metalness: 0.8 }), V(x, 0.51, 0.42), V(0.26, 0.08, 0.24));
+// 2. Dual Brushless Motors (left and right with cooling ribs and copper stator coils)
+for (const side of [-1, 1]) {
+  const mx = side * 0.46;
+  cyl(chassis, mats.metal, V(mx, 0.44, -0.48), 0.13, 0.30, 'z');
+  // Copper stator coils visible through motor cooling slits
+  cyl(chassis, new THREE.MeshStandardMaterial({ color: '#c86e38', metalness: 0.85, roughness: 0.35 }), V(mx, 0.44, -0.48), 0.11, 0.22, 'z');
 }
 
-// 4. 2.4GHz Radio Receiver with dual antennas
+// 3. Dual ESCs with ruby anodized extruded heat sinks
+for (const x of [-0.18, 0.18]) {
+  box(chassis, new THREE.MeshStandardMaterial({ color: '#8b1c1c', roughness: 0.35, metalness: 0.85 }), V(x, 0.51, 0.42), V(0.26, 0.08, 0.24));
+  // Heat sink cooling fins
+  for (let f = -0.10; f <= 0.10; f += 0.035) {
+    box(chassis, mats.black, V(x + f, 0.56, 0.42), V(0.015, 0.04, 0.22));
+  }
+}
+
+// 4. 2.4GHz Radio Receiver with dual whip antennas
 box(chassis, mats.black, V(0.28, 0.50, -0.08), V(0.26, 0.08, 0.24));
-cyl(chassis, mats.black, V(0.25, 0.78, -0.08), 0.012, 0.52, 'y');
-cyl(chassis, mats.black, V(0.31, 0.78, -0.08), 0.012, 0.52, 'y');
+cyl(chassis, mats.metal, V(0.25, 0.58, -0.08), 0.02, 0.08, 'y');
+cyl(chassis, mats.metal, V(0.31, 0.58, -0.08), 0.02, 0.08, 'y');
+cyl(chassis, mats.black, V(0.25, 0.82, -0.08), 0.012, 0.48, 'y');
+cyl(chassis, mats.black, V(0.31, 0.82, -0.08), 0.012, 0.48, 'y');
 
 // 5. Silicone power cables and XT60 connector
 cyl(chassis, mats.red, V(-0.04, 0.56, 0.15), 0.015, 0.38, 'z');
 cyl(chassis, mats.black, V(0.04, 0.56, 0.15), 0.015, 0.38, 'z');
 box(chassis, mats.yellow, V(0, 0.56, 0.32), V(0.06, 0.04, 0.08)); // XT60
 
-// Track Assemblies and Yellow Protective Coverings
+// 6. Dual High-Power LED Headlights (casting light cones forward) & Red Taillights
+for (const side of [-1, 1]) {
+  const hx = side * 0.42;
+  // Chrome headlight bucket
+  cyl(chassis, mats.metal, V(hx, 0.50, 0.74), 0.08, 0.08, 'z');
+  // High-intensity lens
+  cyl(chassis, mats.headlightLens, V(hx, 0.50, 0.785), 0.075, 0.02, 'z');
+
+  // Forward spotlight cone
+  const spot = new THREE.SpotLight('#fff4e0', 16, 18, 0.45, 0.6, 1.2);
+  spot.position.set(hx, 0.50, 0.80);
+  const targetObj = new THREE.Object3D();
+  targetObj.position.set(hx, 0.20, 10.0);
+  chassis.add(spot);
+  chassis.add(targetObj);
+  spot.target = targetObj;
+
+  // Red rear taillight
+  cyl(chassis, mats.taillightLens, V(hx, 0.50, -0.74), 0.06, 0.03, 'z');
+}
+
+// Track Assemblies and Yellow Protective Coverings (strictly inside robotBody)
 const trackCovers: THREE.Mesh[] = [];
 const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; rollers: THREE.Mesh[]; phase: number }[] = [];
 
@@ -499,11 +654,16 @@ for (const side of [-1, 1]) {
   const x = side * (TRACK_WIDTH / 2);
   const trackGroup = new THREE.Group();
   trackGroup.position.x = x;
-  robot.add(trackGroup);
+  robotBody.add(trackGroup);
 
   // Authentic yellow protective track guard
-  const guard = box(robot, mats.coverYellow, V(x, 0.68, 0), V(0.40, 0.14, 1.70));
-  const outerSkirt = box(robot, mats.coverYellow, V(x, 0.56, 0), V(0.40, 0.12, 1.58));
+  const guard = box(robotBody, mats.coverYellow, V(x, 0.68, 0), V(0.40, 0.14, 1.70));
+  const outerSkirt = box(robotBody, mats.coverYellow, V(x, 0.56, 0), V(0.40, 0.12, 1.58));
+  // End bevel caps on yellow guards
+  for (const end of [-1, 1]) {
+    const cap = box(robotBody, mats.coverYellow, V(x, 0.64, end * 0.82), V(0.39, 0.10, 0.14));
+    trackCovers.push(cap);
+  }
   trackCovers.push(guard, outerSkirt);
 
   // Black continuous rubber belt loop
@@ -512,12 +672,14 @@ for (const side of [-1, 1]) {
   // Pale circular exposed end wheels (drive sprocket & idler)
   for (const end of [-1, 1]) {
     cyl(trackGroup, mats.wheel, V(0, 0.32, end * 0.76), 0.21, 0.36, 'x', 24);
+    cyl(trackGroup, mats.metal, V(side * 0.19, 0.32, end * 0.76), 0.05, 0.04, 'x', 12);
   }
 
   // Intermediate road wheels
   const rollerList: THREE.Mesh[] = [];
   for (const z of [-0.42, 0, 0.42]) {
     const r = cyl(trackGroup, mats.wheel, V(0, 0.32, z), 0.17, 0.35, 'x', 18);
+    cyl(trackGroup, mats.metal, V(side * 0.18, 0.32, z), 0.04, 0.03, 'x', 12);
     rollerList.push(r);
   }
 
@@ -537,14 +699,14 @@ for (const side of [-1, 1]) {
   tracks.push({ group: trackGroup, cleats, rollers: rollerList, phase: 0 });
 }
 
-// Contact shadow beneath robot
+// Contact shadow beneath robot (placed in scene, follows vehicle on ground)
 const shadow = new THREE.Mesh(
-  new THREE.CircleGeometry(0.96, 24),
-  new THREE.MeshBasicMaterial({ color: '#0d100e', transparent: true, opacity: 0.32, depthWrite: false })
+  new THREE.CircleGeometry(1.05, 32),
+  new THREE.MeshBasicMaterial({ color: '#090c0a', transparent: true, opacity: 0.38, depthWrite: false })
 );
 shadow.rotation.x = -Math.PI / 2;
-shadow.position.y = 0.14;
-robot.add(shadow);
+shadow.position.y = 0.035;
+scene.add(shadow);
 
 // Dust Particle System
 const dustGeo = new THREE.SphereGeometry(0.08, 6, 5);
@@ -1199,11 +1361,18 @@ function stepPhysics(dt: number) {
     dt
   );
 
-  // Update Three.js Robot Rigidbody Position and Rotation
+  // Update Three.js Robot Rigidbody Position and Rotation (unified rigid structure)
   robot.position.set(pose.x, pose.y, pose.z);
-  robot.rotation.set(0, pose.yaw, 0, 'YXZ');
-  chassis.rotation.x = pose.pitch;
-  chassis.rotation.z = pose.roll;
+  robot.rotation.y = pose.yaw;
+  robotBody.rotation.x = pose.pitch;
+  robotBody.rotation.z = pose.roll;
+  chassis.rotation.set(0, 0, 0);
+
+  // Position contact shadow on ground beneath vehicle
+  const groundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE);
+  shadow.position.set(pose.x, groundY + 0.015, pose.z);
+  shadow.rotation.z = pose.yaw;
+  (shadow.material as THREE.MeshBasicMaterial).opacity = pose.isFlipped ? 0.08 : 0.40;
 
   // Debug hook for automated verification
   (window as unknown as Record<string, unknown>).__gameDebug = {

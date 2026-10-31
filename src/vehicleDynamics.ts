@@ -133,7 +133,7 @@ export function stepVehicle3D(
     pose.rollRate += rollError * 22 * dt - pose.rollRate * 9 * dt;
   }
 
-  if (pitchDifferential > 0.48) {
+  if (pitchDifferential > 0.72) {
     const tipDir = frontH < rearH ? -1 : 1;
     pose.pitchRate += tipDir * 9.5 * dt;
   } else {

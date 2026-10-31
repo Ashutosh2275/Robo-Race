@@ -24,23 +24,22 @@ export type VehicleTuning = ControlTuning & {
 };
 
 export const CONTROL_PRESETS: Record<'Low' | 'Medium' | 'High', VehicleTuning> = {
-  Low: { forwardSensitivity: .7, reverseSensitivity: .7, steeringSensitivity: .55, pivotSensitivity: .38, acceleration: 7.5, braking: 9, steeringResponse: 12, maxSpeed: 5.2, maxRotation: .8 },
-  Medium: { forwardSensitivity: 1, reverseSensitivity: 1, steeringSensitivity: .75, pivotSensitivity: .48, acceleration: 10, braking: 9.2, steeringResponse: 14, maxSpeed: 7.2, maxRotation: 1.15 },
-  High: { forwardSensitivity: 1.2, reverseSensitivity: 1.1, steeringSensitivity: .95, pivotSensitivity: .62, acceleration: 12, braking: 12, steeringResponse: 19, maxSpeed: 8.5, maxRotation: 1.6 },
+  Low: { forwardSensitivity: 0.7, reverseSensitivity: 0.7, steeringSensitivity: 0.55, pivotSensitivity: 0.40, acceleration: 8.0, braking: 9.5, steeringResponse: 14, maxSpeed: 5.5, maxRotation: 0.9 },
+  Medium: { forwardSensitivity: 1.0, reverseSensitivity: 1.0, steeringSensitivity: 0.65, pivotSensitivity: 0.50, acceleration: 10.5, braking: 10.0, steeringResponse: 16, maxSpeed: 7.2, maxRotation: 1.25 },
+  High: { forwardSensitivity: 1.2, reverseSensitivity: 1.1, steeringSensitivity: 0.85, pivotSensitivity: 0.62, acceleration: 13.0, braking: 12.0, steeringResponse: 20, maxSpeed: 8.8, maxRotation: 1.65 },
 };
 
 const clamp = (value: number) => Math.max(-1, Math.min(1, value));
 
-/** Keyboard owns both tracks while active; analog input resumes after key release. */
 export function selectInputSource(keyboardActive: boolean, analogActive: boolean): InputSource {
   return keyboardActive ? 'keyboard' : analogActive ? 'joystick' : 'neutral';
 }
 
 /**
- * Opposing keys cancel on their own axis; they never leak another input source.
- * A always commands LEFT rotation (+1 steering yaw rate).
- * D (and alias B) always commands RIGHT rotation (-1 steering yaw rate).
- * Steering direction NEVER flips in reverse.
+ * Resolves keyboard input axes:
+ * throttle: +1 for W (Forward), -1 for S (Reverse), 0 if opposing or neither.
+ * steering: +1 for A (Turn Front Left), -1 for D/B (Turn Front Right), 0 if opposing or neither.
+ * Opposing keys on either axis cancel each other out safely.
  */
 export function resolveKeyboardAxes(keys: KeyboardKeys) {
   return {
@@ -54,24 +53,21 @@ export function keyboardKeysFromCodes(codes: ReadonlySet<string>): KeyboardKeys 
     forward: codes.has('KeyW') || codes.has('ArrowUp'),
     reverse: codes.has('KeyS') || codes.has('ArrowDown'),
     left: codes.has('KeyA') || codes.has('ArrowLeft'),
-    // Keep requested D mapping and accept B as a right-turn alias.
     right: codes.has('KeyD') || codes.has('KeyB') || codes.has('ArrowRight'),
   };
 }
 
 /**
- * Standard differential mix:
- * vL = v - (omega * b / 2)
- * vR = v + (omega * b / 2)
+ * Physical differential track mix:
  *
- * Positive steering (steeringLeft > 0, key 'A') reduces left track speed and increases right track speed,
- * causing the front of the vehicle to rotate LEFT.
+ * In the engine's coordinate system (where looking forward down heading shows +yaw turning LEFT):
+ * - To turn the front LEFT: left track is accelerated forward relative to right track (vL > vR).
+ * - To turn the front RIGHT: right track is accelerated forward relative to left track (vL < vR).
  *
- * Negative steering (steeringLeft < 0, key 'D') increases left track speed and reduces right track speed,
- * causing the front of the vehicle to rotate RIGHT.
- *
- * In reverse (throttle < 0), A still keeps vR > vL so the front rotates left, and D keeps vL > vR so the front rotates right.
- * The outputs are normalized when exceeding limits without distorting the differential yaw direction.
+ * This holds universally for:
+ * - Forward (W+A: left arc, W+D: right arc)
+ * - Reverse (S+A: reverse while nose turns left, S+D: reverse while nose turns right)
+ * - In-place pivot (A alone: pivot left, D alone: pivot right)
  */
 export function mixThrottleSteering(throttle: number, steeringLeft: number): TrackCommands {
   let left = throttle - steeringLeft;
