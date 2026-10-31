@@ -38,7 +38,20 @@ export function selectInputSource(keyboardActive: boolean, analogActive: boolean
 export function resolveKeyboardAxes(keys: KeyboardKeys) {
   return {
     throttle: keys.forward === keys.reverse ? 0 : keys.forward ? 1 : -1,
-    steering: keys.left === keys.right ? 0 : keys.left ? -1 : 1,
+    // The vehicle/chase view presents the keyboard steering axis mirrored
+    // from the prior control mapping: A is the positive track differential,
+    // which is the visible left-turn command in this game.
+    steering: keys.left === keys.right ? 0 : keys.left ? 1 : -1,
+  };
+}
+
+export function keyboardKeysFromCodes(codes: ReadonlySet<string>): KeyboardKeys {
+  return {
+    forward: codes.has('KeyW') || codes.has('ArrowUp'),
+    reverse: codes.has('KeyS') || codes.has('ArrowDown'),
+    left: codes.has('KeyA') || codes.has('ArrowLeft'),
+    // Keep the requested D mapping and accept B as a right-turn alias too.
+    right: codes.has('KeyD') || codes.has('KeyB') || codes.has('ArrowRight'),
   };
 }
 

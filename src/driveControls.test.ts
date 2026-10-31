@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONTROL_PRESETS, keyboardTrackCommands, mixThrottleSteering, resolveKeyboardAxes, selectInputSource } from './driveControls.ts';
+import { CONTROL_PRESETS, keyboardKeysFromCodes, keyboardTrackCommands, mixThrottleSteering, resolveKeyboardAxes, selectInputSource } from './driveControls.ts';
 import { integrateDrive, type DriveConfig, type DriveState } from './drivePhysics.ts';
 
 const tune = CONTROL_PRESETS.Medium;
@@ -25,13 +25,13 @@ test('all 16 WASD key states have deterministic, clamped differential outputs', 
 test('eight intended directions produce the expected track differential and real yaw', () => {
   const directions = [
     ['forward', keys(true), 0, 1],
-    ['forward-left', keys(true, false, true), -1, 1],
-    ['forward-right', keys(true, false, false, true), 1, 1],
-    ['left pivot', keys(false, false, true), -1, 0],
-    ['right pivot', keys(false, false, false, true), 1, 0],
+    ['forward-left', keys(true, false, true), 1, 1],
+    ['forward-right', keys(true, false, false, true), -1, 1],
+    ['left pivot', keys(false, false, true), 1, 0],
+    ['right pivot', keys(false, false, false, true), -1, 0],
     ['reverse', keys(false, true), 0, -1],
-    ['reverse-left', keys(false, true, true), -1, -1],
-    ['reverse-right', keys(false, true, false, true), 1, -1],
+    ['reverse-left', keys(false, true, true), 1, -1],
+    ['reverse-right', keys(false, true, false, true), -1, -1],
   ] as const;
   for (const [name, input, yawSign, moveSign] of directions) {
     const tracks = keyboardTrackCommands(input, tune);
@@ -41,19 +41,28 @@ test('eight intended directions produce the expected track differential and real
     else assert.equal(Math.abs(s.yaw) < 1e-8, true, `${name} should not turn`);
     if (moveSign) assert.equal(Math.sign(s.z), moveSign, `${name} forward/reverse direction`);
     else assert.ok(Math.abs(s.z) < .001, `${name} pivot should not translate`);
-    if (name.includes('left') && moveSign) assert.ok(s.yaw < 0, `${name} curves left`);
-    if (name.includes('right') && moveSign) assert.ok(s.yaw > 0, `${name} curves right`);
+    if (name.includes('left') && moveSign) assert.ok(s.yaw > 0, `${name} follows the game's A-left mapping`);
+    if (name.includes('right') && moveSign) assert.ok(s.yaw < 0, `${name} follows the game's D/B-right mapping`);
   }
 });
 
 test('opposed keys cancel only their axis and do not fall through to stale joystick values', () => {
-  assert.deepEqual(resolveKeyboardAxes(keys(true, true, true, false)), { throttle: 0, steering: -1 });
+  assert.deepEqual(resolveKeyboardAxes(keys(true, true, true, false)), { throttle: 0, steering: 1 });
   assert.deepEqual(resolveKeyboardAxes(keys(true, false, true, true)), { throttle: 1, steering: 0 });
   assert.deepEqual(keyboardTrackCommands(keys(true, true), tune), { left: 0, right: 0 });
   assert.deepEqual(keyboardTrackCommands(keys(false, false, true, true), tune), { left: 0, right: 0 });
   assert.deepEqual(keyboardTrackCommands(keys(true, false, true, true), tune), { left: 1, right: 1 });
-  assert.deepEqual(keyboardTrackCommands(keys(true, true, true, false), tune), { left: -.75, right: .75 });
+  assert.deepEqual(keyboardTrackCommands(keys(true, true, true, false), tune), { left: .75, right: -.75 });
   assert.deepEqual(mixThrottleSteering(0, 0), { left: 0, right: 0 });
+});
+
+test('A maps to the calibrated left command and D/B map to right', () => {
+  const a = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA'])), tune);
+  const d = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyD'])), tune);
+  const b = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyB'])), tune);
+  assert.ok(a.left > 0 && a.right < 0, 'A should produce the visible left pivot differential');
+  assert.ok(d.left < 0 && d.right > 0, 'D should produce the visible right pivot differential');
+  assert.deepEqual(b, d, 'B is accepted as an alternate right-turn key');
 });
 
 test('keyboard source has priority over an active joystick and neutral takes over after release', () => {

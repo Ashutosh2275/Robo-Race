@@ -2,15 +2,15 @@
 
 ## Automated checks
 
-Run with `npm test`. The controls suite evaluates all 16 possible W/S/A/D held-state combinations, verifies the eight directional states through the same `integrateDrive` physics used by the game, checks opposing-key cancellation and output clamps, and preserves slope/traction tests.
+Run with `npm test`. The controls suite evaluates all 16 canonical throttle/steering states, verifies the eight directional states through the same `integrateDrive` physics used by the game, checks opposing-key cancellation and output clamps, and separately verifies the D/B right-turn alias.
 
 ## Manual gameplay checklist
 
 - [ ] In a live race, W accelerates forward and releasing it returns commanded tracks to zero.
 - [ ] S drives in reverse; forward-to-reverse transitions are limited by motor force and braking rather than teleporting velocity.
-- [ ] A pivots/turns left and D pivots/turns right.
-- [ ] W+A / W+D trace forward left/right arcs; S+A / S+D trace reverse left/right arcs.
-- [ ] W+S cancels throttle while preserving any unconflicted steering; A+D cancels steering while preserving any unconflicted throttle.
+- [ ] A pivots/turns left; D and its B alias pivot/turn right.
+- [ ] W+A / W+D / W+B trace forward curves; S+A / S+D / S+B trace reverse curves.
+- [ ] W+S cancels throttle while preserving any unconflicted steering; A+D or A+B cancels steering while preserving any unconflicted throttle.
 - [ ] W+S+A+D commands both tracks neutral.
 - [ ] Quick key changes and releasing all keys leave no stale command.
 - [ ] Pause, restart, window blur and tab hiding clear commands; controls work again after resume.
@@ -21,9 +21,9 @@ Run with `npm test`. The controls suite evaluates all 16 possible W/S/A/D held-s
 
 - Chrome opened the local game at `http://127.0.0.1:5173/` and the live race started.
 - Holding W advanced the race through the first ordered gate and raised the speed HUD.
-- D-only produced a positive yaw reading; A-only produced a negative yaw reading, confirming right/left rotation in the running game.
-- W+D advanced through a gate with positive yaw; W+A advanced through a gate with negative yaw, demonstrating both forward curves.
+- A-only produced the calibrated left track differential (left track faster, right track reverse); D-only and B-only produced the opposite right-turn differential.
+- W+A produced a forward-left curved command; combined-key readout showed left track 1.00, right track 0.25, forward speed and the left steering command.
 - S produced reverse motion after the physical controller's torque-limited direction transition; Space braking returned speed to zero.
 - After key release, telemetry returned to zero, the robot slowed to a stop, and Escape paused with neutral commands. Resume and Restart Race restored play, zeroed race progress and restarted the countdown.
 - Opening Settings cleared drive commands; pressing W while Settings remained open left telemetry neutral. High and Medium presets updated then restored their tuning values.
-- Joystick multitouch, window/tab focus loss, actual phone testing, and the S+A/S+D reverse curves were not verified in a physical device/browser pass; reverse curves are covered by the deterministic physics tests and the remaining items stay on the manual checklist.
+- Joystick multitouch, window/tab focus loss, actual phone testing, and all reverse-curve combinations were not verified in a physical device/browser pass; reverse curves are covered by deterministic physics tests and the remaining items stay on the manual checklist.
