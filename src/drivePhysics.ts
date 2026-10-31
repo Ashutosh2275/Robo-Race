@@ -5,11 +5,12 @@ export type Surface = { grip: number; rollingResistance: number };
 
 // Positive steering input is a right turn (D / right stick); negative is left (A / left stick).
 export function mixDifferentialSteering(left: number, right: number, steerRight: number) {
+  let l = left + steerRight * 0.75;
+  let r = right - steerRight * 0.75;
+  const maxMag = Math.max(1, Math.abs(l), Math.abs(r));
   return {
-    // Turning right speeds the left track and slows the right one; turning
-    // left does the inverse. This also gives the correct opposite-track pivot.
-    left: Math.max(-1, Math.min(1, left + steerRight * 0.75)),
-    right: Math.max(-1, Math.min(1, right - steerRight * 0.75)),
+    left: Math.max(-1, Math.min(1, l / maxMag)),
+    right: Math.max(-1, Math.min(1, r / maxMag)),
   };
 }
 
