@@ -15,19 +15,21 @@ test('opposite track commands turn in place and left track forward turns right',
 
 test('A maps to a left turn and D maps to a right turn', () => {
   const a = state();
-  const aTracks = mixDifferentialSteering(0, 0, -1);
+  // Canonical semantic steering: +1 is LEFT (Key A), -1 is RIGHT (Key T / Key D)
+  const aTracks = mixDifferentialSteering(0, 1);
   integrateDrive(a, aTracks.left, aTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(a.yaw < 0);
+  assert.ok(a.yaw < 0, `Key A (left turn) should produce negative yaw in +Z convention, got ${a.yaw}`);
 
   const d = state();
-  const dTracks = mixDifferentialSteering(0, 0, 1);
+  const dTracks = mixDifferentialSteering(0, -1);
   integrateDrive(d, dTracks.left, dTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(d.yaw > 0);
+  assert.ok(d.yaw > 0, `Key D / T (right turn) should produce positive yaw in +Z convention, got ${d.yaw}`);
 });
 
 test('full throttle plus steering produces a responsive arc instead of a wide drift', () => {
   const s = state();
-  const tracks = mixDifferentialSteering(1, 1, -1);
+  // Canonical semantic steering: +1 is LEFT (Key A)
+  const tracks = mixDifferentialSteering(1, 1);
   for (let i = 0; i < 60; i++) integrateDrive(s, tracks.left, tracks.right, asphalt, { x: 0, z: 0 }, config, 1 / 120);
   assert.ok(s.yaw < -.3, `expected a clear left arc, got ${s.yaw.toFixed(3)} rad`);
   assert.ok(s.x < 0, 'robot should make forward progress along its left-turning arc');
@@ -78,7 +80,8 @@ test('each track reports driven belt speed independently of chassis progress', (
 test('limited surface grip also reduces turning authority while the belts keep spinning', () => {
   const asphaltState = state();
   const slickState = state();
-  const a = mixDifferentialSteering(0, 0, -1);
+  // Canonical semantic steering: +1 is LEFT
+  const a = mixDifferentialSteering(0, 1);
   integrateDrive(asphaltState, a.left, a.right, asphalt, { x: 0, z: 0 }, config, .1);
   const slick = integrateDrive(slickState, a.left, a.right, { grip: .18, rollingResistance: .1 }, { x: 0, z: 0 }, config, .1);
   assert.ok(asphaltState.yaw < 0);

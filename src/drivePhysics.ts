@@ -3,10 +3,36 @@ export type DriveState = { x: number; z: number; vx: number; vz: number; yaw: nu
 export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number; coastDeceleration?: number };
 export type Surface = { grip: number; rollingResistance: number };
 
-// Positive steering input is a right turn (D / right stick); negative is left (A / left stick).
-export function mixDifferentialSteering(left: number, right: number, steerRight: number) {
-  let l = left + steerRight * 0.75;
-  let r = right - steerRight * 0.75;
+/**
+ * Canonical differential-track mixing:
+ * - Positive semantic steering (+1) is a LEFT turn.
+ * - Negative semantic steering (-1) is a RIGHT turn.
+ *
+ * Formula:
+ * vL = throttle - (steering * k)
+ * vR = throttle + (steering * k)
+ */
+export function mixDifferentialSteering(
+  arg1: number,
+  arg2: number,
+  arg3?: number
+): { left: number; right: number } {
+  let throttle: number;
+  let steering: number;
+  const k = 0.75;
+
+  if (typeof arg3 === 'number') {
+    // Called as (leftThrottle, rightThrottle, steering)
+    throttle = (arg1 + arg2) * 0.5;
+    steering = arg3;
+  } else {
+    // Called as (throttle, steering)
+    throttle = arg1;
+    steering = arg2;
+  }
+
+  let l = throttle - steering * k;
+  let r = throttle + steering * k;
   const maxMag = Math.max(1, Math.abs(l), Math.abs(r));
   return {
     left: Math.max(-1, Math.min(1, l / maxMag)),

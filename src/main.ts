@@ -20,6 +20,7 @@ import {
 import {
   UniversalController,
   type ControllerConfig,
+  type ControllerMode,
 } from './universalController';
 import {
   MAP_SCALE,
@@ -797,6 +798,8 @@ let recoveryCooldown = 0;
 let audioCtx: AudioContext | undefined;
 let cutawayMode = false;
 let drivingHudVisible = false;
+let diagnosticsModalOpen = false;
+let lastReportedYaw = 0;
 
 function tone(freq: number, duration = 0.12, volume = 0.04) {
   try {
@@ -917,13 +920,140 @@ function renderUI() {
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
         A: Always left relative to heading<br>
-        D: Always right relative to heading<br>
+        T: Turn front right (D: alias)<br>
         W+A / S+A: Left arcs (nose rotates left)<br>
-        W+D / S+D: Right arcs (nose rotates right)<br>
+        W+T / S+T: Right arcs (nose rotates right)<br>
+        A alone: Pivot left · T/D alone: Pivot right<br>
+        A+T / A+D: Opposing steering cancels to 0<br>
+        W+S: Opposing throttle cancels to 0<br>
         Space: Mechanical brake · R: Safe checkpoint recovery
       </div>
+      <button id="openCalibBtn" class="action" style="width:100%;margin-top:10px;background:#eab449;color:#101512;font-weight:800;border:none;">🎮 CONTROLLER CALIBRATION & DIAGNOSTICS</button>
     </div>
     <div id="driveTelemetry" class="drive-telemetry hidden"></div>
+
+    <div id="diagnosticsModal" class="diagnostics-modal hidden">
+      <div class="diag-header">
+        <h2>🎮 CONTROLLER CALIBRATION & LIVE DIAGNOSTICS</h2>
+        <button id="closeCalibBtn" class="diag-close">✕ CLOSE</button>
+      </div>
+
+      <div id="diagBanner" class="diag-banner ok">
+        <span id="diagDeviceName">Device: None</span>
+        <span id="diagFailsafeState">Failsafe: OK</span>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">HARDWARE PROFILE & PRESET</div>
+        <div class="diag-grid-2">
+          <label>Hardware Profile
+            <select id="diagProfileSelect">
+              <option value="default_gamepad">Standard Gamepad (Xbox/PlayStation)</option>
+              <option value="radiomaster_boxer">RadioMaster Boxer / TX16S (EdgeTX)</option>
+              <option value="flysky_fsi6x">FlySky FS-i6X / FS-i6</option>
+              <option value="jumper_tpro">Jumper T-Pro / T-Lite</option>
+            </select>
+          </label>
+          <label>Mode
+            <select id="diagModeSelect">
+              <option value="single_stick">Single Stick / Universal</option>
+              <option value="tank_dual_stick">Dual Stick (Tank Mode)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">AXIS CHANNEL MAPPINGS & INVERSION</div>
+        <div class="diag-grid-4">
+          <label>Steering Axis
+            <select id="diagSteerAxis">
+              <option value="0">Axis 0 (Left X)</option>
+              <option value="1">Axis 1 (Left Y)</option>
+              <option value="2">Axis 2 (Right X)</option>
+              <option value="3">Axis 3 (Right Y)</option>
+            </select>
+          </label>
+          <label>Throttle Axis
+            <select id="diagThrottleAxis">
+              <option value="0">Axis 0 (Left X)</option>
+              <option value="1">Axis 1 (Left Y)</option>
+              <option value="2">Axis 2 (Right X)</option>
+              <option value="3">Axis 3 (Right Y)</option>
+            </select>
+          </label>
+          <label>Left Track (Tank)
+            <select id="diagLeftTrackAxis">
+              <option value="0">Axis 0 (Left X)</option>
+              <option value="1">Axis 1 (Left Y)</option>
+              <option value="2">Axis 2 (Right X)</option>
+              <option value="3">Axis 3 (Right Y)</option>
+            </select>
+          </label>
+          <label>Right Track (Tank)
+            <select id="diagRightTrackAxis">
+              <option value="0">Axis 0 (Left X)</option>
+              <option value="1">Axis 1 (Left Y)</option>
+              <option value="2">Axis 2 (Right X)</option>
+              <option value="3">Axis 3 (Right Y)</option>
+            </select>
+          </label>
+        </div>
+        <div class="diag-toggle-row">
+          <label><input type="checkbox" id="diagInvertSteer"> Invert Steering</label>
+          <label><input type="checkbox" id="diagInvertThrottle"> Invert Throttle</label>
+          <button id="diagCalibCenterBtn" class="diag-btn">🎯 Calibrate Center (Zero Drift)</button>
+        </div>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">CANONICAL SEMANTIC DIRECTION VERIFICATION</div>
+        <div class="diag-grid-4">
+          <div class="diag-metric">
+            <small>PHYSICAL STEERING</small>
+            <strong id="diagPhysicalSteer">CENTER</strong>
+            <div class="diag-bar-track"><div id="diagBarSteer" class="diag-bar-fill" style="width:50%"></div></div>
+          </div>
+          <div class="diag-metric">
+            <small>SEMANTIC HEADING</small>
+            <strong id="diagSemanticSteer">0.00</strong>
+          </div>
+          <div class="diag-metric">
+            <small>EXPECTED NOSE</small>
+            <strong id="diagExpectedNose">STRAIGHT</strong>
+          </div>
+          <div class="diag-metric">
+            <small>DELTA YAW RATE</small>
+            <strong id="diagDeltaYaw">0.00 rad/s</strong>
+          </div>
+        </div>
+        <div class="diag-grid-4" style="margin-top:6px;">
+          <div class="diag-metric">
+            <small>THROTTLE DEMAND</small>
+            <strong id="diagThrottleLabel">NEUTRAL</strong>
+          </div>
+          <div class="diag-metric">
+            <small>SEMANTIC VALUE</small>
+            <strong id="diagThrottleValue">0.00</strong>
+          </div>
+          <div class="diag-metric">
+            <small>LEFT TRACK DEMAND</small>
+            <strong id="diagLeftTrack">0.00</strong>
+          </div>
+          <div class="diag-metric">
+            <small>RIGHT TRACK DEMAND</small>
+            <strong id="diagRightTrack">0.00</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">RAW HARDWARE AXIS INPUTS</div>
+        <div id="diagRawAxesList" class="diag-raw-axes">
+          <span class="diag-axis-pill">No active controller detected</span>
+        </div>
+      </div>
+    </div>
   `;
 
   // Attach button events
@@ -984,6 +1114,82 @@ function renderUI() {
   $('#quality').addEventListener('change', e => {
     setGraphicsQuality((e.target as HTMLSelectElement).value);
     savePreferences();
+  });
+
+  // Diagnostics & Calibration modal logic
+  function syncDiagnosticsUI() {
+    const profile = controller.getCurrentProfile();
+    const ctrlConfig = controller.getConfig();
+    const profSelect = $<HTMLSelectElement>('#diagProfileSelect');
+    if (profSelect) profSelect.value = profile.id;
+    const modeSelect = $<HTMLSelectElement>('#diagModeSelect');
+    if (modeSelect) modeSelect.value = ctrlConfig.mode;
+    const steerSelect = $<HTMLSelectElement>('#diagSteerAxis');
+    if (steerSelect) steerSelect.value = String(profile.steeringAxis);
+    const thrSelect = $<HTMLSelectElement>('#diagThrottleAxis');
+    if (thrSelect) thrSelect.value = String(profile.throttleAxis);
+    const leftSelect = $<HTMLSelectElement>('#diagLeftTrackAxis');
+    if (leftSelect) leftSelect.value = String(profile.leftTrackAxis);
+    const rightSelect = $<HTMLSelectElement>('#diagRightTrackAxis');
+    if (rightSelect) rightSelect.value = String(profile.rightTrackAxis);
+    const invSteer = $<HTMLInputElement>('#diagInvertSteer');
+    if (invSteer) invSteer.checked = profile.invertSteering;
+    const invThr = $<HTMLInputElement>('#diagInvertThrottle');
+    if (invThr) invThr.checked = profile.invertThrottle;
+  }
+
+  function toggleDiagnosticsModal(show?: boolean) {
+    diagnosticsModalOpen = typeof show === 'boolean' ? show : !diagnosticsModalOpen;
+    $<HTMLElement>('#diagnosticsModal').classList.toggle('hidden', !diagnosticsModalOpen);
+    if (diagnosticsModalOpen) {
+      controller.neutralize();
+      syncDiagnosticsUI();
+    }
+  }
+
+  $('#openCalibBtn').addEventListener('click', () => toggleDiagnosticsModal(true));
+  $('#closeCalibBtn').addEventListener('click', () => toggleDiagnosticsModal(false));
+
+  $('#diagProfileSelect').addEventListener('change', e => {
+    controller.selectProfileById((e.target as HTMLSelectElement).value);
+    syncDiagnosticsUI();
+    displayToast('HARDWARE PROFILE SWITCHED');
+  });
+
+  $('#diagModeSelect').addEventListener('change', e => {
+    const mode = (e.target as HTMLSelectElement).value as ControllerMode;
+    config.controlMode = mode;
+    controller.updateConfig({ mode });
+    savePreferences();
+    displayToast(`MODE: ${mode.toUpperCase()}`);
+  });
+
+  $('#diagSteerAxis').addEventListener('change', e => {
+    controller.setAxisMapping('steering', Number((e.target as HTMLSelectElement).value));
+  });
+  $('#diagThrottleAxis').addEventListener('change', e => {
+    controller.setAxisMapping('throttle', Number((e.target as HTMLSelectElement).value));
+  });
+  $('#diagLeftTrackAxis').addEventListener('change', e => {
+    controller.setAxisMapping('leftTrack', Number((e.target as HTMLSelectElement).value));
+  });
+  $('#diagRightTrackAxis').addEventListener('change', e => {
+    controller.setAxisMapping('rightTrack', Number((e.target as HTMLSelectElement).value));
+  });
+
+  $('#diagInvertSteer').addEventListener('change', () => {
+    controller.toggleInvert('steering');
+    syncDiagnosticsUI();
+    displayToast(`STEERING INVERT: ${controller.getCurrentProfile().invertSteering ? 'ON' : 'OFF'}`);
+  });
+  $('#diagInvertThrottle').addEventListener('change', () => {
+    controller.toggleInvert('throttle');
+    syncDiagnosticsUI();
+    displayToast(`THROTTLE INVERT: ${controller.getCurrentProfile().invertThrottle ? 'ON' : 'OFF'}`);
+  });
+  $('#diagCalibCenterBtn').addEventListener('click', () => {
+    controller.calibrateCenter();
+    displayToast('CENTER ZERO-POINT CALIBRATED');
   });
 
   // Mobile Joysticks
@@ -1199,15 +1405,32 @@ function recoverVehicle() {
 
 // Global Key Listeners
 window.addEventListener('keydown', e => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyB'].includes(e.code)) {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyT', 'KeyD', 'KeyB'].includes(e.code)) {
     e.preventDefault();
   }
   controller.handleKeyDown(e.code);
 
   if (e.repeat) return;
-  if (e.code === 'Escape') togglePause();
-  if (e.code === 'KeyR' && raceState === 'racing' && $('#settings').classList.contains('hidden')) recoverVehicle();
+  if (e.code === 'Escape') {
+    if (diagnosticsModalOpen) {
+      diagnosticsModalOpen = false;
+      $('#diagnosticsModal').classList.add('hidden');
+    } else {
+      togglePause();
+    }
+  }
+  if (e.code === 'KeyR' && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) recoverVehicle();
   if (e.code === 'KeyC' && raceState !== 'menu') cycleCamera();
+  if (e.code === 'F2') {
+    diagnosticsModalOpen = !diagnosticsModalOpen;
+    $('#diagnosticsModal').classList.toggle('hidden', !diagnosticsModalOpen);
+    if (diagnosticsModalOpen) {
+      controller.neutralize();
+      const prof = controller.getCurrentProfile();
+      const ps = $<HTMLSelectElement>('#diagProfileSelect');
+      if (ps) ps.value = prof.id;
+    }
+  }
   if (e.code === 'F3') {
     drivingHudVisible = !drivingHudVisible;
     $('#driveTelemetry').classList.toggle('hidden', !drivingHudVisible);
@@ -1529,6 +1752,77 @@ function updateHUD(dt: number) {
       `;
     }
   }
+
+  // Live Diagnostics & Calibration Meters
+  if (diagnosticsModalOpen) {
+    const diag = controller.getDiagnostics();
+    const banner = $<HTMLElement>('#diagBanner');
+    if (banner) {
+      banner.className = `diag-banner ${diag.failsafeActive ? 'alert' : 'ok'}`;
+    }
+    const devName = $<HTMLElement>('#diagDeviceName');
+    if (devName) {
+      devName.textContent = `Active: ${diag.deviceName} (${diag.source.toUpperCase()}) | Profile: ${diag.profileName}`;
+    }
+    const failState = $<HTMLElement>('#diagFailsafeState');
+    if (failState) {
+      failState.textContent = diag.failsafeActive ? '⚠️ FAILSAFE DISCONNECT ACTIVE' : 'FAILSAFE: OK (Connected)';
+    }
+
+    const physSteer = $<HTMLElement>('#diagPhysicalSteer');
+    if (physSteer) {
+      physSteer.textContent = diag.directionLabel;
+      physSteer.className = diag.directionLabel === 'LEFT' ? 'left' : diag.directionLabel === 'RIGHT' ? 'right' : '';
+    }
+    const barSteer = $<HTMLElement>('#diagBarSteer');
+    if (barSteer) {
+      const pct = Math.max(0, Math.min(100, (diag.semanticSteering + 1) * 50));
+      barSteer.style.width = `${pct}%`;
+      barSteer.style.background = diag.semanticSteering > 0.05 ? '#64b5f6' : diag.semanticSteering < -0.05 ? '#ffb74d' : '#f0b84e';
+    }
+    const semSteer = $<HTMLElement>('#diagSemanticSteer');
+    if (semSteer) {
+      semSteer.textContent = `${diag.semanticSteering >= 0 ? '+' : ''}${diag.semanticSteering.toFixed(2)} (${diag.directionLabel})`;
+    }
+    const expNose = $<HTMLElement>('#diagExpectedNose');
+    if (expNose) {
+      expNose.textContent = diag.semanticSteering > 0.05 ? 'NOSE TURNS LEFT' : diag.semanticSteering < -0.05 ? 'NOSE TURNS RIGHT' : 'STRAIGHT';
+      expNose.className = diag.semanticSteering > 0.05 ? 'left' : diag.semanticSteering < -0.05 ? 'right' : '';
+    }
+    const deltaYawEl = $<HTMLElement>('#diagDeltaYaw');
+    if (deltaYawEl) {
+      const dYaw = motionState.yaw - lastReportedYaw;
+      deltaYawEl.textContent = `${motionState.angular.toFixed(2)} rad/s (Δ ${dYaw.toFixed(3)})`;
+    }
+
+    const thrLabel = $<HTMLElement>('#diagThrottleLabel');
+    if (thrLabel) {
+      thrLabel.textContent = diag.throttleLabel;
+      thrLabel.className = diag.throttleLabel === 'FORWARD' ? 'forward' : diag.throttleLabel === 'REVERSE' ? 'reverse' : '';
+    }
+    const thrVal = $<HTMLElement>('#diagThrottleValue');
+    if (thrVal) {
+      thrVal.textContent = `${diag.semanticThrottle >= 0 ? '+' : ''}${diag.semanticThrottle.toFixed(2)}`;
+    }
+    const leftTrk = $<HTMLElement>('#diagLeftTrack');
+    if (leftTrk) {
+      leftTrk.textContent = diag.leftTrackCommand.toFixed(2);
+    }
+    const rightTrk = $<HTMLElement>('#diagRightTrack');
+    if (rightTrk) {
+      rightTrk.textContent = diag.rightTrackCommand.toFixed(2);
+    }
+
+    const rawList = $<HTMLElement>('#diagRawAxesList');
+    if (rawList) {
+      if (diag.rawAxes.length > 0) {
+        rawList.innerHTML = diag.rawAxes.map((ax, idx) => `<span class="diag-axis-pill">Ch ${idx}: ${ax >= 0 ? '+' : ''}${ax.toFixed(2)}</span>`).join('');
+      } else {
+        rawList.innerHTML = `<span class="diag-axis-pill">Source: ${diag.source.toUpperCase()} (Keyboard / Touch / Disconnected)</span>`;
+      }
+    }
+  }
+  lastReportedYaw = motionState.yaw;
 
   if (toastTimer > 0) {
     toastTimer -= dt;

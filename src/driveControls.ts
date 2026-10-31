@@ -6,7 +6,23 @@ export type KeyboardKeys = {
 };
 
 export type TrackCommands = { left: number; right: number };
-export type InputSource = 'keyboard' | 'joystick' | 'neutral';
+export type InputSource = 'keyboard' | 'joystick' | 'gamepad' | 'transmitter' | 'touch' | 'mouse' | 'neutral';
+
+/**
+ * Authoritative Canonical Drive Input Standard across all input devices:
+ * - throttle: -1.0 (full reverse) to +1.0 (full forward), 0 neutral.
+ * - steering: +1.0 (full LEFT) to -1.0 (full RIGHT), 0 neutral.
+ * - brake: 0.0 (released) to 1.0 (fully engaged).
+ */
+export interface NormalizedDriveInput {
+  throttle: number;       // -1 reverse, +1 forward
+  steering: number;       // -1 right, +1 left
+  brake: number;          // 0 to 1
+  emergencyStop: boolean;
+  source: InputSource;
+  deviceName: string;
+  valid: boolean;
+}
 
 export type ControlTuning = {
   forwardSensitivity: number;
@@ -36,10 +52,10 @@ export function selectInputSource(keyboardActive: boolean, analogActive: boolean
 }
 
 /**
- * Resolves keyboard input axes:
- * throttle: +1 for W (Forward), -1 for S (Reverse), 0 if opposing or neither.
- * steering: +1 for A (Turn Front Left), -1 for D/B (Turn Front Right), 0 if opposing or neither.
- * Opposing keys on either axis cancel each other out safely.
+ * Resolves keyboard input axes to canonical semantic values:
+ * - throttle: +1 for W / ArrowUp (Forward), -1 for S / ArrowDown (Reverse), 0 if opposing (W+S) or neither.
+ * - steering: +1 for A / ArrowLeft (Turn Front Left), -1 for T / D / B / ArrowRight (Turn Front Right), 0 if opposing (A+T, A+D) or neither.
+ * Opposing keys on either axis cancel each other out safely to neutral.
  */
 export function resolveKeyboardAxes(keys: KeyboardKeys) {
   return {
@@ -48,30 +64,41 @@ export function resolveKeyboardAxes(keys: KeyboardKeys) {
   };
 }
 
+/**
+ * Maps raw physical keyboard scan codes to driving keys:
+ * - W, ArrowUp: Forward
+ * - S, ArrowDown: Reverse
+ * - A, ArrowLeft: Turn front LEFT
+ * - T: Turn front RIGHT (primary required key)
+ * - D, KeyB, ArrowRight: Turn front RIGHT (compatibility aliases)
+ */
 export function keyboardKeysFromCodes(codes: ReadonlySet<string>): KeyboardKeys {
   return {
     forward: codes.has('KeyW') || codes.has('ArrowUp'),
     reverse: codes.has('KeyS') || codes.has('ArrowDown'),
     left: codes.has('KeyA') || codes.has('ArrowLeft'),
-    right: codes.has('KeyD') || codes.has('KeyB') || codes.has('ArrowRight'),
+    right: codes.has('KeyT') || codes.has('KeyD') || codes.has('KeyB') || codes.has('ArrowRight'),
   };
 }
 
 /**
- * Physical differential track mix:
+ * Canonical differential-track mixing:
+ * vL = v - (s * k)
+ * vR = v + (s * k)
  *
- * In the engine's coordinate system (where looking forward down heading shows +yaw turning LEFT):
- * - To turn the front LEFT: left track is accelerated forward relative to right track (vL > vR).
- * - To turn the front RIGHT: right track is accelerated forward relative to left track (vL < vR).
+ * Where:
+ * - v = signed throttle (-1 reverse to +1 forward)
+ * - s = canonical semantic steering (+1 LEFT, -1 RIGHT)
+ * - k = steering mixing strength
  *
- * This holds universally for:
- * - Forward (W+A: left arc, W+D: right arc)
- * - Reverse (S+A: reverse while nose turns left, S+D: reverse while nose turns right)
- * - In-place pivot (A alone: pivot left, D alone: pivot right)
+ * Physical behaviour:
+ * - s > 0 (LEFT): vL < vR. Right track is faster forward (or less reverse), rotating the front LEFT.
+ * - s < 0 (RIGHT): vL > vR. Left track is faster forward (or less reverse), rotating the front RIGHT.
+ * - In reverse (v < 0): Front still rotates in the requested steering direction without inversion!
  */
-export function mixThrottleSteering(throttle: number, steeringLeft: number): TrackCommands {
-  let left = throttle - steeringLeft;
-  let right = throttle + steeringLeft;
+export function mixThrottleSteering(throttle: number, semanticSteering: number, mixStrength = 1.0): TrackCommands {
+  let left = throttle - semanticSteering * mixStrength;
+  let right = throttle + semanticSteering * mixStrength;
   const maxMag = Math.max(1, Math.abs(left), Math.abs(right));
   return {
     left: clamp(left / maxMag),
@@ -84,10 +111,10 @@ export function keyboardTrackCommands(keys: KeyboardKeys, tuning: ControlTuning)
   const scaledThrottle = throttle * (throttle < 0 ? tuning.reverseSensitivity : tuning.forwardSensitivity);
   const isPivot = throttle === 0 && steering !== 0;
   const steerSensitivity = isPivot ? tuning.pivotSensitivity : tuning.steeringSensitivity;
-  return mixThrottleSteering(scaledThrottle, steering * steerSensitivity);
+  return mixThrottleSteering(scaledThrottle, steering, steerSensitivity);
 }
 
 export function pivotTrackCommands(turnRight: boolean, tuning: ControlTuning): TrackCommands {
-  const steer = turnRight ? -tuning.pivotSensitivity : tuning.pivotSensitivity;
-  return mixThrottleSteering(0, steer);
+  const steer = turnRight ? -1 : 1;
+  return mixThrottleSteering(0, steer, tuning.pivotSensitivity);
 }

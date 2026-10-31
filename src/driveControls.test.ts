@@ -56,13 +56,28 @@ test('opposed keys cancel only their axis and do not fall through to stale joyst
   assert.deepEqual(mixThrottleSteering(0, 0), { left: 0, right: 0 });
 });
 
-test('A maps to the calibrated left command and D/B map to right', () => {
+test('A maps to left command, T and D map to right command, and A+T/A+D cancel', () => {
   const a = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA'])), tune);
+  const t = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyT'])), tune);
   const d = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyD'])), tune);
   const b = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyB'])), tune);
+
   assert.ok(a.left < 0 && a.right > 0, 'A should produce left pivot differential (left reverse, right forward)');
+  assert.ok(t.left > 0 && t.right < 0, 'T should produce right pivot differential (left forward, right reverse)');
   assert.ok(d.left > 0 && d.right < 0, 'D should produce right pivot differential (left forward, right reverse)');
+  assert.deepEqual(t, d, 'T and D must produce identical right-turn command');
   assert.deepEqual(b, d, 'B is accepted as an alternate right-turn key');
+
+  // Opposing steering conflicts must cancel to 0
+  const conflictAT = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA', 'KeyT'])), tune);
+  assert.deepEqual(conflictAT, { left: 0, right: 0 }, 'A+T must cancel steering command to neutral');
+
+  const conflictAD = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA', 'KeyD'])), tune);
+  assert.deepEqual(conflictAD, { left: 0, right: 0 }, 'A+D must cancel steering command to neutral');
+
+  // Opposing throttle conflicts must cancel to 0
+  const conflictWS = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyW', 'KeyS'])), tune);
+  assert.deepEqual(conflictWS, { left: 0, right: 0 }, 'W+S must cancel throttle command to neutral');
 });
 
 test('keyboard source has priority over an active joystick and neutral takes over after release', () => {
