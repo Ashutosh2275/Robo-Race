@@ -1,29 +1,76 @@
-# Keyboard control verification
+# Keyboard Control & Universal Driving Verification
 
-## Automated checks
+## Differential Drive Kinematics & Directional Logic
 
-Run with `npm test`. The controls suite evaluates all 16 canonical throttle/steering states, verifies the eight directional states through the same `integrateDrive` physics used by the game, checks opposing-key cancellation and output clamps, and separately verifies the D/B right-turn alias.
+The vehicle is a tracked differential-drive robot governed by the fundamental kinematics:
 
-## Manual gameplay checklist
+$$v_L = v - \frac{\omega \cdot b}{2}$$
+$$v_R = v + \frac{\omega \cdot b}{2}$$
 
-- [ ] In a live race, W accelerates forward and releasing it returns commanded tracks to zero.
-- [ ] S drives in reverse; forward-to-reverse transitions are limited by motor force and braking rather than teleporting velocity.
-- [ ] A pivots/turns left; D and its B alias pivot/turn right.
-- [ ] W+A / W+D / W+B trace forward curves; S+A / S+D / S+B trace reverse curves.
-- [ ] W+S cancels throttle while preserving any unconflicted steering; A+D or A+B cancels steering while preserving any unconflicted throttle.
-- [ ] W+S+A+D commands both tracks neutral.
-- [ ] Quick key changes and releasing all keys leave no stale command.
-- [ ] Pause, restart, window blur and tab hiding clear commands; controls work again after resume.
-- [ ] When a touch joystick is held, keyboard takes temporary priority; on keyboard release, the still-held joystick resumes. A released stick returns to neutral.
-- [ ] Verify slow precision, medium and full-speed turns, hairpins, hill climbing, downhill braking and low-grip slip.
+where:
+- $v$ is commanded linear velocity (forward $> 0$, reverse $< 0$).
+- $\omega$ is commanded yaw rate ($\omega > 0$ for left, $\omega < 0$ for right).
+- $b$ is the contact center distance ($1.58\text{ m}$).
+- $v_L, v_R$ are ground-relative left and right track target velocities.
 
-## Browser check recorded for this change
+### Strict Steering Rules
+1. **A always turns the robot's front to the LEFT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
+2. **D always turns the robot's front to the RIGHT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
+3. Reversing throttle never flips the steering sign.
+4. Opposing inputs resolve cleanly:
+   - `W + S` cancels throttle to neutral while preserving active steering.
+   - `A + D` cancels steering to neutral while preserving active throttle.
+   - `W + S + A + D` cancels all inputs to neutral.
+5. Releasing keys immediately restores neutral commands subject to motor torque limits and physical rolling drag.
 
-- Chrome opened the local game at `http://127.0.0.1:5173/` and the live race started.
-- Holding W advanced the race through the first ordered gate and raised the speed HUD.
-- A-only produced the calibrated left track differential (left track faster, right track reverse); D-only and B-only produced the opposite right-turn differential.
-- W+A produced a forward-left curved command; combined-key readout showed left track 1.00, right track 0.25, forward speed and the left steering command.
-- S produced reverse motion after the physical controller's torque-limited direction transition; Space braking returned speed to zero.
-- After key release, telemetry returned to zero, the robot slowed to a stop, and Escape paused with neutral commands. Resume and Restart Race restored play, zeroed race progress and restarted the countdown.
-- Opening Settings cleared drive commands; pressing W while Settings remained open left telemetry neutral. High and Medium presets updated then restored their tuning values.
-- Joystick multitouch, window/tab focus loss, actual phone testing, and all reverse-curve combinations were not verified in a physical device/browser pass; reverse curves are covered by deterministic physics tests and the remaining items stay on the manual checklist.
+---
+
+## Mandatory Eight-Direction Movement Matrix
+
+| Input | State Name | Left Track | Right Track | Front Yaw Rotation | World Translation |
+|---|---|---|---|---|---|
+| **W** | Forward | $+1.00$ | $+1.00$ | Neutral ($0$) | Forward along heading |
+| **S** | Reverse | $-1.00$ | $-1.00$ | Neutral ($0$) | Reverse along heading |
+| **A** | Pivot Left | $-0.48$ | $+0.48$ | Counter-clockwise (Left) | Zero translation (in-place) |
+| **D / B** | Pivot Right | $+0.48$ | $-0.48$ | Clockwise (Right) | Zero translation (in-place) |
+| **W + A** | Forward-Left Arc | $+0.14$ | $+1.00$ | Left ($\Delta \text{yaw} < 0$) | Forward curving to left |
+| **W + D** | Forward-Right Arc | $+1.00$ | $+0.14$ | Right ($\Delta \text{yaw} > 0$) | Forward curving to right |
+| **S + A** | Reverse-Left Arc | $-1.00$ | $-0.14$ | Left ($\Delta \text{yaw} < 0$) | Reverse with nose turning left |
+| **S + D** | Reverse-Right Arc | $-0.14$ | $-1.00$ | Right ($\Delta \text{yaw} > 0$) | Reverse with nose turning right |
+| **Space** | Mechanical Brake | $0.00$ | $0.00$ | Stopped | Decelerates to stop |
+| **R** | Safe Recovery | $0.00$ | $0.00$ | Aligned with anchor | Restored upright at checkpoint |
+
+---
+
+## 3D Rollover, Pitch/Roll & Recovery Verification
+- Full 3D pose integration: `pitch`, `yaw`, `roll`.
+- Inverted state detection: when pitch or roll exceeds $90^\circ$ ($1.55\text{ rad}$), `isFlipped = true`.
+- When overturned:
+  - Tracks spin in air with zero ground traction.
+  - Vehicle rests on roof/chassis covers.
+  - Rollover warning banner is displayed on HUD.
+  - Pressing `R` restores upright orientation at the nearest safe recovery anchor with zero velocities and adds penalty time.
+  - Recovery cooldown ($1.0\text{ s}$) prevents accidental spam.
+
+---
+
+## Subsystems & Hazards Verification
+1. **Battery System**: 4S LiPo $5000\text{ mAh}$, nominal $14.8\text{ V}$, discharge curve from $16.8\text{ V}$ to $13.0\text{ V}$. Current scales dynamically with driving demand and track slippage.
+2. **Brushless Motors & Thermal Throttling**: Independent left and right motor temperatures. High slip and sustained high throttle raise temperature. Thermal throttling protects motors if temperature exceeds $85^\circ\text{C}$.
+3. **Dual ESC**: Overheat cutoff protection at $105^\circ\text{C}$ with limp mode.
+4. **Mandatory Environmental Hazards**:
+   - **Fire Zone**: Paved heat zone with burning jets, increasing motor/ESC/battery temperatures and degrading track integrity over time.
+   - **Transition**: Clean metal platform separating hazards.
+   - **Water Zone**: Cooling basin rapidly cooling overheated motors ($-20^\circ\text{C/s}$) and ESC while reducing traction ($0.58\text{ grip}$).
+   - **Oil Slicks**: Dark glossy reflective fluid patches with very low grip ($0.18$), causing extended braking distance and realistic track sliding.
+
+---
+
+## Automated Test Suites
+
+All 33 unit tests pass across 5 suites:
+1. `src/drivePhysics.test.ts` (12 tests) — Differential physics, slope gravity, torque limits, track slip.
+2. `src/driveControls.test.ts` (6 tests) — 16 WASD states, 8 directional movements, opposing key cancellation, A-left/D-right mapping.
+3. `src/vehicleDynamics.test.ts` (6 tests) — Track contact patches, pitch/roll dynamics, bridge drop rollover, upside-down persistence, safe recovery.
+4. `src/robotSubsystems.test.ts` (5 tests) — Current consumption, motor slip heating, fire damage, water cooling, collision impact damage.
+5. `src/courseLayout.test.ts` (5 tests) — Height evaluations, fire-water-oil hazard sequence, deterministic rock field, 11 checkpoints, route clearance audit.

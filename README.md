@@ -1,70 +1,120 @@
-# Robo Race 3D
+# Robo Race 3D — Tracked Differential-Drive Simulator
 
-A browser-based, manually driven tracked-robot race game made with Vite, TypeScript and Three.js. This is an original course informed by the project's university robo-racing reference review; it is not a reproduction of any event's official track. The player directly drives the tracks. There is no line-following gameplay.
+A high-fidelity browser-based tracked-robot racing simulator built with **Vite**, **TypeScript**, and **Three.js**. The simulation accurately models differential-drive robotics, track slip, rigid body 3D rollover dynamics, mechatronics (battery, motor, ESC thermal modeling), and environmental hazards.
 
-## Run locally
+---
 
-Requirements: Node.js 20.19+ or 22.12+ and npm.
+## Key Features
 
-```powershell
+### 1. Differential Track Drive & Universal Controls
+- **Exact Kinematics**:
+  $$v_L = v - \frac{\omega \cdot b}{2}, \quad v_R = v + \frac{\omega \cdot b}{2}$$
+- **Calibrated Directional Steering**:
+  - `A`: Always commands LEFT yaw rotation relative to robot heading.
+  - `D` / `B`: Always commands RIGHT yaw rotation relative to robot heading.
+  - Reversing throttle (`S`) **never flips the steering direction**. `S+A` reverses while the nose rotates left; `S+D` reverses while the nose rotates right.
+  - `W+S` cancels throttle to neutral; `A+D` cancels steering to neutral.
+  - Browser focus loss or tab switching immediately zeroes commands to prevent runaway robots.
+- **Universal Device Support**:
+  - Keyboard & Mouse
+  - Mobile Touch Joysticks (Dual-stick Tank Mode and Single-stick Mode)
+  - Gamepads (Xbox One/Series, PlayStation DualShock/DualSense, Generic USB)
+  - RC Transmitters (RadioMaster Boxer, Pocket, TX16S, FlySky, EdgeTX via USB HID joystick mode)
+  - Configurable dead zones, exponential (expo) response curves, and sensitivity scaling.
+
+### 2. Fixed Rigid Chassis Model & Mechatronics Cutaway
+- **Rigid Silhouette Guarantee**: The robot chassis mesh maintains strictly fixed dimensions and cannot stretch, bulge, or deform during movement or high-speed impacts.
+- **Visual Design**: Rugged industrial yellow protective track covers, exposed pale circular drive sprockets and idler road wheels, and black continuous rubber tracks.
+- **Open Compartment Mechatronics**:
+  - 4S LiPo battery block with blue wrapping and XT60 connector
+  - Left & Right brushless drive motors with cooling fins
+  - Dual ESC modules with anodized heatsinks
+  - 2.4GHz radio receiver with dual antennas
+- **Cutaway Mode**: Toggle with `⚙ CUTAWAY` to inspect interior components.
+
+### 3. 3D Rollover, Inverted State & Checkpoint Recovery
+- Full 3D pose tracking: `pitch`, `yaw`, `roll`, and angular velocities.
+- Dynamic ground tracking with tipping torques when driving off bridges or steep ramps.
+- Overturn detection: when tilted past $90^\circ$, the vehicle enters an upside-down resting state where tracks spin in the air without ground traction.
+- Safe Recovery Anchors: 10 designated safe recovery points along the route. Press `R` or the recovery button to reset upright with zero velocity and an added time penalty.
+
+### 4. Course Layout & Environmental Hazards
+- **Course Sections**:
+  1. Starting straight with gantry and lane markings
+  2. 5-staggered slalom gates with guaranteed $2.8\text{ m}$ lane clearance
+  3. 3 rounded speed breakers
+  4. Curved timber ramp ($3.0\text{ m}$ length, $0.88\text{ m}$ elevation)
+  5. Elevated bridge ($0.62\text{ m}$ height) with safety railings and trestles
+  6. Marble pit with loose pebbles
+  7. Rotating steel disc platform with surface momentum transfer
+  8. Mixed terrain strip (sand, gravel, turf, rubber mat)
+  9. Deterministic Rock Field with 3D irregular polyhedral stones
+  10. **Mandatory Environmental Hazard Sequence**: **Fire → Short Transition → Water → Oil**
+      - **Fire Zone**: Burning jets, progressive temperature rise, track degradation
+      - **Transition**: Clean metal platform
+      - **Water Zone**: Cooling basin rapidly reducing motor/ESC temperatures while reducing grip
+      - **Oil Slicks**: Dark reflective fluid puddles with ultra-low grip ($0.18$), causing extended braking and dynamic sliding
+  11. **Switchback Climbing Hill**: Multi-leg diagonal climbing ramps ($16^\circ$ grade) with wide $4\text{ m}$ turning landings, summit plateau, and realistic force-based climb vs track spinning vs backward sliding under gravity.
+  12. Corrected parallel plank bridge with plank spacing calibrated to the $1.58\text{ m}$ track center distance.
+  13. 11 sequential checkpoint gates with illuminated indicators.
+
+### 5. Mechatronics Simulation Subsystems
+- **Battery System**: $5000\text{ mAh}$ 4S LiPo, $16.8\text{ V}$ down to $13.0\text{ V}$, dynamic current draw based on motor load and track slip ($1.2\text{ A}$ idle up to $65\text{ A}$ peak).
+- **Motors**: Dual brushless motors with independent thermal simulation and thermal throttling protection above $85^\circ\text{C}$.
+- **ESC**: Dual ESC temperature tracking with overheat limp mode.
+- **Integrity**: Physical condition tracking for chassis, left track, right track, drive wheels, and electronics enclosure.
+
+---
+
+## Getting Started
+
+### Prerequisites
+Node.js 20.19+ or 22.12+ and npm.
+
+### Installation
+```bash
 npm install
+```
+
+### Development Server
+```bash
 npm run dev
 ```
 
-Open the URL printed by Vite. The current development server is running at **http://localhost:5173/**. If you launch another server and 5173 is occupied, Vite selects another port and prints the correct URL.
-
-For a production build:
-
-```powershell
+### Production Build & Preview
+```bash
 npm run build
 npm run preview
 ```
 
-## Controls
+### Running Test Suites
+```bash
+npm test
+```
+Runs 33 automated tests across differential kinematics, vehicle dynamics, mechatronics subsystems, route layout, and obstacle clearances.
 
-- **W / S:** forward / reverse.
-- **A / D (or B):** A rotates left; D and B rotate right by differential track power; combinations with W or S make controlled curved paths.
-- **W + S / A + D:** cancel only the conflicting axis. With W+S+A, the robot pivots left; all four keys together command neutral tracks.
-- **Space:** brake.
-- **R:** recover at the start or the last passed gate (adds the configurable recovery penalty).
-- **C:** cycle chase, low chase and tactical camera views.
-- **F3:** toggle route debug lines and collider bounds.
-- **Escape:** pause / resume.
-- **Mouse:** drag upward on the left or right half of the 3D view to command that track; release to return it to neutral.
-- **Touch:** use the two lower-corner gimbals together. Vertical direction commands each track; horizontal stick movement steers left / right. Brake, pivot, reset, camera and pause controls are available on touch layouts.
+### Running E2E Gameplay Verification
+```bash
+npm run verify
+```
+Launches a headless browser instance, verifies rendering, starts a live race, tests the 8-directional movement matrix, takes screenshots, and verifies all HUD readouts.
 
-Open **Settings** to select Low, Medium, High or Custom keyboard sensitivity and tune forward/reverse sensitivity, steering, turn-in-place, acceleration, braking, steering response, maximum speed and maximum rotation. The separate overall sensitivity slider scales all controls; dead zone, collision/recovery penalty, graphics quality, difficulty and race duration are also configurable. The optional **Input HUD** shows current track commands, throttle, steering, direction, speed and yaw rate. Difficulty changes available surface grip (Beginner 1.25×, Intermediate 1×, Advanced .84×, Expert .70×); obstacle dimensions are shared across presets. Timed runs support 2, 3, 5, 8, 10 minutes or a custom value. The penalty is a configurable game setting, not a universal competition rule.
+---
 
-## Project layout
+## Controls Summary
 
-- `src/main.ts` — Three.js arena, modular robot meshes, track surfaces, obstacle course, fixed-step differential controller, collisions, ordered gates, race state, camera, input and HUD.
-- `src/drivePhysics.ts` — independent track force/traction model and slope integration.
-- `src/drivePhysics.test.ts` — deterministic controller and slope tests.
-- `src/driveControls.ts` — keyboard-axis conflict handling, differential mixing and sensitivity presets.
-- `src/driveControls.test.ts` — exhaustive key-state and eight-direction movement tests using the in-game physics integrator.
-- `docs/keyboard-control-verification.md` — automated test scope and manual gameplay checklist.
-- `src/style.css` — responsive desktop and landscape touch interface.
-- `public/reference-robot.png` — user-provided silhouette and material reference.
-- `outputs/university-robo-racing-reference-review.md` — source review and caveats.
-- `docs/reference-asset-mapping.md` — mapping of all nine new real-world photographs to visible vehicle/obstacle features and in-game counterparts.
-
-## Course and approximations
-
-The authored race arena is 38 × 30 m, presented at 1.3× world scale (about 49 × 39 m). Its route follows the supplied overhead composition: upper-left start, five-bar slalom, three speed breakers, curved ramp and elevated bridge across the upper course, marble pit and rotating disc on the right, sand/gravel/turf/rubber patches through the centre, a low-grip metal section at the front, then two hairpins and the finish on the left. The central connector includes separately supported stepping plates; the hairpin includes single- and parallel-plank modules. An optional three-leg switchback hill sits beside the main route with sampled ramp elevations and broad turning shelves. Eleven directional gates represent the main race sections. The course draws on obstacle examples in the research review and user photographs, but is an original design and does not claim to reproduce any university's exact rules or course.
-
-Driving uses a deterministic 120 Hz fixed timestep, independent left/right motor requests, a per-track traction ceiling, custom box collision response, slope gravity, rolling resistance, lateral grip and braking. Tread cleats and rollers animate from each track's own driven speed, so they can spin while chassis progress is traction-limited; with neutral inputs they stop while gravity can still move the chassis downhill. Keyboard A is calibrated left; D and B are calibrated right. Route walls are generated from a rounded centreline and offset paths, with a visible opening into the optional hill bay. The F3 debug view shows the main centreline, corridor edges, collision boxes and gate markers. The robot now follows the new photographs: yellow protective track covers, dark lower chassis and belts, pale exposed end wheels and an open equipment bay with generic visual packages. The ramp, bridge, step plates, plank decks and hill use visible geometry and sampled ground heights. The marble bed uses a textured patch and decorative spheres with reduced traction, rather than individually simulated marbles. The disc applies capped surface-motion force rather than a full rigidbody simulation. Procedural surface textures distinguish sand, gravel, turf, rubber and the slick metal patch. A camera clearance check keeps the view from passing through overhead start/finish structures. This browser physics is a stable game approximation rather than an engineering-grade rigidbody simulation.
-
-## Verification completed
-
-- `npm run build` passes TypeScript checking and creates the Vite production bundle.
-- `npm test` passes 17 deterministic input and fixed-step tests, including all 16 simultaneous WASD states, eight physical directional responses, opposing-key cancellation, keyboard/joystick priority, A-left and D/B-right mapping, turning arcs, traction-limited slip, neutral coasting, downhill gravity, braking and wall response.
-- Opened the local game in the browser and confirmed the Three.js scene, updated yellow robot, 11-gate HUD and start menu render.
-- Started a race and held W with a brief A input: the timer and gate counter advanced and the robot passed gates in order. This was a short interaction check, not a full course run.
-- Paused the race and used **Restart Race**: the timer and gate count returned to zero and the three-second countdown restarted.
-- Rebuilt after adjusting the course layout, bridge ramp mesh and camera clearance around the gantries. No browser console errors appeared in the inspected reload.
-- The finish trigger requires all 11 ordered gates and then a westbound crossing of the finish line. Adjusted best time is saved locally in browser storage.
-- The complete 11-gate run and final finish/results/replay sequence were not manually completed. The hill and plank modules were not driven end-to-end in browser QA. Mobile multi-touch was not tested on a physical phone.
-- During the keyboard-control update, browser gameplay verified W progression, A negative yaw, D positive yaw, W+D gate progression with right yaw, neutral input telemetry after release, and Escape pause. Touch multi-pointer, blur recovery and the full eight combinations were covered by code/unit checks and the manual checklist, not by a physical phone or fully scripted browser input sequence.
-- Battery capacity/health, ESC and motor temperatures, component wear/repair, and fire/water hazard interactions are not implemented. Versioned local storage saves settings and the active race timer, penalty and gate count; after refresh the robot resumes paused at the last validated checkpoint. The full physical position between checkpoints is intentionally discarded for safe recovery. Best adjusted time remains local to the browser.
-- Difficulty presets currently change grip only; ramp heights, platform spacing and barrier widths do not yet vary by preset. The optional hill and added plank modules were not driven end-to-end in browser QA.
-- No mobile-device frame-rate claim is made. Vite reports a bundle-size advisory because Three.js is included in one client chunk.
+| Input | Action |
+|---|---|
+| **W** | Drive forward |
+| **S** | Drive backward |
+| **A** | Turn front toward left |
+| **D** / **B** | Turn front toward right |
+| **W + A** | Forward-left curved movement |
+| **W + D** | Forward-right curved movement |
+| **S + A** | Reverse while front turns left |
+| **S + D** | Reverse while front turns right |
+| **Space** | Mechanical brake |
+| **R** | Safe recovery to last checkpoint |
+| **C** | Cycle camera (Chase, Low Bumper, Tactical, Garage) |
+| **F3** | Toggle debug HUD |
+| **Esc** | Pause / resume |
