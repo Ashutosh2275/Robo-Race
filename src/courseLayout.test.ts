@@ -12,9 +12,14 @@ import {
   SPEED_BREAKER_XS,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
+  PARALLEL_PLANK_CENTERS,
+  PARALLEL_PLANK_CENTER_Z,
+  PARALLEL_PLANK_SPACING_LOCAL,
+  MAP_SCALE,
   validateDriveRoute,
   type CourseCollider,
 } from './courseLayout.ts';
+import { TRACK_WIDTH } from './vehicleDynamics.ts';
 
 test('evaluateCourseHeight returns realistic heights across course features', () => {
   // Flat arena floor
@@ -98,12 +103,22 @@ test('required obstacles sit on or within the road corridor rather than on detac
     { x: 4.8, z: 8, footprintAllowance: 0 }, { x: 9.6, z: 8, footprintAllowance: 0 }, { x: 13.45, z: 4.55, footprintAllowance: 0 },
     { x: 10.65, z: 0.1, footprintAllowance: 0 }, { x: 2.8, z: 0, footprintAllowance: 0 }, { x: -2.8, z: -4, footprintAllowance: 0 },
     { x: -6.5, z: -4, footprintAllowance: 0 }, { x: -9.25, z: -4, footprintAllowance: 0 }, { x: -7.7, z: -4, footprintAllowance: 0 },
-    { x: -7.35, z: -8.49, footprintAllowance: 0.4 }, { x: -7.35, z: -6.91, footprintAllowance: 0.4 },
+    ...PARALLEL_PLANK_CENTERS.map(plank => ({ x: plank.x, z: plank.z, footprintAllowance: 0.4 })),
   ];
   for (const center of requiredCenters) {
     assert.ok(distanceToRoute(center) <= DRIVE_ROUTE_WIDTH / 2 + center.footprintAllowance + 0.15,
       `obstacle at (${center.x}, ${center.z}) falls outside the drive corridor`);
   }
+});
+
+test('paired plank support spacing matches both robot track contact lines', () => {
+  const worldSpacing = Math.abs(PARALLEL_PLANK_CENTERS[1].z - PARALLEL_PLANK_CENTERS[0].z) * MAP_SCALE;
+  assert.ok(Math.abs(worldSpacing - TRACK_WIDTH) < 1e-6, 'each track should align over one plank');
+  for (const plank of PARALLEL_PLANK_CENTERS) {
+    assert.equal(evaluateCourseHeight(plank.x, plank.z), 0.3, 'plank top must be a continuous supported surface');
+  }
+  const centerGapHeight = evaluateCourseHeight(PARALLEL_PLANK_CENTERS[0].x, PARALLEL_PLANK_CENTER_Z);
+  assert.equal(centerGapHeight, 0.03, 'the gap between planks should remain a real gap');
 });
 
 test('slalom blocks cross the corridor with a continuous alternating pass width', () => {

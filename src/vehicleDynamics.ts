@@ -197,8 +197,8 @@ export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
     { id: 'disc_exit', label: 'Platform Transition', x: 11.8 * scale, z: 3.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-2.55, -4.6), checkpointIndex: 6 },
     { id: 'mixed_terrain', label: 'Mixed Terrain Run', x: 2.0 * scale, z: 0.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 7 },
     { id: 'hazard_entry', label: 'Technical Hazard Approach', x: -1.6 * scale, z: -2.4 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-4.5, -4.0), checkpointIndex: 8 },
-    { id: 'hairpins', label: 'Hairpin Entry', x: -5.7 * scale, z: -5.6 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-4.4, -3.7), checkpointIndex: 9 },
-    { id: 'finish_straight', label: 'Final Straight', x: -8.0 * scale, z: -12.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 10 },
+    { id: 'hairpins', label: 'Parallel Plank Entry', x: -12.6 * scale, z: -8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 9 },
+    { id: 'finish_straight', label: 'Final Straight', x: -8.0 * scale, z: -11.9 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 10 },
   ];
 }
 

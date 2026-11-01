@@ -56,20 +56,20 @@ test('opposed keys cancel only their axis and do not fall through to stale joyst
   assert.deepEqual(mixThrottleSteering(0, 0), { left: 0, right: 0 });
 });
 
-test('A maps right, D maps left, and opposing A+D inputs cancel', () => {
+test('A maps left, D maps right, and opposing A+D inputs cancel', () => {
   const a = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA'])), tune);
   const t = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyT'])), tune);
   const d = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyD'])), tune);
   const b = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyB'])), tune);
 
-  assert.ok(a.left > 0 && a.right < 0, 'A should produce right pivot differential (left forward, right reverse)');
+  assert.ok(a.left < 0 && a.right > 0, 'A should produce left pivot differential (left reverse, right forward)');
   assert.ok(t.left > 0 && t.right < 0, 'T should produce right pivot differential (left forward, right reverse)');
-  assert.ok(d.left < 0 && d.right > 0, 'D should produce left pivot differential (left reverse, right forward)');
+  assert.ok(d.left > 0 && d.right < 0, 'D should produce right pivot differential (left forward, right reverse)');
   assert.deepEqual(t, b, 'T and B remain alternate right-turn keys');
 
   // Opposing steering conflicts must cancel to 0
   const conflictAT = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA', 'KeyT'])), tune);
-  assert.deepEqual(conflictAT, a, 'A+T both request right and must not cancel');
+  assert.deepEqual(conflictAT, { left: 0, right: 0 }, 'A+T requests opposite directions and must cancel');
 
   const conflictAD = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyA', 'KeyD'])), tune);
   assert.deepEqual(conflictAD, { left: 0, right: 0 }, 'A+D must cancel steering command to neutral');
@@ -79,8 +79,8 @@ test('A maps right, D maps left, and opposing A+D inputs cancel', () => {
   assert.deepEqual(conflictWS, { left: 0, right: 0 }, 'W+S must cancel throttle command to neutral');
 });
 
-test('actual keyboard A pivots right and D pivots left through the physics controller', () => {
-  for (const [code, expectedYawSign] of [['KeyA', 1], ['KeyD', -1]] as const) {
+test('actual keyboard A pivots left and D pivots right through the physics controller', () => {
+  for (const [code, expectedYawSign] of [['KeyA', -1], ['KeyD', 1]] as const) {
     const commands = keyboardTrackCommands(keyboardKeysFromCodes(new Set([code])), tune);
     const state = makeState();
     for (let i = 0; i < 60; i++) integrateDrive(state, commands.left, commands.right, surface, { x: 0, z: 0 }, physics, 1 / 120);

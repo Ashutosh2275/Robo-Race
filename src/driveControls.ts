@@ -54,7 +54,7 @@ export function selectInputSource(keyboardActive: boolean, analogActive: boolean
 /**
  * Resolves keyboard input axes to canonical semantic values:
  * - throttle: +1 for W / ArrowUp (Forward), -1 for S / ArrowDown (Reverse), 0 if opposing (W+S) or neither.
- * - steering: +1 for D / ArrowLeft (Turn Front Left), -1 for A / T / B / ArrowRight (Turn Front Right), 0 if opposing (A+D) or neither.
+ * - steering: +1 for A / ArrowLeft (Turn Front Left), -1 for D / T / B / ArrowRight (Turn Front Right), 0 if opposing (A+D) or neither.
  * Opposing keys on either axis cancel each other out safely to neutral.
  */
 export function resolveKeyboardAxes(keys: KeyboardKeys) {
@@ -68,16 +68,15 @@ export function resolveKeyboardAxes(keys: KeyboardKeys) {
  * Maps raw physical keyboard scan codes to driving keys:
  * - W, ArrowUp: Forward
  * - S, ArrowDown: Reverse
- * - A: Turn front RIGHT
- * - D: Turn front LEFT
- * - ArrowLeft: Turn front LEFT; ArrowRight, T, B: Turn front RIGHT
+ * - A, ArrowLeft: Turn front LEFT
+ * - D, ArrowRight, T, B: Turn front RIGHT
  */
 export function keyboardKeysFromCodes(codes: ReadonlySet<string>): KeyboardKeys {
   return {
     forward: codes.has('KeyW') || codes.has('ArrowUp'),
     reverse: codes.has('KeyS') || codes.has('ArrowDown'),
-    left: codes.has('KeyD') || codes.has('ArrowLeft'),
-    right: codes.has('KeyA') || codes.has('KeyT') || codes.has('KeyB') || codes.has('ArrowRight'),
+    left: codes.has('KeyA') || codes.has('ArrowLeft'),
+    right: codes.has('KeyD') || codes.has('KeyT') || codes.has('KeyB') || codes.has('ArrowRight'),
   };
 }
 

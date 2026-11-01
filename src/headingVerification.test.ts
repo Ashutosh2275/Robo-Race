@@ -126,10 +126,10 @@ test('Reverse throttle never flips normalized steering semantics', () => {
 });
 
 test('Opposing keyboard inputs cancel cleanly without residual steering or throttle', () => {
-  // A + T now both map to right; they must not cancel.
+  // A is left, while T is retained as a right-turn alternate; they cancel.
   const keysAT = keyboardKeysFromCodes(new Set(['KeyA', 'KeyT']));
   const axesAT = resolveKeyboardAxes(keysAT);
-  assert.equal(axesAT.steering, -1, 'A+T both request right steering');
+  assert.equal(axesAT.steering, 0, 'A+T request opposite steering and cancel');
   assert.equal(axesAT.throttle, 0);
 
   // A + D

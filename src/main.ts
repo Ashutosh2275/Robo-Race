@@ -31,6 +31,7 @@ import {
   MAP_SCALE,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
+  PARALLEL_PLANK_CENTERS,
   CHECKPOINTS,
   SLALOM_BARRIERS,
   SPEED_BREAKER_XS,
@@ -81,11 +82,12 @@ const sun = new THREE.DirectionalLight('#fff0d4', 2.3);
 sun.position.set(-12, 22, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -32;
-sun.shadow.camera.right = 32;
-sun.shadow.camera.top = 30;
-sun.shadow.camera.bottom = -30;
-sun.shadow.bias = -0.0003;
+sun.shadow.camera.left = -28;
+sun.shadow.camera.right = 28;
+sun.shadow.camera.top = 22;
+sun.shadow.camera.bottom = -22;
+sun.shadow.normalBias = 0.025;
+sun.shadow.bias = -0.0002;
 scene.add(sun);
 
 // Overhead spotlights for industrial arena realism
@@ -245,9 +247,10 @@ box(course, mats.floor, V(0, -0.24, 0), V(40, 0.45, 32), 0, false);
 // corridor below; there are no detached rectangular road pads or oversized
 // paved dead zones. The road follows all gates and obstacle approaches.
 function createRouteRibbon(offset: number, width: number, material: THREE.Material, yLift: number) {
-  const routePoints = DRIVE_ROUTE.map(p => V(p.x, 0, p.z));
-  const curve = new THREE.CatmullRomCurve3(routePoints, false, 'centripetal', 0.35);
-  const points = curve.getSpacedPoints(Math.max(220, DRIVE_ROUTE.length * 18));
+  // Use the validated route polyline directly. A global Catmull-Rom spline
+  // bowed through the staggered obstacles and folded the inner road edge on
+  // tight bends, producing the black triangular artifacts in the screenshots.
+  const points = DRIVE_ROUTE.map(p => V(p.x, 0, p.z));
   const positions: number[] = [];
   const indices: number[] = [];
   const half = width * 0.5;
@@ -258,11 +261,28 @@ function createRouteRibbon(offset: number, width: number, material: THREE.Materi
     const dx = after.x - before.x;
     const dz = after.z - before.z;
     const len = Math.hypot(dx, dz) || 1;
-    const nx = dz / len;
-    const nz = -dx / len;
+    const tx = dx / len;
+    const tz = dz / len;
+    // Mitered cross-sections keep adjoining road pieces sealed without the
+    // unbounded offset spikes that created loops at hairpins.
+    const nx = tz;
+    const nz = -tx;
+    const previous = points[Math.max(0, i - 1)];
+    const next = points[Math.min(points.length - 1, i + 1)];
+    const previousLength = Math.hypot(p.x - previous.x, p.z - previous.z) || len;
+    const nextLength = Math.hypot(next.x - p.x, next.z - p.z) || len;
+    const ptx = (p.x - previous.x) / previousLength;
+    const ptz = (p.z - previous.z) / previousLength;
+    const ntx = (next.x - p.x) / nextLength;
+    const ntz = (next.z - p.z) / nextLength;
+    const previousNormal = V(ptz, 0, -ptx);
+    const nextNormal = V(ntz, 0, -ntx);
+    const miter = previousNormal.add(nextNormal).normalize();
+    const miterScale = clamp(1 / Math.max(0.67, Math.abs(miter.x * nx + miter.z * nz)), 1, 1.5);
     for (const side of [-1, 1]) {
-      const x = p.x + nx * (offset + side * half);
-      const z = p.z + nz * (offset + side * half);
+      const lateral = (offset + side * half) * miterScale;
+      const x = p.x + miter.x * lateral;
+      const z = p.z + miter.z * lateral;
       positions.push(x, evaluateCourseHeight(x, z) + yLift, z);
     }
     if (i < points.length - 1) {
@@ -513,14 +533,12 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
 // -------------------------------------------------------------
 // 5. Corrected Parallel Plank Bridge (spacing matches 1.58m track width)
 // -------------------------------------------------------------
-// Track centers: left plank at z = -8.49, right plank at z = -6.91
-box(course, mats.wood, V(-7.35, 0.21, -8.49), V(4.2, 0.18, 0.65));
-box(course, mats.black, V(-7.35, 0.10, -8.49), V(4.25, 0.05, 0.70));
-colliders.push({ id: 'parallel_plank_left', x: -7.35, z: -8.49, hx: 2.1, hz: 0.35, y: 0.21, height: 0.18, rot: 0, walkable: true });
-
-box(course, mats.wood, V(-7.35, 0.21, -6.91), V(4.2, 0.18, 0.65));
-box(course, mats.black, V(-7.35, 0.10, -6.91), V(4.25, 0.05, 0.70));
-colliders.push({ id: 'parallel_plank_right', x: -7.35, z: -6.91, hx: 2.1, hz: 0.35, y: 0.21, height: 0.18, rot: 0, walkable: true });
+// Paired plank centres follow the robot's actual track spacing.
+for (const [i, plank] of PARALLEL_PLANK_CENTERS.entries()) {
+  box(course, mats.wood, V(plank.x, 0.21, plank.z), V(4.2, 0.18, 0.65));
+  box(course, mats.black, V(plank.x, 0.10, plank.z), V(4.25, 0.05, 0.70));
+  colliders.push({ id: `parallel_plank_${i === 0 ? 'left' : 'right'}`, x: plank.x, z: plank.z, hx: 2.1, hz: 0.35, y: 0.21, height: 0.18, rot: 0, walkable: true });
+}
 
 // Checkered finish straight
 for (let ix = 0; ix < 8; ix++) {
@@ -951,7 +969,7 @@ function renderUI() {
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> RIGHT · <kbd>D</kbd> LEFT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE
     </div>
     <div class="toast"></div>
     <div class="mobile-controls">
@@ -1005,13 +1023,13 @@ function renderUI() {
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
-        A: Turn right relative to heading<br>
-        D: Turn left relative to heading<br>
+        A: Turn left relative to heading<br>
+        D: Turn right relative to heading<br>
         T: Optional right-turn key<br>
-        W+A / S+A: Right arcs (nose rotates right)<br>
-        W+D / S+D: Left arcs (nose rotates left)<br>
+        W+A / S+A: Left arcs (nose rotates left)<br>
+        W+D / S+D: Right arcs (nose rotates right)<br>
         W+T / S+T: Right arcs (nose rotates right)<br>
-        A/T alone: Pivot right · D alone: Pivot left<br>
+        A alone: Pivot left · D/T/B: Pivot right<br>
         A+D: Opposing steering cancels to 0<br>
         W+S: Opposing throttle cancels to 0<br>
         Space: Mechanical brake · R: Safe checkpoint recovery
@@ -1372,7 +1390,7 @@ function showMenu() {
           <span class="tag">11 ORDERED GATES</span>
         </div>
         <p style="font-size:11px;margin:12px 0 14px">
-          <b>Keyboard:</b> W/S Drive · A Right · D Left · Space Brake · R Recover · C Camera · Esc Pause<br>
+          <b>Keyboard:</b> W/S Drive · A Left · D Right · Space Brake · R Recover · C Camera · Esc Pause<br>
           <b>Controllers:</b> Compatible with Xbox, PS, RadioMaster & EdgeTX transmitters
         </p>
         <button class="action" id="btnStartRace">START RACE</button>

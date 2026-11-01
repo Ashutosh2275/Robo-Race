@@ -1,3 +1,5 @@
+import { TRACK_WIDTH } from './vehicleDynamics.ts';
+
 export type SurfaceType = 'concrete' | 'rubber' | 'timber' | 'sand' | 'gravel' | 'turf' | 'ice' | 'steel' | 'oil' | 'water' | 'fire' | 'rockfield';
 
 export type SurfaceProperties = {
@@ -28,22 +30,30 @@ export type CheckpointGate = {
 };
 
 export type CoursePoint = { x: number; z: number };
+export const MAP_SCALE = 1.3;
+export const PARALLEL_PLANK_CENTER_Z = -8.0;
+export const PARALLEL_PLANK_SPACING_LOCAL = TRACK_WIDTH / MAP_SCALE;
+export const PARALLEL_PLANK_CENTERS = [
+  { x: -7.35, z: PARALLEL_PLANK_CENTER_Z - PARALLEL_PLANK_SPACING_LOCAL / 2 },
+  { x: -7.35, z: PARALLEL_PLANK_CENTER_Z + PARALLEL_PLANK_SPACING_LOCAL / 2 },
+] as const;
 
 /** Route centreline in course-local metres. The road is built from this path
  * before obstacle modules are placed, so every section has a continuous base. */
-export const DRIVE_ROUTE_WIDTH = 3.0;
+export const DRIVE_ROUTE_WIDTH = 3.2;
+function circularArc(cx: number, cz: number, radius: number, start: number, end: number, count: number, xAxis = 'cos') {
+  return Array.from({ length: count + 1 }, (_, i) => {
+    const a = start + (end - start) * i / count;
+    return xAxis === 'sin'
+      ? { x: cx + radius * Math.sin(a), z: cz + radius * Math.cos(a) }
+      : { x: cx + radius * Math.cos(a), z: cz + radius * Math.sin(a) };
+  });
+}
 export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -16.4, z: 8.0 }, // clear staging bay behind the start gantry
   { x: -14.2, z: 8.0 }, // start line
   { x: -11.5, z: 8.0 },
-  // Alternating steering corridor through the five staggered slalom modules.
-  { x: -10.9, z: 7.1 }, { x: -10.0, z: 7.1 },
-  { x: -9.35, z: 8.85 }, { x: -8.45, z: 8.85 },
-  { x: -7.75, z: 8.9 }, { x: -6.35, z: 8.9 },
-  { x: -5.65, z: 7.1 }, { x: -4.85, z: 7.1 },
-  { x: -4.0, z: 8.85 }, { x: -3.3, z: 8.85 },
-  { x: -2.85, z: 7.1 }, { x: -1.0, z: 7.1 },
-  { x: -0.2, z: 8.0 },
+  { x: -0.2, z: 8.0 }, // straight corridor; the staggered barriers create the slalom
   { x: 3.2, z: 8.0 },  // breakers
   { x: 4.4, z: 8.0 },  // ramp checkpoint
   { x: 4.8, z: 8.0 },  // curved ramp
@@ -54,13 +64,13 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -3.1, z: -4.0 }, // fire
   { x: -7.7, z: -4.0 }, // single plank and water
   { x: -10.0, z: -4.0 }, // oil exit
-  { x: -12.2, z: -4.0 },
-  { x: -12.2, z: -7.7 }, // turn into parallel planks
-  { x: -7.5, z: -7.7 }, // checkpoint 10, crossed eastbound
-  { x: -4.2, z: -7.7 },
-  { x: -2.8, z: -9.6 }, // final hairpin
-  { x: -5.2, z: -11.1 },
-  { x: -8.6, z: -11.1 },
+  { x: -13.2, z: -4.0 },
+  // Smooth U-turn shelf at radius 2m connects the oil lane to the twin planks.
+  ...circularArc(-13.2, -6.0, 2.0, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
+  { x: -7.5, z: -8.0 }, // checkpoint 10, crossed eastbound over parallel planks
+  { x: -0.2, z: -8.0 },
+  // Broad final hairpin, radius 1.9m, followed by a straight finish approach.
+  ...circularArc(-0.2, -9.9, 1.9, 0, Math.PI, 12, 'sin').slice(1),
   { x: -13.2, z: -12.0 }, // final checkpoint and straight
   { x: -15.0, z: -12.0 },
 ];
@@ -78,6 +88,16 @@ export function validateDriveRoute(route: CoursePoint[] = DRIVE_ROUTE, minWidth 
     }
     if (i > 0 && Math.hypot(p.x - route[i - 1].x, p.z - route[i - 1].z) < 0.15) {
       issues.push(`Route segment ${i - 1} is zero length`);
+    }
+  }
+  const orient = (a: CoursePoint, b: CoursePoint, c: CoursePoint) =>
+    (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+  for (let i = 0; i < route.length - 1; i++) {
+    for (let j = i + 2; j < route.length - 1; j++) {
+      const a = route[i], b = route[i + 1], c = route[j], d = route[j + 1];
+      if (orient(a, b, c) * orient(a, b, d) < -1e-8 && orient(c, d, a) * orient(c, d, b) < -1e-8) {
+        issues.push(`Route segments ${i} and ${j} cross each other`);
+      }
     }
   }
   return { valid: issues.length === 0, issues };
@@ -120,9 +140,6 @@ export type HillSegment = {
   b: HillNode;
   width: number;
 };
-
-// Map scale constant matching scene
-export const MAP_SCALE = 1.3;
 
 export const SLALOM_BARRIERS = Array.from({ length: 5 }, (_, i) => ({
   id: `slalom_barrier_${i}`,
@@ -289,11 +306,11 @@ export function evaluateCourseHeight(x: number, z: number): number {
     if (bump > 0) return bump;
   }
 
-  // Corrected parallel plank bridges at z = -7.7 ± 0.79 (x = -7.35 to -3.25, height 0.30)
-  // Track 1 plank: centered at z = -8.49; Track 2 plank: centered at z = -6.91
+  // Parallel plank bridge centered on the actual route; world-space spacing
+  // matches the robot's track centre spacing after course scaling.
   if (x >= -9.4 && x <= -5.3) {
-    const onLeftPlank = Math.abs(z - (-8.49)) < 0.38;
-    const onRightPlank = Math.abs(z - (-6.91)) < 0.38;
+    const onLeftPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[0].z) < 0.38;
+    const onRightPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[1].z) < 0.38;
     if (onLeftPlank || onRightPlank) {
       return 0.30;
     }
@@ -389,7 +406,7 @@ export const CHECKPOINTS: CheckpointGate[] = [
   { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: Math.atan2(-2.55, -4.6), width: 3.4 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 3.4 },
   { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: Math.atan2(-4.5, -4.0), width: 3.4 },
-  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -7.7, yaw: Math.PI / 2, width: 3.4 },
+  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -8.0, yaw: Math.PI / 2, width: 3.4 },
   { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 3.4 },
 ];
 
