@@ -1,4 +1,4 @@
-import { TRACK_WIDTH } from './vehicleDynamics.ts';
+import { ROBOT_HALF_WIDTH, TRACK_WIDTH } from './vehicleDynamics.ts';
 
 export type SurfaceType = 'concrete' | 'rubber' | 'timber' | 'sand' | 'gravel' | 'turf' | 'ice' | 'steel' | 'oil' | 'water' | 'fire' | 'rockfield';
 
@@ -40,7 +40,9 @@ export const PARALLEL_PLANK_CENTERS = [
 
 /** Route centreline in course-local metres. The road is built from this path
  * before obstacle modules are placed, so every section has a continuous base. */
-export const DRIVE_ROUTE_WIDTH = 3.2;
+// A wider driving envelope keeps the robot's full track covers clear while
+// leaving room to steer around the slalom blocks instead of striking their ends.
+export const DRIVE_ROUTE_WIDTH = 4.0;
 function circularArc(cx: number, cz: number, radius: number, start: number, end: number, count: number, xAxis = 'cos') {
   return Array.from({ length: count + 1 }, (_, i) => {
     const a = start + (end - start) * i / count;
@@ -144,12 +146,39 @@ export type HillSegment = {
 export const SLALOM_BARRIERS = Array.from({ length: 5 }, (_, i) => ({
   id: `slalom_barrier_${i}`,
   x: -10.4 + i * 2.25,
-  z: 8.0 + (i % 2 === 0 ? 1.1 : -1.1),
-  width: 0.36,
-  depth: 1.8,
-  height: 0.78,
+  z: 8.0 + (i % 2 === 0 ? 1.72 : -1.72),
+  width: 0.34,
+  depth: 0.82,
+  height: 0.92,
 }));
 export const SPEED_BREAKER_XS = [0, 1.05, 2.1] as const;
+
+/** Checks that every staggered slalom barrier leaves a robot-width opening. */
+export function validateSlalomClearance(
+  barriers = SLALOM_BARRIERS,
+  corridorWidth = DRIVE_ROUTE_WIDTH,
+): { valid: boolean; issues: string[] } {
+  const issues: string[] = [];
+  const minimumOpening = ROBOT_HALF_WIDTH * 2 / MAP_SCALE + 0.45;
+  const minimumCenterlineGap = 0.25;
+  const halfCorridor = corridorWidth / 2;
+  for (const barrier of barriers) {
+    const sign = Math.sign(barrier.z - 8.0) || 1;
+    const innerEdge = barrier.z - sign * barrier.depth / 2;
+    // The open passage is the entire corridor from the far boundary to the
+    // near edge of the staggered block. This is the space the robot actually
+    // steers through, not the apparent gap between the block and centerline.
+    const opening = halfCorridor + Math.abs(innerEdge - 8.0);
+    if (opening < minimumOpening) {
+      issues.push(`${barrier.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
+    }
+    const centerlineGap = Math.abs(innerEdge - 8.0) * MAP_SCALE - ROBOT_HALF_WIDTH;
+    if (centerlineGap < minimumCenterlineGap) {
+      issues.push(`${barrier.id} intrudes ${Math.max(0, -centerlineGap).toFixed(2)}m into the robot's straight-route envelope`);
+    }
+  }
+  return { valid: issues.length === 0, issues };
+}
 
 // Switchback Hill Nodes with wide turning landings
 export const HILL_NODES: HillNode[] = [

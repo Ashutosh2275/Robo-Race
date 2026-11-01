@@ -9,6 +9,7 @@ import {
   CHECKPOINTS,
   crossesCheckpointGate,
   SLALOM_BARRIERS,
+  validateSlalomClearance,
   SPEED_BREAKER_XS,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
@@ -76,7 +77,7 @@ test('all 11 checkpoints are defined in sequential order', () => {
 test('continuous drive corridor stays in the arena and passes every checkpoint in order', () => {
   const audit = validateDriveRoute();
   assert.equal(audit.valid, true, audit.issues.join('; '));
-  assert.ok(DRIVE_ROUTE_WIDTH >= 2.8 && DRIVE_ROUTE_WIDTH <= 3.2, 'road width should fit the robot without oversized empty shoulders');
+  assert.ok(DRIVE_ROUTE_WIDTH >= 3.8 && DRIVE_ROUTE_WIDTH <= 4.2, 'road width should leave steering clearance around slalom obstacles');
   let previousIndex = -1;
   for (const gate of CHECKPOINTS) {
     const index = DRIVE_ROUTE.findIndex(p => Math.hypot(p.x - gate.x, p.z - gate.z) < 0.01);
@@ -132,6 +133,21 @@ test('slalom blocks cross the corridor with a continuous alternating pass width'
       assert.notEqual(Math.sign(SLALOM_BARRIERS[i - 1].z - 8), Math.sign(b.z - 8), 'barriers alternate sides');
     }
   }
+});
+
+test('each slalom block leaves a physically passable opening for the robot envelope', () => {
+  const audit = validateSlalomClearance();
+  assert.equal(audit.valid, true, audit.issues.join('; '));
+  for (const barrier of SLALOM_BARRIERS) {
+    assert.ok(barrier.height >= 0.9, `${barrier.id} must be clearly visible above the track surface`);
+  }
+});
+
+test('slalom clearance audit rejects the former blind block intruding into the straight route', () => {
+  const formerBlindBlock = [{ id: 'former_blind_block', x: -10.4, z: 9.1, width: 0.36, depth: 1.8, height: 0.78 }];
+  const audit = validateSlalomClearance(formerBlindBlock);
+  assert.equal(audit.valid, false, 'a block that overlaps the robot envelope on the route must fail validation');
+  assert.ok(audit.issues.some(issue => issue.includes('straight-route envelope')));
 });
 
 test('checkpoint gates require a forward crossing through the opening', () => {

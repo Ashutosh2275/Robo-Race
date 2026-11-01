@@ -41,6 +41,7 @@ import {
   generateRockFieldStones,
   validateRouteClearance,
   validateDriveRoute,
+  validateSlalomClearance,
   crossesCheckpointGate,
   type CourseCollider,
 } from './courseLayout';
@@ -349,10 +350,10 @@ function gantry(x: number, z: number, label: string, color: THREE.Material) {
 gantry(-14.2, 8.0, 'START', mats.green);
 gantry(-15.0, -12.0, 'FINISH', mats.yellow);
 
-// Slalom Barriers with guaranteed 3.0m clear driving lane
+// Alternating slalom barriers leave a verified, robot-width side passage.
 for (const [i, barrier] of SLALOM_BARRIERS.entries()) {
-  // Place each modular block across the lane, so the robot has to alternate
-  // through the open side instead of driving parallel to a decorative wall.
+  // The inner end remains near the centerline to require steering, while the
+  // outside opening clears the complete track-cover collision envelope.
   solidBox(barrier.id, barrier.x, barrier.z, barrier.width, barrier.depth, barrier.height, i % 2 === 0 ? mats.yellow : mats.barrier, 0, barrier.height / 2);
 }
 
@@ -614,11 +615,15 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
 
 const routeClearanceAudit = validateRouteClearance(colliders);
 const driveRouteAudit = validateDriveRoute();
+const slalomClearanceAudit = validateSlalomClearance();
 if (!routeClearanceAudit.valid) {
   console.warn('Course clearance audit found possible checkpoint obstructions:', routeClearanceAudit.issues);
 }
 if (!driveRouteAudit.valid) {
   console.error('Drive corridor validation failed:', driveRouteAudit.issues);
+}
+if (!slalomClearanceAudit.valid) {
+  console.error('Slalom passage validation failed:', slalomClearanceAudit.issues);
 }
 
 const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE);
@@ -915,11 +920,16 @@ let elapsed = 0;
 let penaltyTime = 0;
 let countdown = 0;
 let currentCheckpoint = 0;
-let cameraMode = 0; // 0: Chase, 1: Low Bumper, 2: Tactical Overhead, 3: Orbit Inspection
+let cameraMode = 0; // Selected home view; free-look is available in every view.
 let cameraOrbitYaw = pose.yaw + Math.PI;
 let cameraOrbitPitch = 0.72;
 let cameraOrbitDistance = 6.8;
 let cameraFollowYaw = pose.yaw;
+let cameraFreeYaw = 0;
+let cameraFreePitch = 0;
+let cameraDistanceOffset = 0;
+let cameraFreeLookIdle = 0;
+const cameraKeys = new Set<string>();
 let cameraPointerId: number | null = null;
 let cameraPointerX = 0;
 let cameraPointerY = 0;
@@ -1001,7 +1011,7 @@ function renderUI() {
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE · CAMERA: RMB DRAG / NUMPAD
     </div>
     <div class="toast"></div>
     <div class="mobile-controls">
@@ -1051,7 +1061,7 @@ function renderUI() {
       </label>
       <label>Camera Field of View <input id="cameraFov" type="range" min="40" max="80" step="1" value="54"></label>
       <label>Orbit Sensitivity <input id="cameraSens" type="range" min="0.3" max="2.0" step="0.1" value="1.0"></label>
-      <div class="control-diagram">CAMERA: Wheel to zoom · In Garage Inspection, drag to orbit. Camera movement never drives the robot.</div>
+      <div class="control-diagram">FREE CAMERA: Hold right mouse and drag to look · Numpad 4/6 orbit · Numpad 8/2 tilt · Numpad +/- zoom · wheel zoom. It eases back to the selected view after 4.5 seconds. Camera movement never drives the robot.</div>
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
@@ -1266,7 +1276,7 @@ function renderUI() {
   });
 
   canvas.addEventListener('pointerdown', e => {
-    if (cameraMode !== 3 || (e.button !== 0 && e.button !== 2)) return;
+    if (e.button !== 2 && !(cameraMode === 3 && e.button === 0)) return;
     cameraPointerId = e.pointerId;
     cameraPointerX = e.clientX;
     cameraPointerY = e.clientY;
@@ -1274,10 +1284,11 @@ function renderUI() {
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', e => {
-    if (cameraPointerId !== e.pointerId || cameraMode !== 3) return;
+    if (cameraPointerId !== e.pointerId) return;
     const scale = 0.004 * config.cameraSensitivity;
-    cameraOrbitYaw -= (e.clientX - cameraPointerX) * scale;
-    cameraOrbitPitch = clamp(cameraOrbitPitch + (e.clientY - cameraPointerY) * scale, 0.08, 1.28);
+    cameraFreeYaw -= (e.clientX - cameraPointerX) * scale;
+    cameraFreePitch = clamp(cameraFreePitch + (e.clientY - cameraPointerY) * scale, -1.25, 1.25);
+    cameraFreeLookIdle = 4.5;
     cameraPointerX = e.clientX;
     cameraPointerY = e.clientY;
   });
@@ -1289,11 +1300,11 @@ function renderUI() {
   canvas.addEventListener('pointercancel', endCameraOrbit);
   canvas.addEventListener('lostpointercapture', endCameraOrbit);
   canvas.addEventListener('wheel', e => {
-    if (cameraMode !== 3) return;
-    cameraOrbitDistance = clamp(cameraOrbitDistance + Math.sign(e.deltaY) * 0.65, 2.8, 12);
+    cameraDistanceOffset = clamp(cameraDistanceOffset + Math.sign(e.deltaY) * 0.65, -4.5, 8.0);
+    cameraFreeLookIdle = 4.5;
     e.preventDefault();
   }, { passive: false });
-  canvas.addEventListener('contextmenu', e => { if (cameraMode === 3) e.preventDefault(); });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   // Diagnostics & Calibration modal logic
   function syncDiagnosticsUI() {
@@ -1530,11 +1541,15 @@ function cycleCamera() {
   cameraMode = (cameraMode + 1) % 4;
   canvas.classList.toggle('orbit-inspection', cameraMode === 3);
   cameraPointerId = null;
+  cameraFreeYaw = 0;
+  cameraFreePitch = 0;
+  cameraDistanceOffset = 0;
+  cameraFreeLookIdle = 0;
   if (cameraMode === 3) {
     cameraOrbitYaw = pose.yaw + Math.PI;
     cameraOrbitPitch = 0.72;
   }
-  const names = ['CHASE CAMERA', 'LOW BUMPER VIEW', 'TACTICAL OVERHEAD', 'GARAGE INSPECTION · DRAG TO ORBIT'];
+  const names = ['CHASE CAMERA', 'LOW BUMPER VIEW', 'TACTICAL OVERHEAD', 'FREE LOOK · DRAG TO ORBIT'];
   displayToast(names[cameraMode]);
 }
 
@@ -1625,9 +1640,15 @@ function recoverVehicle() {
 }
 
 // Global Key Listeners
+const CAMERA_KEY_CODES = new Set(['Numpad4', 'Numpad6', 'Numpad8', 'Numpad2', 'NumpadAdd', 'NumpadSubtract']);
 window.addEventListener('keydown', e => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyT', 'KeyD', 'KeyB'].includes(e.code)) {
     e.preventDefault();
+  }
+  if (CAMERA_KEY_CODES.has(e.code)) {
+    e.preventDefault();
+    cameraKeys.add(e.code);
+    cameraFreeLookIdle = 4.5;
   }
   controller.handleKeyDown(e.code);
 
@@ -1660,6 +1681,11 @@ window.addEventListener('keydown', e => {
 
 window.addEventListener('keyup', e => {
   controller.handleKeyUp(e.code);
+  cameraKeys.delete(e.code);
+});
+window.addEventListener('blur', () => {
+  cameraKeys.clear();
+  cameraPointerId = null;
 });
 
 // -------------------------------------------------------------
@@ -1704,6 +1730,7 @@ function stepPhysics(dt: number) {
     subsystems,
     currentCheckpoint,
     routeClearanceAudit,
+    slalomClearanceAudit,
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
@@ -1854,6 +1881,7 @@ function stepPhysics(dt: number) {
     subsystems,
     currentCheckpoint,
     routeClearanceAudit,
+    slalomClearanceAudit,
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
@@ -1956,30 +1984,57 @@ function stepPhysics(dt: number) {
 function updateCamera(dt: number) {
   const yawError = Math.atan2(Math.sin(pose.yaw - cameraFollowYaw), Math.cos(pose.yaw - cameraFollowYaw));
   cameraFollowYaw += yawError * (1 - Math.exp(-dt * 6.0));
-  const yaw = cameraFollowYaw;
-  let offset: THREE.Vector3;
+  const yawKey = Number(cameraKeys.has('Numpad6')) - Number(cameraKeys.has('Numpad4'));
+  const pitchKey = Number(cameraKeys.has('Numpad8')) - Number(cameraKeys.has('Numpad2'));
+  const zoomKey = Number(cameraKeys.has('NumpadSubtract')) - Number(cameraKeys.has('NumpadAdd'));
+  const cameraIsMoving = yawKey !== 0 || pitchKey !== 0 || zoomKey !== 0;
+  if (cameraIsMoving) {
+    cameraFreeYaw -= yawKey * 1.35 * dt;
+    cameraFreePitch = clamp(cameraFreePitch + pitchKey * 0.9 * dt, -1.25, 1.25);
+    cameraDistanceOffset = clamp(cameraDistanceOffset + zoomKey * 3.0 * dt, -4.5, 8.0);
+    cameraFreeLookIdle = 4.5;
+  } else if (cameraFreeLookIdle > 0) {
+    cameraFreeLookIdle = Math.max(0, cameraFreeLookIdle - dt);
+  } else {
+    const recenter = Math.exp(-dt * 1.35);
+    cameraFreeYaw *= recenter;
+    cameraFreePitch *= recenter;
+    cameraDistanceOffset *= recenter;
+  }
+
+  let homeYaw: number;
+  let homePitch: number;
+  let homeDistance: number;
   let lookTarget: THREE.Vector3;
 
   if (cameraMode === 0) {
-    // Dynamic chase camera
-    // The taller sightline clears the start/finish trusses while keeping the course visible.
-    offset = V(-Math.sin(yaw) * 5.8, 6.3, -Math.cos(yaw) * 5.8);
-    lookTarget = V(pose.x + Math.sin(yaw) * 0.5, pose.y + 0.65, pose.z + Math.cos(yaw) * 0.5);
+    homeYaw = cameraFollowYaw + Math.PI;
+    homePitch = Math.atan2(6.3, 5.8);
+    homeDistance = Math.hypot(5.8, 6.3);
+    lookTarget = V(pose.x + Math.sin(cameraFollowYaw) * 0.5, pose.y + 0.65, pose.z + Math.cos(cameraFollowYaw) * 0.5);
   } else if (cameraMode === 1) {
-    // Low bumper view
-    offset = V(-Math.sin(yaw) * 4.2, 2.6, -Math.cos(yaw) * 4.2);
-    lookTarget = V(pose.x + Math.sin(yaw) * 1.2, pose.y + 0.45, pose.z + Math.cos(yaw) * 1.2);
+    homeYaw = cameraFollowYaw + Math.PI;
+    homePitch = Math.atan2(2.6, 4.2);
+    homeDistance = Math.hypot(4.2, 2.6);
+    lookTarget = V(pose.x + Math.sin(cameraFollowYaw) * 1.2, pose.y + 0.45, pose.z + Math.cos(cameraFollowYaw) * 1.2);
   } else if (cameraMode === 2) {
-    // Tactical overhead
-    offset = V(0, 13.5, -0.4);
+    homeYaw = Math.PI;
+    homePitch = Math.atan2(13.5, 0.4);
+    homeDistance = Math.hypot(13.5, 0.4);
     lookTarget = V(pose.x, pose.y, pose.z);
   } else {
-    // User-controlled mechanical inspection orbit; camera input never reaches vehicle controls.
-    const horizontal = Math.cos(cameraOrbitPitch) * cameraOrbitDistance;
-    offset = V(Math.sin(cameraOrbitYaw) * horizontal, Math.sin(cameraOrbitPitch) * cameraOrbitDistance, Math.cos(cameraOrbitYaw) * horizontal);
+    // Free inspection view uses the same drag/key controls and auto-home timer.
+    homeYaw = cameraOrbitYaw;
+    homePitch = cameraOrbitPitch;
+    homeDistance = cameraOrbitDistance;
     lookTarget = V(pose.x, pose.y + 0.5, pose.z);
   }
 
+  const orbitYaw = homeYaw + cameraFreeYaw;
+  const orbitPitch = clamp(homePitch + cameraFreePitch, 0.08, 1.50);
+  const orbitDistance = clamp(homeDistance + cameraDistanceOffset, 2.8, 22);
+  const horizontal = Math.cos(orbitPitch) * orbitDistance;
+  const offset = V(Math.sin(orbitYaw) * horizontal, Math.sin(orbitPitch) * orbitDistance, Math.cos(orbitYaw) * horizontal);
   cameraLookTarget.copy(lookTarget);
   cameraDesiredPosition.set(pose.x, pose.y, pose.z).add(offset);
 
@@ -1995,7 +2050,7 @@ function updateCamera(dt: number) {
   const obstruction = cameraRayHits.find(hit => hit.distance > 0.35);
   if (obstruction) cameraDesiredPosition.copy(cameraLookTarget).addScaledVector(cameraDirection, Math.max(0.5, obstruction.distance - 0.28));
 
-  camera.position.lerp(cameraDesiredPosition, 1 - Math.exp(-dt * (cameraMode === 3 ? 5.5 : 4.5)));
+  camera.position.lerp(cameraDesiredPosition, 1 - Math.exp(-dt * 4.5));
   camera.lookAt(cameraLookTarget);
 }
 

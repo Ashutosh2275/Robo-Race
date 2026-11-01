@@ -60,6 +60,7 @@ async function main() {
   console.log(`Track-to-ground contact gap: ${contactGap.toFixed(4)} m`);
   assert.ok(contactGap < 0.01, `robot belt should contact the ground, gap=${contactGap}`);
   assert.equal(startupDebug.routeClearanceAudit.valid, true, `route audit: ${startupDebug.routeClearanceAudit.issues.join('; ')}`);
+  assert.equal(startupDebug.slalomClearanceAudit.valid, true, `slalom clearance audit: ${startupDebug.slalomClearanceAudit.issues.join('; ')}`);
 
   // Take screenshot of race starting
   fs.mkdirSync('outputs', { recursive: true });
