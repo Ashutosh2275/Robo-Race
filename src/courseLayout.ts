@@ -198,7 +198,7 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
   HILL_SEGMENTS.push({
     a: HILL_NODES[i],
     b: HILL_NODES[i + 1],
-    width: 2.8, // 2.8m wide path (ample clearance for 1.9m total vehicle width)
+    width: 3.4, // matches the rendered deck and leaves a wide, measurable vehicle envelope
   });
 }
 
@@ -218,7 +218,9 @@ export function hillHeightAt(x: number, z: number): number | null {
     const pz = seg.a.z + t * dz;
     const dist = Math.hypot(x - px, z - pz);
 
-    if (dist <= seg.width * 0.55 && dist < closestDist) {
+    // Keep the analytic ground support exactly inside the rendered platform;
+    // extending it beyond the deck lets the robot hover off its visible edge.
+    if (dist <= seg.width / 2 && dist < closestDist) {
       closestDist = dist;
       computedH = seg.a.y + (seg.b.y - seg.a.y) * t;
     }
@@ -307,20 +309,20 @@ export function evaluateCourseHeight(x: number, z: number): number {
   }
 
   // Curved timber ramp at x = 4.8, z = 8.0 (length = 3.0, width = 2.8, height = 0.88)
-  if (Math.abs(z - 8.0) < 1.45 && x >= 3.3 && x <= 6.3) {
+  if (Math.abs(z - 8.0) <= DRIVE_ROUTE_WIDTH / 2 && x >= 3.3 && x <= 6.3) {
     const t = (x - 3.3) / 3.0;
     const smoothCurve = Math.min(
       Math.sin(Math.min(1, t * 2) * Math.PI * 0.5),
       Math.sin(Math.min(1, (1 - t) * 2) * Math.PI * 0.5)
     );
-    return 0.88 * smoothCurve;
+    return 0.03 + 0.85 * smoothCurve;
   }
 
   // Raised bridge ramps and deck at z = 8.0 (x = 7.8 to 11.4, bridge deck at 9.6, height = 0.62)
-  if (Math.abs(z - 8.0) < 1.35 && x >= 7.0 && x <= 12.2) {
+  if (Math.abs(z - 8.0) <= DRIVE_ROUTE_WIDTH / 2 && x >= 7.0 && x <= 12.2) {
     const tAscent = Math.max(0, Math.min(1, (x - 7.0) / 1.6));
     const tDescent = Math.max(0, Math.min(1, (12.2 - x) / 1.6));
-    return 0.62 * Math.min(tAscent, tDescent);
+    return 0.03 + 0.59 * Math.min(tAscent, tDescent);
   }
 
   // Speed breakers at x = 0.0, 1.05, 2.1 at z = 8.0, after the slalom.
@@ -358,6 +360,11 @@ export function evaluateCourseHeight(x: number, z: number): number {
   // Water hazard shallow cooling basin at x in [-7.5, -5.5], z in [-4.8, -3.2]
   if (x >= -7.5 && x <= -5.5 && Math.abs(z - (-4.0)) < 1.1) {
     return 0.05; // Slightly recessed pool
+  }
+
+  // Oil is a very thin surface treatment, not a floating physics layer.
+  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < 1.2) {
+    return 0.05;
   }
 
   return 0.03; // Default arena floor level
@@ -424,19 +431,19 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
  * 11 Ordered Checkpoints along the primary racing route.
  */
 export const CHECKPOINTS: CheckpointGate[] = [
-  { id: 1, label: 'Gate 01 - Start Straight', x: -11.5, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
+  { id: 1, label: 'Gate 01 - Start Straight', x: -11.5, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
   // Placed just beyond the final staggered barrier so the vehicle can fully
   // clear the slalom before the checkpoint trigger is considered passed.
-  { id: 2, label: 'Gate 02 - Slalom Exit', x: -0.2, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 3, label: 'Gate 03 - Breakers Clear', x: 3.2, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 4, label: 'Gate 04 - Ramp Approach', x: 4.4, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 5, label: 'Gate 05 - Bridge Crest', x: 9.6, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.atan2(3.6, -3.3), width: 3.4 },
-  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: Math.atan2(-2.55, -4.6), width: 3.4 },
-  { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 3.4 },
-  { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: Math.atan2(-4.5, -4.0), width: 3.4 },
-  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 3.4 },
+  { id: 2, label: 'Gate 02 - Slalom Exit', x: -0.2, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
+  { id: 3, label: 'Gate 03 - Breakers Clear', x: 3.2, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
+  { id: 4, label: 'Gate 04 - Ramp Approach', x: 4.4, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
+  { id: 5, label: 'Gate 05 - Bridge Crest', x: 9.6, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
+  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.atan2(3.6, -3.3), width: 4.4 },
+  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: Math.atan2(-2.55, -4.6), width: 4.4 },
+  { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 4.4 },
+  { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: Math.atan2(-4.5, -4.0), width: 4.4 },
+  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -8.0, yaw: Math.PI / 2, width: 4.4 },
+  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 4.4 },
 ];
 
 /**

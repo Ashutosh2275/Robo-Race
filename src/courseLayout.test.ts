@@ -6,6 +6,7 @@ import {
   generateRockFieldStones,
   validateRouteClearance,
   HILL_NODES,
+  hillHeightAt,
   CHECKPOINTS,
   crossesCheckpointGate,
   SLALOM_BARRIERS,
@@ -40,6 +41,26 @@ test('evaluateCourseHeight returns realistic heights across course features', ()
   assert.ok(hillSummitH > 4.0, `expected hill summit > 4.0, got ${hillSummitH}`);
 });
 
+test('raised bridge and curved ramp ground samples match their full-width physical decks', () => {
+  assert.ok(Math.abs(evaluateCourseHeight(7.0, 8.0) - 0.03) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(8.6, 8.0) - 0.62) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(9.6, 8.0) - 0.62) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(12.2, 8.0) - 0.03) < 1e-6);
+  for (const x of [4.0, 4.8, 5.6]) {
+    const center = evaluateCourseHeight(x, 8.0);
+    assert.ok(Math.abs(evaluateCourseHeight(x, 6.0) - center) < 1e-6, 'ramp must support the road edge too');
+    assert.ok(Math.abs(evaluateCourseHeight(x, 10.0) - center) < 1e-6, 'ramp must support both track edges');
+  }
+});
+
+test('hill height support ends at the visible platform edge and joins every segment endpoint', () => {
+  for (const node of HILL_NODES) {
+    const height = hillHeightAt(node.x, node.z);
+    assert.ok(height !== null && Math.abs(height - node.y) < 1e-6, `hill node (${node.x}, ${node.z}) should meet its deck`);
+  }
+  assert.equal(hillHeightAt(8.0, -0.29), null, 'raised analytic ground must not extend beyond the rendered deck');
+});
+
 test('evaluateCourseSurface implements mandatory sequence: fire -> water -> oil', () => {
   const fireSurf = evaluateCourseSurface(-2.8, -4.0);
   assert.equal(fireSurf.hazard, 'fire');
@@ -71,6 +92,7 @@ test('all 11 checkpoints are defined in sequential order', () => {
   assert.equal(CHECKPOINTS.length, 11);
   for (let i = 0; i < CHECKPOINTS.length; i++) {
     assert.equal(CHECKPOINTS[i].id, i + 1);
+    assert.ok(CHECKPOINTS[i].width >= DRIVE_ROUTE_WIDTH + 0.3, 'gate posts must sit outside the road corridor');
   }
 });
 

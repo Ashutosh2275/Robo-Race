@@ -38,6 +38,7 @@ import {
   HILL_NODES,
   evaluateCourseHeight,
   evaluateCourseSurface,
+  createDeterministicRNG,
   generateRockFieldStones,
   validateRouteClearance,
   validateDriveRoute,
@@ -241,17 +242,98 @@ function solidBox(id: string, x: number, z: number, w: number, d: number, h: num
   colliders.push({ id, x, z, hx: w / 2, hz: d / 2, y, height: h, rot, walkable });
 }
 
+function slopedDeck(id: string, x0: number, x1: number, z: number, width: number, y0: number, y1: number, thickness: number, material: THREE.Material) {
+  const half = width / 2;
+  const vertices = [
+    x0, y0, z - half, x0, y0, z + half, x1, y1, z + half, x1, y1, z - half,
+    x0, y0 - thickness, z - half, x0, y0 - thickness, z + half,
+    x1, y1 - thickness, z + half, x1, y1 - thickness, z - half,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex([
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
+    0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
+    2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0,
+  ]);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = id;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  course.add(mesh);
+  return mesh;
+}
+
+function slopedSegmentDeck(id: string, a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, width: number, thickness: number, material: THREE.Material) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  const nx = -dz / length;
+  const nz = dx / length;
+  const half = width / 2;
+  const vertices = [
+    a.x + nx * half, a.y, a.z + nz * half,
+    a.x - nx * half, a.y, a.z - nz * half,
+    b.x - nx * half, b.y, b.z - nz * half,
+    b.x + nx * half, b.y, b.z + nz * half,
+    a.x + nx * half, a.y - thickness, a.z + nz * half,
+    a.x - nx * half, a.y - thickness, a.z - nz * half,
+    b.x - nx * half, b.y - thickness, b.z - nz * half,
+    b.x + nx * half, b.y - thickness, b.z + nz * half,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex([
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
+    0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
+    2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0,
+  ]);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = id;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  course.add(mesh);
+  return { nx, nz, length, mesh };
+}
+
+function beamBetween(a: THREE.Vector3, b: THREE.Vector3, thickness: number, material: THREE.Material) {
+  const delta = b.clone().sub(a);
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(delta.length(), thickness, thickness), material);
+  beam.position.copy(a).add(b).multiplyScalar(0.5);
+  beam.quaternion.setFromUnitVectors(V(1, 0, 0), delta.normalize());
+  beam.castShadow = true;
+  beam.receiveShadow = true;
+  course.add(beam);
+  return beam;
+}
+
 // Main Arena Floors & Dedicated Path-Based Racing Circuit
 box(course, mats.floor, V(0, -0.24, 0), V(40, 0.45, 32), 0, false);
 
 // Build one continuous road first. Obstacles are layered onto this measured
 // corridor below; there are no detached rectangular road pads or oversized
 // paved dead zones. The road follows all gates and obstacle approaches.
-function createRouteRibbon(offset: number, width: number, material: THREE.Material, yLift: number) {
+function createRouteRibbon(offset: number, width: number, material: THREE.Material, yLift: number, route: { x: number; z: number }[] = DRIVE_ROUTE) {
   // Use the validated route polyline directly. A global Catmull-Rom spline
   // bowed through the staggered obstacles and folded the inner road edge on
   // tight bends, producing the black triangular artifacts in the screenshots.
-  const points = DRIVE_ROUTE.map(p => V(p.x, 0, p.z));
+  // Subdivide each straight segment so changes in ramp height are sampled at
+  // the same resolution as the visible deck instead of being bridged by one
+  // long, floating road triangle.
+  const points: THREE.Vector3[] = [];
+  for (let i = 0; i < route.length - 1; i++) {
+    const a = route[i];
+    const b = route[i + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.35));
+    for (let step = 0; step < steps; step++) {
+      const t = step / steps;
+      points.push(V(a.x + (b.x - a.x) * t, 0, a.z + (b.z - a.z) * t));
+    }
+  }
+  const last = route.at(-1)!;
+  points.push(V(last.x, 0, last.z));
   const positions: number[] = [];
   const indices: number[] = [];
   const half = width * 0.5;
@@ -302,9 +384,19 @@ function createRouteRibbon(offset: number, width: number, material: THREE.Materi
   course.add(mesh);
 }
 
-createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.035);
-createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.052);
-createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.052);
+createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006);
+createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.020);
+createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.020);
+
+// A connected optional training spur makes the steep switchback a usable
+// obstacle detour between the rotating-disc area and the final hairpin.
+const hillEntryLink = [{ x: 10.65, z: 0.1 }, { x: 9.8, z: -0.55 }, { x: 8.9, z: -1.35 }, { x: 8.0, z: -2.0 }];
+const hillExitLink = [{ x: 8.0, z: -12.5 }, { x: 5.2, z: -11.3 }, { x: 2.4, z: -10.0 }, { x: -0.4, z: -8.8 }, { x: -0.2, z: -8.0 }];
+for (const link of [hillEntryLink, hillExitLink]) {
+  createRouteRibbon(0, 3.4, mats.asphalt, 0.006, link);
+  createRouteRibbon(-(3.4 / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.020, link);
+  createRouteRibbon(3.4 / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.020, link);
+}
 
 // Perimeter Barriers
 for (const [id, x, z, w, d] of [
@@ -379,30 +471,42 @@ const rampGroup = new THREE.Group();
 rampGroup.position.set(4.8, 0, 8.0);
 course.add(rampGroup);
 
-// Stepped plank arch matching evaluateCourseHeight
+// Individual boards sit on the same analytic surface used by the tire contacts.
 const plankCount = 18;
 for (let p = 0; p < plankCount; p++) {
   const u = (p + 0.5) / plankCount;
   const px = (u - 0.5) * 3.0;
-  const py = 0.03 + 0.88 * Math.min(Math.sin(u * Math.PI), 1) * 0.5;
-  const plank = box(rampGroup, mats.wood, V(px, py, 0), V(3.0 / plankCount + 0.02, py * 2, 3.2));
+  const localX = 4.8 + px;
+  const surfaceY = evaluateCourseHeight(localX, 8.0);
+  const plank = box(rampGroup, mats.wood, V(px, surfaceY - 0.045, 0), V(3.0 / plankCount + 0.02, 0.09, DRIVE_ROUTE_WIDTH));
   plank.castShadow = true;
 }
-colliders.push({ id: 'curved_ramp', x: 4.8, z: 8.0, hx: 1.5, hz: 1.6, y: 0.44, height: 0.88, rot: 0, walkable: true });
+colliders.push({ id: 'curved_ramp', x: 4.8, z: 8.0, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: 0.455, height: 0.85, rot: 0, walkable: true });
 for (const side of [-1, 1]) {
-  solidBox(`ramp_curb_${side}`, 4.8, 8.0 + side * 1.68, 3.1, 0.16, 0.35, mats.black, 0, 0.95);
+  for (let p = 0; p < 12; p++) {
+    const px = 3.45 + (p + 0.5) * 0.225;
+    const top = evaluateCourseHeight(px, 8.0);
+    solidBox(`ramp_curb_${side}_${p}`, px, 8.0 + side * 1.53, 0.24, 0.12, 0.20, mats.black, 0, top + 0.10);
+  }
+}
+
+// Steel trestles sit directly beneath the elevated crown; no floating curb blocks.
+for (const x of [4.35, 4.8, 5.25]) {
+  const deckBottom = evaluateCourseHeight(x, 8.0) - 0.09;
+  const supportHeight = Math.max(0.08, deckBottom - 0.03);
+  for (const side of [-1, 1]) cyl(course, mats.metal, V(x, 0.03 + supportHeight / 2, 8.0 + side * 1.36), 0.045, supportHeight, 'y', 10);
 }
 
 // Raised Bridge Structure (approach at 7.8, deck at 9.6, descent at 11.4, height 0.62)
-// Smooth angled approach ramp
-const bridgeApproach = box(course, mats.wood, V(7.8, 0.31, 8.0), V(1.6, 0.62, 2.8));
-bridgeApproach.castShadow = true;
-colliders.push({ id: 'bridge_approach', x: 7.8, z: 8.0, hx: 0.8, hz: 1.4, y: 0.31, height: 0.62, rot: 0, walkable: true });
+// The approach and descent are true wedge decks matching the ground-height
+// profile, with the deck sandwiched between their exact endpoint elevations.
+slopedDeck('bridge_approach_mesh', 7.0, 8.6, 8.0, DRIVE_ROUTE_WIDTH, 0.03, 0.62, 0.14, mats.wood);
+colliders.push({ id: 'bridge_approach', x: 7.8, z: 8.0, hx: 0.8, hz: DRIVE_ROUTE_WIDTH / 2, y: 0.34, height: 0.62, rot: 0, walkable: true });
 
 // Diamond-plate steel bridge deck
-const bridgeDeck = box(course, mats.bridge, V(9.6, 0.50, 8.0), V(2.2, 0.24, 2.8));
+const bridgeDeck = box(course, mats.bridge, V(9.6, 0.50, 8.0), V(2.0, 0.24, DRIVE_ROUTE_WIDTH));
 bridgeDeck.castShadow = true;
-colliders.push({ id: 'bridge_deck', x: 9.6, z: 8.0, hx: 1.1, hz: 1.4, y: 0.50, height: 0.24, rot: 0, walkable: true });
+colliders.push({ id: 'bridge_deck', x: 9.6, z: 8.0, hx: 1.0, hz: DRIVE_ROUTE_WIDTH / 2, y: 0.50, height: 0.24, rot: 0, walkable: true });
 
 // A shallow catch basin beneath the bridge adds visible depth to the crossing;
 // the drivable deck remains the physical support surface above it.
@@ -420,19 +524,18 @@ for (let i = 0; i < 5; i++) {
   bridgeWaterRipples.push(ripple);
 }
 
-// Smooth angled descent ramp
-const bridgeDescent = box(course, mats.wood, V(11.4, 0.31, 8.0), V(1.6, 0.62, 2.8));
-bridgeDescent.castShadow = true;
-colliders.push({ id: 'bridge_descent', x: 11.4, z: 8.0, hx: 0.8, hz: 1.4, y: 0.31, height: 0.62, rot: 0, walkable: true });
+slopedDeck('bridge_descent_mesh', 10.6, 12.2, 8.0, DRIVE_ROUTE_WIDTH, 0.62, 0.03, 0.14, mats.wood);
+colliders.push({ id: 'bridge_descent', x: 11.4, z: 8.0, hx: 0.8, hz: DRIVE_ROUTE_WIDTH / 2, y: 0.34, height: 0.62, rot: 0, walkable: true });
 
 // Bridge Safety Railings
-for (const z of [6.65, 9.35]) {
+for (const z of [8.0 - DRIVE_ROUTE_WIDTH / 2 + 0.18, 8.0 + DRIVE_ROUTE_WIDTH / 2 - 0.18]) {
   solidBox(`bridge_rail_${z}`, 9.6, z, 3.8, 0.15, 0.45, mats.black, 0, 0.85);
 }
-// Bridge support trestles
+// Bridge support trestles stop at the measured underside of the deck.
 for (const bx of [8.2, 11.0]) {
-  for (const bz of [7.0, 9.0]) {
-    cyl(course, mats.metal, V(bx, 0.25, bz), 0.12, 0.5, 'y');
+  for (const bz of [8.0 - 1.55, 8.0 + 1.55]) {
+    const supportHeight = Math.max(0.08, evaluateCourseHeight(bx, bz) - 0.14 - 0.03);
+    cyl(course, mats.metal, V(bx, 0.03 + supportHeight / 2, bz), 0.12, supportHeight, 'y');
   }
 }
 
@@ -448,21 +551,28 @@ for (let a = 0; a < 12; a++) {
 }
 
 // Sand & Marble Pit at x = 13.45, z = 4.55
-box(course, mats.sand, V(13.45, 0.045, 4.55), V(3.3, 0.09, 3.5), 0, false);
-for (let i = 0; i < 90; i++) {
-  const px = 12.0 + Math.random() * 2.9;
-  const pz = 3.0 + Math.random() * 3.1;
-  const marble = new THREE.Mesh(new THREE.SphereGeometry(0.05 + Math.random() * 0.025, 8, 8), i % 4 === 0 ? mats.metal : mats.barrier);
-  marble.position.set(px, 0.11, pz);
-  marble.castShadow = true;
-  course.add(marble);
+box(course, mats.sand, V(13.45, 0.04, 4.55), V(3.3, 0.08, 3.5), 0, false);
+// Deterministic, low-profile loose pebbles stay inside the sand obstacle bounds.
+const marbleRng = createDeterministicRNG(20261101);
+const pebbleGeo = new THREE.DodecahedronGeometry(1, 0);
+for (let i = 0; i < 64; i++) {
+  const px = 12.05 + marbleRng() * 2.8;
+  const pz = 3.10 + marbleRng() * 2.9;
+  const size = 0.045 + marbleRng() * 0.035;
+  const pebble = new THREE.Mesh(pebbleGeo, i % 4 === 0 ? mats.metal : mats.gravel);
+  pebble.position.set(px, 0.08 + size * 0.55, pz);
+  pebble.scale.set(size * 1.2, size * 0.65, size);
+  pebble.rotation.set(marbleRng() * Math.PI, marbleRng() * Math.PI, marbleRng() * Math.PI);
+  pebble.castShadow = true;
+  pebble.receiveShadow = true;
+  course.add(pebble);
 }
 
 // Mixed Terrain Sections along z ~ 0
-box(course, mats.sand, V(5.25, 0.045, 0), V(2.45, 0.09, 2.85), 0, false);
-box(course, mats.gravel, V(2.8, 0.045, 0), V(2.45, 0.09, 2.85), 0, false);
-box(course, mats.turf, V(0.35, 0.045, 0), V(2.45, 0.09, 2.85), 0, false);
-box(course, mats.black, V(-2.1, 0.045, 0), V(2.45, 0.09, 2.85), 0, false);
+box(course, mats.sand, V(5.25, 0.015, 0), V(2.45, 0.03, 2.85), 0, false);
+box(course, mats.gravel, V(2.8, 0.015, 0), V(2.45, 0.03, 2.85), 0, false);
+box(course, mats.turf, V(0.35, 0.015, 0), V(2.45, 0.03, 2.85), 0, false);
+box(course, mats.black, V(-2.1, 0.015, 0), V(2.45, 0.03, 2.85), 0, false);
 
 // Deterministic Rock Field with 3D irregular polyhedral stones
 const rockData = generateRockFieldStones(20261027);
@@ -481,8 +591,8 @@ for (const rk of rockData) {
 // 3. Mandatory Environmental Hazards: Fire -> Water -> Oil
 // -------------------------------------------------------------
 // Hazard 1: Fire Zone (x in [-3.8, -1.8], z in [-4.8, -3.2])
-const fireFloor = box(course, mats.black, V(-2.8, 0.04, -4.0), V(2.2, 0.06, 2.2));
-box(course, mats.yellow, V(-2.8, 0.05, -4.0), V(2.4, 0.02, 2.4), 0, false);
+const fireFloor = box(course, mats.black, V(-2.8, 0.015, -4.0), V(2.2, 0.03, 2.2));
+box(course, mats.yellow, V(-2.8, 0.022, -4.0), V(2.4, 0.012, 2.4), 0, false);
 const fireFlames: THREE.Mesh[] = [];
 for (let f = 0; f < 6; f++) {
   const fx = -3.5 + f * 0.28;
@@ -499,16 +609,19 @@ scene.add(fireLight);
 box(course, mats.metal, V(-4.6, 0.05, -4.0), V(1.4, 0.08, 2.2));
 
 // Hazard 2: Water Cooling Basin (x in [-7.5, -5.5], z in [-4.8, -3.2])
-const waterPool = box(course, mats.water, V(-6.5, 0.06, -4.0), V(2.2, 0.06, 2.2));
+const waterPool = box(course, mats.water, V(-6.5, 0.04, -4.0), V(2.2, 0.02, 2.2));
 waterPool.castShadow = false;
 box(course, mats.metal, V(-6.5, 0.02, -4.0), V(2.35, 0.04, 2.35), 0, false);
 
 // Hazard 3: Oil Slicks (x in [-10.5, -8.0], z in [-4.8, -3.2])
-box(course, mats.oil, V(-9.25, 0.045, -4.0), V(2.6, 0.02, 2.4), 0, false);
+box(course, mats.oil, V(-9.25, 0.04, -4.0), V(2.6, 0.02, 2.4), 0, false);
 
 // -------------------------------------------------------------
 // 4. Switchback Climbing Hill (Part 7)
 // -------------------------------------------------------------
+// One miter-joined deck replaces the old overlapping midpoint-height slabs.
+// The underside is drawn separately so the supported climb reads as one route.
+const hillDeckWidth = 3.4;
 for (let i = 0; i < HILL_NODES.length - 1; i++) {
   const a = HILL_NODES[i];
   const b = HILL_NODES[i + 1];
@@ -518,31 +631,40 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
   const midX = (a.x + b.x) / 2;
   const midY = (a.y + b.y) / 2;
   const midZ = (a.z + b.z) / 2;
-  const w = 2.8; // Generous 2.8m climbing width
-
-  const segMesh = box(course, mats.wood, V(midX, midY, midZ), V(Math.abs(dx) || w, 0.16, Math.abs(dz) || w));
+  const w = hillDeckWidth; // Broad enough for both track covers through every turn shelf.
+  const deck = slopedSegmentDeck(`hill_deck_${i}`, a, b, w, 0.16, mats.wood);
+  slopedSegmentDeck(`hill_underside_${i}`, { ...a, y: a.y - 0.16 }, { ...b, y: b.y - 0.16 }, w, 0.12, mats.black);
   colliders.push({
     id: `hill_seg_${i}`,
     x: midX,
     z: midZ,
-    hx: (Math.abs(dx) || w) / 2,
-    hz: (Math.abs(dz) || w) / 2,
-    y: midY,
+    hx: Math.abs(dx) / 2 + Math.abs(deck.nx) * w / 2,
+    hz: Math.abs(dz) / 2 + Math.abs(deck.nz) * w / 2,
+    y: midY - 0.08,
     height: 0.16,
     rot: 0,
     walkable: true,
   });
 
-  // Guardrails along outer edges of the hill
-  if (Math.abs(dz) < 0.01) {
+  // Raised edge beams follow the real slope instead of hovering at its midpoint.
+  for (const side of [-1, 1]) {
+    const offset = side * (w / 2 - 0.12);
+    const railStart = V(a.x + deck.nx * offset, a.y + 0.30, a.z + deck.nz * offset);
+    const railEnd = V(b.x + deck.nx * offset, b.y + 0.30, b.z + deck.nz * offset);
+    beamBetween(railStart, railEnd, 0.10, mats.black);
+  }
+
+  // Steel legs support each sloping board at regular intervals from the floor.
+  const supports = Math.max(1, Math.ceil(len / 1.7));
+  for (let s = 0; s <= supports; s++) {
+    const t = s / supports;
+    const x = a.x + dx * t;
+    const z = a.z + dz * t;
+    const surfaceY = evaluateCourseHeight(x + deck.nx * (w / 2 - 0.24), z + deck.nz * (w / 2 - 0.24)) - 0.16;
+    const height = surfaceY - 0.03;
+    if (height < 0.14) continue;
     for (const side of [-1, 1]) {
-      const rail = box(course, mats.black, V(midX, midY + 0.22, midZ + side * (w / 2 + 0.06)), V(len, 0.24, 0.12));
-      rail.rotation.z = Math.atan2(b.y - a.y, dx);
-    }
-  } else if (Math.abs(dx) < 0.01) {
-    for (const side of [-1, 1]) {
-      const rail = box(course, mats.black, V(midX + side * (w / 2 + 0.06), midY + 0.22, midZ), V(0.12, 0.24, len));
-      rail.rotation.x = -Math.atan2(b.y - a.y, dz);
+      cyl(course, mats.metal, V(x + deck.nx * side * (w / 2 - 0.24), 0.03 + height / 2, z + deck.nz * side * (w / 2 - 0.24)), 0.045, height, 'y', 8);
     }
   }
 }
@@ -692,7 +814,7 @@ box(chassis, mats.yellow, V(0, 0.56, 0.32), V(0.06, 0.04, 0.08)); // XT60
 
 // Track Assemblies and Yellow Protective Coverings (strictly inside robotBody)
 const trackCovers: THREE.Mesh[] = [];
-const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; wheels: THREE.Mesh[]; phase: number }[] = [];
+const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; wheelSpins: THREE.Group[]; phase: number }[] = [];
 
 function createTrackBeltGeometry() {
   const centerZ = 0.58;
@@ -725,7 +847,7 @@ function createTrackBeltGeometry() {
 }
 
 const trackBeltGeometry = createTrackBeltGeometry();
-const trackLoopRadius = 0.1675;
+const trackLoopRadius = 0.195;
 const trackStraightLength = 1.16;
 const trackLoopLength = trackStraightLength * 2 + Math.PI * 2 * trackLoopRadius;
 
@@ -789,13 +911,16 @@ for (const side of [-1, 1]) {
   // The reference images do not reveal which wheel is powered, so use the
   // requested diagonal default (left-front + right-rear) as a documented
   // configuration assumption. Idlers receive no independent torque.
-  const wheelList: THREE.Mesh[] = [];
+  const wheelSpins: THREE.Group[] = [];
   for (const end of [-1, 1]) {
     const isPowered = side < 0 ? end > 0 : end < 0;
-    const wheel = cyl(trackGroup, mats.wheel, V(0, 0.32, end * 0.58), DRIVE_SPROCKET_RADIUS_M, 0.36, 'x', 24);
+    const spin = new THREE.Group();
+    spin.position.set(0, 0.32, end * 0.58);
+    trackGroup.add(spin);
+    const wheel = cyl(spin, mats.wheel, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M, 0.36, 'x', 24);
     wheel.userData = { role: isPowered ? 'motor-driven sprocket' : 'passive belt-driven idler' };
-    cyl(trackGroup, mats.metal, V(side * 0.19, 0.32, end * 0.58), 0.05, 0.04, 'x', 12);
-    wheelList.push(wheel);
+    cyl(spin, mats.metal, V(side * 0.19, 0, 0), 0.05, 0.04, 'x', 12);
+    wheelSpins.push(spin);
   }
 
   // Track cleats (treads) that animate along stadium path
@@ -811,7 +936,7 @@ for (const side of [-1, 1]) {
     cleats.push(q);
   }
 
-  tracks.push({ group: trackGroup, cleats, wheels: wheelList, phase: 0 });
+  tracks.push({ group: trackGroup, cleats, wheelSpins, phase: 0 });
 }
 
 // Contact shadow beneath robot (placed in scene, follows vehicle on ground)
@@ -1902,7 +2027,7 @@ function stepPhysics(dt: number) {
       q.rotation.x = point.rotationX;
     }
 
-    for (const w of tr.wheels) {
+    for (const w of tr.wheelSpins) {
       // Passive idlers turn only because the same belt pulls them; both
       // end wheels share the belt's speed and never add drive force.
       w.rotation.x += beltSpeed * dt / DRIVE_SPROCKET_RADIUS_M;

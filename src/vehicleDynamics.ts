@@ -118,7 +118,10 @@ export function stepVehicle3D(
 
   const groundPitch = -Math.atan2(frontH - rearH, TRACK_LENGTH);
   const groundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
-  const turnBank = Math.max(-0.16, Math.min(0.16, -angularYaw * longitudinalSpeed / gravity * 0.18));
+  // A tracked chassis has very little suspension roll. Keep only a barely
+  // perceptible lateral load cue; the former 0.16 rad bank made it look like
+  // the robot was hovering and swinging like an aircraft during pivots.
+  const turnBank = Math.max(-0.025, Math.min(0.025, -angularYaw * longitudinalSpeed / gravity * 0.035));
 
   // Check if currently upside down
   const inverted = isVehicleInverted(pose.pitch, pose.roll);
