@@ -458,13 +458,7 @@ export class UniversalController {
       outputs.deviceName = 'Keyboard (W/S/A/T/D)';
       const keys = keyboardKeysFromCodes(activeKeySet);
       const { throttle, steering } = resolveKeyboardAxes(keys);
-
-      const scaledThrottle = throttle * (throttle < 0 ? this.tuning.reverseSensitivity : this.tuning.forwardSensitivity) * this.config.sensitivity;
-      const isPivot = throttle === 0 && steering !== 0;
-      const steerSensitivity = (isPivot ? this.tuning.pivotSensitivity : this.tuning.steeringSensitivity) * this.config.sensitivity;
-
-      // Canonical differential mix: vL = v - s*k, vR = v + s*k
-      const cmds = mixThrottleSteering(scaledThrottle, steering, steerSensitivity);
+      const cmds = keyboardTrackCommands(keys, this.tuning, this.config.sensitivity);
 
       outputs.leftTrack = isBrakingKey ? 0 : cmds.left;
       outputs.rightTrack = isBrakingKey ? 0 : cmds.right;

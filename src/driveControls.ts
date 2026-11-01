@@ -105,12 +105,17 @@ export function mixThrottleSteering(throttle: number, semanticSteering: number, 
   };
 }
 
-export function keyboardTrackCommands(keys: KeyboardKeys, tuning: ControlTuning): TrackCommands {
+export function keyboardTrackCommands(keys: KeyboardKeys, tuning: ControlTuning, overallSensitivity = 1): TrackCommands {
   const { throttle, steering } = resolveKeyboardAxes(keys);
-  const scaledThrottle = throttle * (throttle < 0 ? tuning.reverseSensitivity : tuning.forwardSensitivity);
+  const scaledThrottle = throttle * (throttle < 0 ? tuning.reverseSensitivity : tuning.forwardSensitivity) * overallSensitivity;
   const isPivot = throttle === 0 && steering !== 0;
-  const steerSensitivity = isPivot ? tuning.pivotSensitivity : tuning.steeringSensitivity;
-  return mixThrottleSteering(scaledThrottle, steering, steerSensitivity);
+  const steerSensitivity = (isPivot ? tuning.pivotSensitivity : tuning.steeringSensitivity) * overallSensitivity;
+  // Keyboard controls are screen-relative like a conventional driving game:
+  // A is counter-clockwise and D clockwise in the chase view. Reverse motion
+  // reverses the path curvature (S+A clockwise, S+D counter-clockwise), while
+  // touch/gamepad inputs retain the physical, nose-relative differential mode.
+  const keyboardSteering = steering * (throttle < 0 ? 1 : -1);
+  return mixThrottleSteering(scaledThrottle, keyboardSteering, steerSensitivity);
 }
 
 export function pivotTrackCommands(turnRight: boolean, tuning: ControlTuning): TrackCommands {

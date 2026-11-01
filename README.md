@@ -10,10 +10,10 @@ A browser-based tracked-robot racing simulator built with **Vite**, **TypeScript
 - **Exact Kinematics**:
   $$v_L = v - \frac{\omega \cdot b}{2}, \quad v_R = v + \frac{\omega \cdot b}{2}$$
 - **Calibrated Directional Steering**:
-  - `A`: Commands RIGHT yaw rotation relative to robot heading.
-  - `D`: Commands LEFT yaw rotation relative to robot heading.
-  - Optional `T` / `B` keys remain right-turn aliases; arrow keys follow their named directions.
-  - Reversing throttle (`S`) **never flips the steering direction**. `S+A` reverses while the nose rotates right; `S+D` reverses while the nose rotates left.
+  - Keyboard `A` turns counter-clockwise in the chase view; `D` turns clockwise.
+  - `W+A` / `W+D` produce left/right forward curves. Reverse steering follows driving-game path curvature: `S+A` curves clockwise and `S+D` counter-clockwise.
+  - Optional `T` / `B` keys remain clockwise-turn aliases; arrow keys follow their named directions.
+  - Keyboard direction adaptation is isolated from the nose-relative touchscreen/gamepad differential controls.
   - `W+S` cancels throttle to neutral; `A+D` cancels steering to neutral.
   - Browser focus loss or tab switching immediately zeroes commands to prevent runaway robots.
 - **Universal Device Support**:

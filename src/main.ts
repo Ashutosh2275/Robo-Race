@@ -203,7 +203,7 @@ const mats = {
   ice: new THREE.MeshStandardMaterial({ color: '#566668', roughness: 0.14, metalness: 0.50, map: generateSurfaceTexture('#566668', ['#a8b8ba', '#3a4445'], 'slick') }),
   bridge: new THREE.MeshStandardMaterial({ color: '#687176', roughness: 0.45, metalness: 0.55 }),
   oil: new THREE.MeshStandardMaterial({ color: '#090a0a', roughness: 0.04, metalness: 0.92 }),
-  water: new THREE.MeshStandardMaterial({ color: '#20748b', roughness: 0.08, metalness: 0.18, transparent: true, opacity: 0.78 }),
+  water: new THREE.MeshStandardMaterial({ color: '#17677d', roughness: 0.16, metalness: 0.12, transparent: true, opacity: 0.84 }),
   fire: new THREE.MeshStandardMaterial({ color: '#e84917', emissive: '#ff540a', emissiveIntensity: 2.2, roughness: 0.35 }),
 };
 
@@ -403,6 +403,22 @@ const bridgeDeck = box(course, mats.bridge, V(9.6, 0.50, 8.0), V(2.2, 0.24, 2.8)
 bridgeDeck.castShadow = true;
 colliders.push({ id: 'bridge_deck', x: 9.6, z: 8.0, hx: 1.1, hz: 1.4, y: 0.50, height: 0.24, rot: 0, walkable: true });
 
+// A shallow catch basin beneath the bridge adds visible depth to the crossing;
+// the drivable deck remains the physical support surface above it.
+box(course, mats.black, V(9.6, -0.02, 8.0), V(4.9, 0.10, 3.25), 0, false);
+box(course, mats.water, V(9.6, 0.035, 8.0), V(4.65, 0.025, 3.0), 0, false);
+const bridgeWaterRipples: THREE.Mesh[] = [];
+for (let i = 0; i < 5; i++) {
+  const ripple = new THREE.Mesh(
+    new THREE.TorusGeometry(0.34 + (i % 3) * 0.12, 0.012, 5, 24),
+    new THREE.MeshBasicMaterial({ color: '#8dcbd0', transparent: true, opacity: 0.20, depthWrite: false }),
+  );
+  ripple.rotation.x = -Math.PI / 2;
+  ripple.position.set(8.0 + (i % 3) * 1.5, 0.055 + (i % 2) * 0.002, 7.0 + Math.floor(i / 3) * 1.8);
+  course.add(ripple);
+  bridgeWaterRipples.push(ripple);
+}
+
 // Smooth angled descent ramp
 const bridgeDescent = box(course, mats.wood, V(11.4, 0.31, 8.0), V(1.6, 0.62, 2.8));
 bridgeDescent.castShadow = true;
@@ -579,7 +595,11 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   ctx.textAlign = 'center';
   ctx.fillText(String(cp.id).padStart(2, '0'), 48, 45);
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.30), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cvs), side: THREE.DoubleSide }));
-  signMesh.position.set(0, 0.72, 0);
+  // Put the number board on an outer shoulder post instead of suspending it
+  // in the center of the lane, where it read as a floating blind obstacle.
+  const signX = -cp.width / 2 - 0.30;
+  cyl(g, mats.metal, V(signX, 0.46, 0), 0.035, 0.58, 'y');
+  signMesh.position.set(signX, 0.86, 0);
   g.add(signMesh);
 
   return {
@@ -809,6 +829,18 @@ for (let i = 0; i < 20; i++) {
   dustParticles.push({ mesh: m, life: 0 });
 }
 
+// Small pooled droplets are emitted only while the robot is actually moving
+// or turning through the shallow fire-to-water cooling section.
+const splashGeo = new THREE.SphereGeometry(0.045, 6, 5);
+const splashMat = new THREE.MeshBasicMaterial({ color: '#8edce8', transparent: true, opacity: 0.72, depthWrite: false });
+const splashParticles: Array<{ mesh: THREE.Mesh; life: number; vx: number; vy: number; vz: number }> = [];
+for (let i = 0; i < 24; i++) {
+  const m = new THREE.Mesh(splashGeo, splashMat);
+  m.visible = false;
+  scene.add(m);
+  splashParticles.push({ mesh: m, life: 0, vx: 0, vy: 0, vz: 0 });
+}
+
 // -------------------------------------------------------------
 // 8. Vehicle Physics & Subsystems Simulation Setup
 // -------------------------------------------------------------
@@ -1023,12 +1055,11 @@ function renderUI() {
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
-        A: Turn left relative to heading<br>
-        D: Turn right relative to heading<br>
+        A: Counter-clockwise turn · D: Clockwise turn<br>
         T: Optional right-turn key<br>
-        W+A / S+A: Left arcs (nose rotates left)<br>
-        W+D / S+D: Right arcs (nose rotates right)<br>
-        W+T / S+T: Right arcs (nose rotates right)<br>
+        W+A / W+D: Forward left / right arcs<br>
+        S+A / S+D: Reverse clockwise / counter-clockwise arcs<br>
+        W+T / S+T: Right / reverse-left arcs<br>
         A alone: Pivot left · D/T/B: Pivot right<br>
         A+D: Opposing steering cancels to 0<br>
         W+S: Opposing throttle cancels to 0<br>
@@ -1871,6 +1902,34 @@ function stepPhysics(dt: number) {
     }
   }
 
+  const waterMotion = Math.hypot(pose.vx, pose.vz);
+  const splashRate = surf.hazard === 'water' ? dt * (3 + waterMotion * 1.5 + Math.abs(motionState.angular) * 14) : 0;
+  if (splashRate > 0 && Math.random() < splashRate) {
+    const p = splashParticles.find(drop => drop.life <= 0);
+    if (p) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const rightX = Math.cos(pose.yaw);
+      const rightZ = -Math.sin(pose.yaw);
+      p.life = 0.42 + Math.random() * 0.22;
+      p.mesh.visible = true;
+      p.mesh.position.set(pose.x + rightX * side * 0.78, pose.y + 0.13, pose.z + rightZ * side * 0.78);
+      p.vx = pose.vx * 0.18 + rightX * side * (0.45 + Math.random() * 0.65);
+      p.vy = 0.75 + Math.random() * 1.1;
+      p.vz = pose.vz * 0.18 + rightZ * side * (0.45 + Math.random() * 0.65);
+      p.mesh.scale.setScalar(0.75 + Math.random() * 0.8);
+    }
+  }
+  for (const p of splashParticles) {
+    if (p.life <= 0) continue;
+    p.life -= dt;
+    p.vy -= 4.8 * dt;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.mesh.position.z += p.vz * dt;
+    p.mesh.scale.setScalar(Math.max(0.05, p.life * 2.4));
+    if (p.life <= 0) p.mesh.visible = false;
+  }
+
   // Checkpoint validation
   if (raceState === 'racing' && currentCheckpoint < checkpointMeshes.length) {
     const cp = checkpointMeshes[currentCheckpoint];
@@ -1896,7 +1955,7 @@ function stepPhysics(dt: number) {
 // -------------------------------------------------------------
 function updateCamera(dt: number) {
   const yawError = Math.atan2(Math.sin(pose.yaw - cameraFollowYaw), Math.cos(pose.yaw - cameraFollowYaw));
-  cameraFollowYaw += yawError * (1 - Math.exp(-dt * 3.2));
+  cameraFollowYaw += yawError * (1 - Math.exp(-dt * 6.0));
   const yaw = cameraFollowYaw;
   let offset: THREE.Vector3;
   let lookTarget: THREE.Vector3;
@@ -1936,7 +1995,7 @@ function updateCamera(dt: number) {
   const obstruction = cameraRayHits.find(hit => hit.distance > 0.35);
   if (obstruction) cameraDesiredPosition.copy(cameraLookTarget).addScaledVector(cameraDirection, Math.max(0.5, obstruction.distance - 0.28));
 
-  camera.position.lerp(cameraDesiredPosition, 1 - Math.exp(-dt * (cameraMode === 3 ? 5.5 : 3.2)));
+  camera.position.lerp(cameraDesiredPosition, 1 - Math.exp(-dt * (cameraMode === 3 ? 5.5 : 4.5)));
   camera.lookAt(cameraLookTarget);
 }
 
@@ -2091,6 +2150,13 @@ function animate() {
   discGroup.rotation.y += frameTime * 0.45;
   for (let f = 0; f < fireFlames.length; f++) {
     fireFlames[f].scale.y = 0.8 + Math.sin(now * 0.015 + f * 1.5) * 0.35;
+  }
+  for (let i = 0; i < bridgeWaterRipples.length; i++) {
+    const ripple = bridgeWaterRipples[i];
+    const phase = (now * 0.00022 + i * 0.19) % 1;
+    const size = 0.48 + phase * 1.35;
+    ripple.scale.set(size, size, size);
+    (ripple.material as THREE.MeshBasicMaterial).opacity = 0.18 * (1 - phase);
   }
 
   updateCamera(frameTime);

@@ -203,3 +203,25 @@ test('UniversalController maps transmitter and gamepad stick left to positive se
   assert.ok(diag.profileName.includes('RadioMaster'), 'Profile name must identify transmitter');
   assert.equal(diag.failsafeActive, false);
 });
+
+test('UniversalController keyboard output reaches the drivetrain with requested screen-relative turn directions', () => {
+  const cases = [
+    { keys: ['KeyA'], yaw: 1, label: 'A counter-clockwise pivot' },
+    { keys: ['KeyD'], yaw: -1, label: 'D clockwise pivot' },
+    { keys: ['KeyW', 'KeyA'], yaw: 1, label: 'W+A left curve' },
+    { keys: ['KeyW', 'KeyD'], yaw: -1, label: 'W+D right curve' },
+    { keys: ['KeyS', 'KeyA'], yaw: -1, label: 'S+A reverse clockwise curve' },
+    { keys: ['KeyS', 'KeyD'], yaw: 1, label: 'S+D reverse counter-clockwise curve' },
+  ] as const;
+
+  for (const item of cases) {
+    const controller = new UniversalController();
+    for (const code of item.keys) controller.handleKeyDown(code);
+    const output = controller.poll();
+    const state = createState();
+    for (let i = 0; i < 60; i++) integrateDrive(state, output.leftTrack, output.rightTrack, asphalt, { x: 0, z: 0 }, config, 1 / 60);
+    assert.equal(Math.sign(state.yaw), item.yaw, `${item.label} through UniversalController.poll()`);
+    controller.neutralize();
+    assert.equal(controller.poll().leftTrack, 0, `${item.label} release must stop stale track command`);
+  }
+});

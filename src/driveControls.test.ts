@@ -25,10 +25,10 @@ test('all 16 WASD key states have deterministic, clamped differential outputs', 
 test('eight intended directions produce the expected track differential and real yaw', () => {
   const directions = [
     ['forward', keys(true), 0, 1],
-    ['forward-left', keys(true, false, true), -1, 1],
-    ['forward-right', keys(true, false, false, true), 1, 1],
-    ['left pivot', keys(false, false, true), -1, 0],
-    ['right pivot', keys(false, false, false, true), 1, 0],
+    ['forward-left', keys(true, false, true), 1, 1],
+    ['forward-right', keys(true, false, false, true), -1, 1],
+    ['left pivot', keys(false, false, true), 1, 0],
+    ['right pivot', keys(false, false, false, true), -1, 0],
     ['reverse', keys(false, true), 0, -1],
     ['reverse-left', keys(false, true, true), -1, -1],
     ['reverse-right', keys(false, true, false, true), 1, -1],
@@ -41,8 +41,8 @@ test('eight intended directions produce the expected track differential and real
     else assert.equal(Math.abs(s.yaw) < 1e-8, true, `${name} should not turn`);
     if (moveSign) assert.equal(Math.sign(s.z), moveSign, `${name} forward/reverse direction`);
     else assert.ok(Math.abs(s.z) < .001, `${name} pivot should not translate`);
-    if (name.includes('left')) assert.ok(s.yaw < 0, `${name} front must turn left (yaw < 0)`);
-    if (name.includes('right')) assert.ok(s.yaw > 0, `${name} front must turn right (yaw > 0)`);
+    if (name.includes('left')) assert.ok(name.startsWith('reverse') ? s.yaw < 0 : s.yaw > 0, `${name} must match the keyboard screen-turn convention`);
+    if (name.includes('right')) assert.ok(name.startsWith('reverse') ? s.yaw > 0 : s.yaw < 0, `${name} must match the keyboard screen-turn convention`);
   }
 });
 
@@ -52,7 +52,7 @@ test('opposed keys cancel only their axis and do not fall through to stale joyst
   assert.deepEqual(keyboardTrackCommands(keys(true, true), tune), { left: 0, right: 0 });
   assert.deepEqual(keyboardTrackCommands(keys(false, false, true, true), tune), { left: 0, right: 0 });
   assert.deepEqual(keyboardTrackCommands(keys(true, false, true, true), tune), { left: 1, right: 1 });
-  assert.deepEqual(keyboardTrackCommands(keys(true, true, true, false), tune), { left: -tune.pivotSensitivity, right: tune.pivotSensitivity });
+  assert.deepEqual(keyboardTrackCommands(keys(true, true, true, false), tune), { left: tune.pivotSensitivity, right: -tune.pivotSensitivity });
   assert.deepEqual(mixThrottleSteering(0, 0), { left: 0, right: 0 });
 });
 
@@ -62,9 +62,9 @@ test('A maps left, D maps right, and opposing A+D inputs cancel', () => {
   const d = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyD'])), tune);
   const b = keyboardTrackCommands(keyboardKeysFromCodes(new Set(['KeyB'])), tune);
 
-  assert.ok(a.left < 0 && a.right > 0, 'A should produce left pivot differential (left reverse, right forward)');
-  assert.ok(t.left > 0 && t.right < 0, 'T should produce right pivot differential (left forward, right reverse)');
-  assert.ok(d.left > 0 && d.right < 0, 'D should produce right pivot differential (left forward, right reverse)');
+  assert.ok(a.left > 0 && a.right < 0, 'A should rotate counter-clockwise in the chase view');
+  assert.ok(t.left < 0 && t.right > 0, 'T should rotate clockwise in the chase view');
+  assert.ok(d.left < 0 && d.right > 0, 'D should rotate clockwise in the chase view');
   assert.deepEqual(t, b, 'T and B remain alternate right-turn keys');
 
   // Opposing steering conflicts must cancel to 0
@@ -79,13 +79,26 @@ test('A maps left, D maps right, and opposing A+D inputs cancel', () => {
   assert.deepEqual(conflictWS, { left: 0, right: 0 }, 'W+S must cancel throttle command to neutral');
 });
 
-test('actual keyboard A pivots left and D pivots right through the physics controller', () => {
-  for (const [code, expectedYawSign] of [['KeyA', -1], ['KeyD', 1]] as const) {
+test('actual keyboard A rotates counter-clockwise and D clockwise in the rendered heading convention', () => {
+  for (const [code, expectedYawSign] of [['KeyA', 1], ['KeyD', -1]] as const) {
     const commands = keyboardTrackCommands(keyboardKeysFromCodes(new Set([code])), tune);
     const state = makeState();
     for (let i = 0; i < 60; i++) integrateDrive(state, commands.left, commands.right, surface, { x: 0, z: 0 }, physics, 1 / 120);
     assert.equal(Math.sign(state.yaw), expectedYawSign, `${code} should turn in the requested opposite direction`);
   }
+});
+
+test('keyboard reverse steering follows driving-game path curvature while pivot directions stay fixed', () => {
+  const yawAfter = (input: ReturnType<typeof keys>) => {
+    const commands = keyboardTrackCommands(input, tune);
+    const state = makeState();
+    for (let i = 0; i < 60; i++) integrateDrive(state, commands.left, commands.right, surface, { x: 0, z: 0 }, physics, 1 / 120);
+    return state.yaw;
+  };
+  assert.ok(yawAfter(keys(false, true, true)) < 0, 'S+A turns clockwise');
+  assert.ok(yawAfter(keys(false, true, false, true)) > 0, 'S+D turns counter-clockwise');
+  assert.ok(yawAfter(keys(false, false, true)) > 0, 'A pivot remains counter-clockwise');
+  assert.ok(yawAfter(keys(false, false, false, true)) < 0, 'D pivot remains clockwise');
 });
 
 test('keyboard source has priority over an active joystick and neutral takes over after release', () => {

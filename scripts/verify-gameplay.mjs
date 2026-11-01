@@ -84,14 +84,14 @@ async function main() {
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(500);
 
-  // 5. Test A (Rotate Left - yaw should decrease)
-  console.log('Testing A (Left pivot)...');
+  // 5. Keyboard convention is screen-relative: A counter-clockwise, D clockwise.
+  console.log('Testing A (Counter-clockwise pivot)...');
   const yawBeforeA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(600);
   const yawDuringA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before A: ${yawBeforeA.toFixed(3)}, Yaw during A: ${yawDuringA.toFixed(3)} (Delta: ${(yawDuringA - yawBeforeA).toFixed(3)})`);
-  assert.ok(angleDelta(yawDuringA, yawBeforeA) < -0.03, 'A must rotate the robot nose left in actual gameplay');
+  assert.ok(angleDelta(yawDuringA, yawBeforeA) > 0.03, 'A must rotate counter-clockwise in actual gameplay');
   await page.keyboard.up('KeyA');
   await page.waitForTimeout(300);
 
@@ -102,7 +102,7 @@ async function main() {
   await page.waitForTimeout(600);
   const yawDuringT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before T: ${yawBeforeT.toFixed(3)}, Yaw during T: ${yawDuringT.toFixed(3)} (Delta: ${(yawDuringT - yawBeforeT).toFixed(3)} -> Right)`);
-  assert.ok(angleDelta(yawDuringT, yawBeforeT) > 0.03, 'T right-turn alias should rotate the nose right');
+  assert.ok(angleDelta(yawDuringT, yawBeforeT) < -0.03, 'T right-turn alias should rotate clockwise');
   await page.keyboard.up('KeyT');
   await page.waitForTimeout(300);
 
@@ -112,7 +112,7 @@ async function main() {
   await page.waitForTimeout(600);
   const yawDuringD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before D: ${yawBeforeD.toFixed(3)}, Yaw during D: ${yawDuringD.toFixed(3)} (Delta: ${(yawDuringD - yawBeforeD).toFixed(3)} -> Right)`);
-  assert.ok(angleDelta(yawDuringD, yawBeforeD) > 0.03, 'D must rotate the robot nose right in actual gameplay');
+  assert.ok(angleDelta(yawDuringD, yawBeforeD) < -0.03, 'D must rotate clockwise in actual gameplay');
   await page.keyboard.up('KeyD');
   await page.waitForTimeout(300);
 
@@ -137,7 +137,7 @@ async function main() {
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
   const forwardLeftDebug = await page.evaluate(() => window.__gameDebug);
-  assert.ok(angleDelta(forwardLeftDebug.pose.yaw, yawBeforeWA) < -0.03, 'W+A must produce a left-curving trajectory');
+  assert.ok(angleDelta(forwardLeftDebug.pose.yaw, yawBeforeWA) > 0.03, 'W+A must produce a left-curving trajectory');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
@@ -148,32 +148,32 @@ async function main() {
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(1000);
   const forwardRightDebug = await page.evaluate(() => window.__gameDebug);
-  assert.ok(angleDelta(forwardRightDebug.pose.yaw, yawBeforeWD) > 0.03, 'W+D must produce a right-curving trajectory');
+  assert.ok(angleDelta(forwardRightDebug.pose.yaw, yawBeforeWD) < -0.03, 'W+D must produce a right-curving trajectory');
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
 
-  // 8. Test S+A (reverse while nose rotates left) and S+D (reverse while nose rotates right)
-  console.log('Testing S+A (Reverse with Front Left Rotation)...');
+  // 8. Reverse keyboard steering follows driving-game path curvature.
+  console.log('Testing S+A (Reverse Clockwise Curve)...');
   const yawBeforeSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
   const yawDuringSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Left)`);
-  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) < -0.03, 'S+A must turn the nose left while reversing');
+  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Clockwise)`);
+  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) < -0.03, 'S+A must curve clockwise while reversing');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
 
-  console.log('Testing S+D (Reverse with Front Left Rotation)...');
+  console.log('Testing S+D (Reverse Counter-clockwise Curve)...');
   const yawBeforeSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(1000);
   const yawDuringSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Right)`);
-  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) > 0.03, 'S+D must turn the nose right while reversing');
+  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Counter-clockwise)`);
+  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) > 0.03, 'S+D must curve counter-clockwise while reversing');
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);

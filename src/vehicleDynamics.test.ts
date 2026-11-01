@@ -77,6 +77,15 @@ test('flat ground smoothly damps any disturbance toward upright', () => {
   assert.equal(p.isFlipped, false);
 });
 
+test('turn banking stays restrained and settles instead of accumulating a hovering swing', () => {
+  const p = makePose();
+  for (let i = 0; i < 240; i++) stepVehicle3D(p, flatGround, 5.5, 1.4, 1 / 60);
+  assert.ok(Math.abs(p.roll) <= 0.17, `turn bank should remain modest, got ${p.roll.toFixed(3)} rad`);
+  for (let i = 0; i < 240; i++) stepVehicle3D(p, flatGround, 0, 0, 1 / 60);
+  assert.ok(Math.abs(p.roll) < 0.02, `roll should settle after the turn, got ${p.roll.toFixed(3)} rad`);
+  assert.ok(Math.abs(p.y - (flatGround() - TRACK_CONTACT_OFFSET)) < 0.002, 'chassis should remain at sampled track contact height');
+});
+
 test('track underside sits on the sampled ground height without the previous 0.14 m lift', () => {
   const p = makePose({ y: 2 });
   for (let i = 0; i < 120; i++) stepVehicle3D(p, flatGround, 0, 0, 1 / 120);

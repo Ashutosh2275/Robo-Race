@@ -118,6 +118,7 @@ export function stepVehicle3D(
 
   const groundPitch = -Math.atan2(frontH - rearH, TRACK_LENGTH);
   const groundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
+  const turnBank = Math.max(-0.16, Math.min(0.16, -angularYaw * longitudinalSpeed / gravity * 0.18));
 
   // Check if currently upside down
   const inverted = isVehicleInverted(pose.pitch, pose.roll);
@@ -146,7 +147,7 @@ export function stepVehicle3D(
     pose.rollRate += tipDir * 9.5 * dt;
   } else {
     // Ground springs gently align roll with terrain
-    const rollError = groundRoll - pose.roll;
+    const rollError = groundRoll + turnBank - pose.roll;
     pose.rollRate += rollError * 22 * dt - pose.rollRate * 9 * dt;
   }
 
@@ -161,10 +162,6 @@ export function stepVehicle3D(
   // Integrate pitch and roll
   pose.pitch += pose.pitchRate * dt;
   pose.roll += pose.rollRate * dt;
-
-  // Centrifugal roll effect during high-speed turns
-  const centrifugalRoll = -angularYaw * longitudinalSpeed * 0.022;
-  pose.roll += centrifugalRoll * dt * 5;
 
   // Check again if newly inverted
   if (isVehicleInverted(pose.pitch, pose.roll)) {
