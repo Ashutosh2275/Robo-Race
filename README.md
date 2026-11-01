@@ -26,10 +26,7 @@ A high-fidelity browser-based tracked-robot racing simulator built with **Vite**
 - **Rigid Silhouette Guarantee**: The robot chassis mesh maintains strictly fixed dimensions and cannot stretch, bulge, or deform during movement or high-speed impacts.
 - **Visual Design**: Rugged industrial yellow protective track covers, exposed pale circular drive sprockets and idler road wheels, and black continuous rubber tracks.
 - **Open Compartment Mechatronics**:
-  - 4S LiPo battery block with blue wrapping and XT60 connector
-  - Left & Right brushless drive motors with cooling fins
-  - Dual ESC modules with anodized heatsinks
-  - 2.4GHz radio receiver with dual antennas
+  - Generic simulation-only battery, connector, motor, controller and receiver stand-ins in the cutaway; exact hardware models are not verified by the photographs
 - **Cutaway Mode**: Toggle with `⚙ CUTAWAY` to inspect interior components.
 
 ### 3. 3D Rollover, Inverted State & Checkpoint Recovery
@@ -59,10 +56,10 @@ A high-fidelity browser-based tracked-robot racing simulator built with **Vite**
   13. 11 sequential checkpoint gates with illuminated indicators.
 
 ### 5. Mechatronics Simulation Subsystems
-- **Battery System**: $5000\text{ mAh}$ 4S LiPo, $16.8\text{ V}$ down to $13.0\text{ V}$, dynamic current draw based on motor load and track slip ($1.2\text{ A}$ idle up to $65\text{ A}$ peak).
-- **Motors**: Dual brushless motors with independent thermal simulation and thermal throttling protection above $85^\circ\text{C}$.
-- **ESC**: Dual ESC temperature tracking with overheat limp mode.
-- **Integrity**: Physical condition tracking for chassis, left track, right track, drive wheels, and electronics enclosure.
+- **Battery System**: Simulated charge, voltage, current and estimated runtime respond to motor load and track slip. Numeric capacity and voltage curve are gameplay defaults, not verified specifications of the real robot.
+- **Motors**: Independent left/right temperature and thermal throttling use gameplay coefficients, not measured motor specifications.
+- **ESC**: Simulated temperature and power delivery with gradual overheating response; the real ESC model is unknown.
+- **Integrity**: Gameplay condition values for chassis, left track, right track, drive wheels and electronics enclosure; these are not engineering-grade measurements.
 
 ---
 
@@ -91,7 +88,7 @@ npm run preview
 ```bash
 npm test
 ```
-Runs 33 automated tests across differential kinematics, vehicle dynamics, mechatronics subsystems, route layout, and obstacle clearances.
+Runs 38 automated tests across differential kinematics, vehicle dynamics, mechatronics subsystems, route layout, and obstacle clearances.
 
 ### Running E2E Gameplay Verification
 ```bash
@@ -102,6 +99,10 @@ Launches a headless browser instance, verifies rendering, starts a live race, te
 ---
 
 ## Controls Summary
+
+### Camera
+- Press **C** or use **CAMERA** to cycle chase, low bumper, tactical overhead and garage inspection views.
+- In garage inspection view, drag over the scene to orbit and use the mouse wheel to zoom. Camera Field of View and Orbit Sensitivity are adjustable in Settings. Camera movement does not apply vehicle input.
 
 | Input | Action |
 |---|---|

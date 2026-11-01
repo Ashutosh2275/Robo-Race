@@ -3,6 +3,7 @@
 /* Controller Calibration & Diagnostics Modal */
 .diagnostics-modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(660px,calc(100vw - 24px));max-height:calc(100vh - 40px);overflow-y:auto;background:linear-gradient(145deg,rgba(20,28,22,.98),rgba(12,17,14,.98));border:1px solid rgba(240,184,78,.35);box-shadow:0 25px 80px rgba(0,0,0,.85);border-radius:14px;padding:18px 22px;color:#eff3ea;z-index:50;pointer-events:auto;font-size:11px}
 .diag-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:8px}
+.orbit-inspection{cursor:grab}.orbit-inspection:active{cursor:grabbing}
 .diag-header h2{font-size:14px;font-weight:800;letter-spacing:.08em;color:#f0b84e;margin:0}
 .diag-close{background:transparent;border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:800}
 .diag-close:hover{background:rgba(255,255,255,.1)}

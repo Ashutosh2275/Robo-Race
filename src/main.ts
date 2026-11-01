@@ -86,6 +86,11 @@ for (const x of [-16, 0, 16]) {
 
 const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.1, 150);
 camera.position.set(0, 8, 14);
+const cameraRaycaster = new THREE.Raycaster();
+const cameraRayHits: THREE.Intersection[] = [];
+const cameraDirection = new THREE.Vector3();
+const cameraLookTarget = new THREE.Vector3();
+const cameraDesiredPosition = new THREE.Vector3();
 
 function generateSurfaceTexture(base: string, marks: string[], kind: 'grain' | 'stone' | 'wood' | 'slick' | 'asphalt' | 'chevron') {
   const c = document.createElement('canvas');
@@ -187,8 +192,6 @@ const mats = {
   oil: new THREE.MeshStandardMaterial({ color: '#090a0a', roughness: 0.04, metalness: 0.92 }),
   water: new THREE.MeshStandardMaterial({ color: '#20748b', roughness: 0.08, metalness: 0.18, transparent: true, opacity: 0.78 }),
   fire: new THREE.MeshStandardMaterial({ color: '#e84917', emissive: '#ff540a', emissiveIntensity: 2.2, roughness: 0.35 }),
-  headlightLens: new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff6df', emissiveIntensity: 3.5, roughness: 0.1, transparent: true, opacity: 0.92 }),
-  taillightLens: new THREE.MeshStandardMaterial({ color: '#ff2222', emissive: '#ff1111', emissiveIntensity: 2.0, roughness: 0.2 }),
 };
 
 function box(parent: THREE.Object3D, mat: THREE.Material, p: THREE.Vector3, s: THREE.Vector3, rot = 0, cast = true) {
@@ -216,9 +219,11 @@ function cyl(parent: THREE.Object3D, mat: THREE.Material, p: THREE.Vector3, r: n
 // 2. Arena Layout, Walls, and Colliders
 // -------------------------------------------------------------
 const colliders: CourseCollider[] = [];
+const cameraOccluders: THREE.Object3D[] = [];
 
 function solidBox(id: string, x: number, z: number, w: number, d: number, h: number, mat: THREE.Material, rot = 0, y = h / 2, walkable = false) {
-  box(course, mat, V(x, y, z), V(w, h, d), rot);
+  const mesh = box(course, mat, V(x, y, z), V(w, h, d), rot);
+  if (!walkable) cameraOccluders.push(mesh);
   colliders.push({ id, x, z, hx: w / 2, hz: d / 2, y, height: h, rot, walkable });
 }
 
@@ -626,30 +631,78 @@ cyl(chassis, mats.red, V(-0.04, 0.56, 0.15), 0.015, 0.38, 'z');
 cyl(chassis, mats.black, V(0.04, 0.56, 0.15), 0.015, 0.38, 'z');
 box(chassis, mats.yellow, V(0, 0.56, 0.32), V(0.06, 0.04, 0.08)); // XT60
 
-// 6. Dual High-Power LED Headlights (casting light cones forward) & Red Taillights
-for (const side of [-1, 1]) {
-  const hx = side * 0.42;
-  // Chrome headlight bucket
-  cyl(chassis, mats.metal, V(hx, 0.50, 0.74), 0.08, 0.08, 'z');
-  // High-intensity lens
-  cyl(chassis, mats.headlightLens, V(hx, 0.50, 0.785), 0.075, 0.02, 'z');
-
-  // Forward spotlight cone
-  const spot = new THREE.SpotLight('#fff4e0', 16, 18, 0.45, 0.6, 1.2);
-  spot.position.set(hx, 0.50, 0.80);
-  const targetObj = new THREE.Object3D();
-  targetObj.position.set(hx, 0.20, 10.0);
-  chassis.add(spot);
-  chassis.add(targetObj);
-  spot.target = targetObj;
-
-  // Red rear taillight
-  cyl(chassis, mats.taillightLens, V(hx, 0.50, -0.74), 0.06, 0.03, 'z');
-}
-
 // Track Assemblies and Yellow Protective Coverings (strictly inside robotBody)
 const trackCovers: THREE.Mesh[] = [];
 const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; rollers: THREE.Mesh[]; phase: number }[] = [];
+
+function createTrackBeltGeometry() {
+  const centerZ = 0.58;
+  const centerY = 0.32;
+  const outerRadius = 0.20;
+  const innerRadius = 0.135;
+  const shape = new THREE.Shape();
+  shape.moveTo(-centerZ, centerY - outerRadius);
+  shape.lineTo(centerZ, centerY - outerRadius);
+  shape.absarc(centerZ, centerY, outerRadius, -Math.PI / 2, Math.PI / 2, false);
+  shape.lineTo(-centerZ, centerY + outerRadius);
+  shape.absarc(-centerZ, centerY, outerRadius, Math.PI / 2, Math.PI * 1.5, false);
+  shape.closePath();
+
+  const inner = new THREE.Path();
+  inner.moveTo(-centerZ, centerY + innerRadius);
+  inner.lineTo(centerZ, centerY + innerRadius);
+  inner.absarc(centerZ, centerY, innerRadius, Math.PI / 2, -Math.PI / 2, true);
+  inner.lineTo(-centerZ, centerY - innerRadius);
+  inner.absarc(-centerZ, centerY, innerRadius, -Math.PI / 2, -Math.PI * 1.5, true);
+  inner.closePath();
+  shape.holes.push(inner);
+
+  const width = 0.34;
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, curveSegments: 16, steps: 1 });
+  geometry.translate(0, 0, -width / 2);
+  geometry.rotateY(Math.PI / 2);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+const trackBeltGeometry = createTrackBeltGeometry();
+const trackLoopRadius = 0.1675;
+const trackStraightLength = 1.16;
+const trackLoopLength = trackStraightLength * 2 + Math.PI * 2 * trackLoopRadius;
+
+function sampleTrackLoop(distance: number) {
+  const s = ((distance % trackLoopLength) + trackLoopLength) % trackLoopLength;
+  let y: number;
+  let z: number;
+  let tangentY: number;
+  let tangentZ: number;
+  if (s < trackStraightLength) {
+    z = -0.58 + s;
+    y = 0.32 + trackLoopRadius;
+    tangentY = 0;
+    tangentZ = 1;
+  } else if (s < trackStraightLength + Math.PI * trackLoopRadius) {
+    const angle = Math.PI / 2 - (s - trackStraightLength) / trackLoopRadius;
+    z = 0.58 + Math.cos(angle) * trackLoopRadius;
+    y = 0.32 + Math.sin(angle) * trackLoopRadius;
+    tangentY = -Math.cos(angle);
+    tangentZ = Math.sin(angle);
+  } else if (s < trackStraightLength * 2 + Math.PI * trackLoopRadius) {
+    const u = s - trackStraightLength - Math.PI * trackLoopRadius;
+    z = 0.58 - u;
+    y = 0.32 - trackLoopRadius;
+    tangentY = 0;
+    tangentZ = -1;
+  } else {
+    const u = s - trackStraightLength * 2 - Math.PI * trackLoopRadius;
+    const angle = -Math.PI / 2 - u / trackLoopRadius;
+    z = -0.58 + Math.cos(angle) * trackLoopRadius;
+    y = 0.32 + Math.sin(angle) * trackLoopRadius;
+    tangentY = -Math.cos(angle);
+    tangentZ = Math.sin(angle);
+  }
+  return { y, z, rotationX: Math.atan2(-tangentY, tangentZ) };
+}
 
 for (const side of [-1, 1]) {
   const x = side * (TRACK_WIDTH / 2);
@@ -667,8 +720,11 @@ for (const side of [-1, 1]) {
   }
   trackCovers.push(guard, outerSkirt);
 
-  // Black continuous rubber belt loop
-  box(trackGroup, mats.rubber, V(0, 0.32, 0), V(0.34, 0.42, 1.78), 0);
+  // Continuous rubber belt band with an open center so the exposed wheels remain visible.
+  const belt = new THREE.Mesh(trackBeltGeometry, mats.rubber);
+  belt.castShadow = true;
+  belt.receiveShadow = true;
+  trackGroup.add(belt);
 
   // Pale circular exposed end wheels (drive sprocket & idler)
   for (const end of [-1, 1]) {
@@ -686,12 +742,12 @@ for (const side of [-1, 1]) {
 
   // Track cleats (treads) that animate along stadium path
   const cleats: THREE.Mesh[] = [];
-  const cleatGeo = new THREE.BoxGeometry(0.35, 0.035, 0.12);
-  for (let i = 0; i < 18; i++) {
-    const t = (i / 18) * Math.PI * 2;
+  const cleatGeo = new THREE.BoxGeometry(0.35, 0.035, 0.13);
+  for (let i = 0; i < 24; i++) {
+    const point = sampleTrackLoop((i / 24) * trackLoopLength);
     const q = new THREE.Mesh(cleatGeo, mats.black);
-    q.position.set(0, 0.32 + Math.sin(t) * 0.18, Math.cos(t) * 0.74);
-    q.rotation.x = -Math.atan2(Math.cos(t) * 0.18, -Math.sin(t) * 0.74);
+    q.position.set(0, point.y, point.z);
+    q.rotation.x = point.rotationX;
     q.castShadow = true;
     trackGroup.add(q);
     cleats.push(q);
@@ -741,6 +797,8 @@ const config = {
   deadzone: Number(savedPrefs.deadzone ?? 0.08),
   expo: Number(savedPrefs.expo ?? 0.20),
   sensitivity: Number(savedPrefs.sensitivity ?? 1.0),
+  cameraSensitivity: clamp(Number(savedPrefs.cameraSensitivity ?? 1.0), 0.3, 2.0),
+  cameraFov: clamp(Number(savedPrefs.cameraFov ?? 54), 40, 80),
   preset: (['Low', 'Medium', 'High', 'Custom'].includes(savedPrefs.preset) ? savedPrefs.preset : 'Medium') as 'Low' | 'Medium' | 'High' | 'Custom',
 };
 
@@ -792,6 +850,13 @@ let penaltyTime = 0;
 let countdown = 0;
 let currentCheckpoint = 0;
 let cameraMode = 0; // 0: Chase, 1: Low Bumper, 2: Tactical Overhead, 3: Orbit Inspection
+let cameraOrbitYaw = pose.yaw + Math.PI;
+let cameraOrbitPitch = 0.72;
+let cameraOrbitDistance = 6.8;
+let cameraFollowYaw = pose.yaw;
+let cameraPointerId: number | null = null;
+let cameraPointerX = 0;
+let cameraPointerY = 0;
 let bestTime = Number(localStorage.getItem('robo-race-best-v2') || '0');
 let toastTimer = 0;
 let recoveryCooldown = 0;
@@ -838,6 +903,8 @@ function savePreferences() {
     deadzone: config.deadzone,
     expo: config.expo,
     sensitivity: config.sensitivity,
+    cameraSensitivity: config.cameraSensitivity,
+    cameraFov: config.cameraFov,
     preset: config.preset,
   }));
 }
@@ -916,6 +983,9 @@ function renderUI() {
           <option>Low</option><option selected>Balanced</option><option>High</option><option>Ultra</option>
         </select>
       </label>
+      <label>Camera Field of View <input id="cameraFov" type="range" min="40" max="80" step="1" value="54"></label>
+      <label>Orbit Sensitivity <input id="cameraSens" type="range" min="0.3" max="2.0" step="0.1" value="1.0"></label>
+      <div class="control-diagram">CAMERA: Wheel to zoom · In Garage Inspection, drag to orbit. Camera movement never drives the robot.</div>
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
@@ -1115,6 +1185,48 @@ function renderUI() {
     setGraphicsQuality((e.target as HTMLSelectElement).value);
     savePreferences();
   });
+
+  $('#cameraFov').addEventListener('input', e => {
+    config.cameraFov = Number((e.target as HTMLInputElement).value);
+    camera.fov = config.cameraFov;
+    camera.updateProjectionMatrix();
+    savePreferences();
+  });
+
+  $('#cameraSens').addEventListener('input', e => {
+    config.cameraSensitivity = Number((e.target as HTMLInputElement).value);
+    savePreferences();
+  });
+
+  canvas.addEventListener('pointerdown', e => {
+    if (cameraMode !== 3 || (e.button !== 0 && e.button !== 2)) return;
+    cameraPointerId = e.pointerId;
+    cameraPointerX = e.clientX;
+    cameraPointerY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (cameraPointerId !== e.pointerId || cameraMode !== 3) return;
+    const scale = 0.004 * config.cameraSensitivity;
+    cameraOrbitYaw -= (e.clientX - cameraPointerX) * scale;
+    cameraOrbitPitch = clamp(cameraOrbitPitch + (e.clientY - cameraPointerY) * scale, 0.08, 1.28);
+    cameraPointerX = e.clientX;
+    cameraPointerY = e.clientY;
+  });
+  const endCameraOrbit = (e: PointerEvent) => {
+    if (cameraPointerId !== e.pointerId) return;
+    cameraPointerId = null;
+  };
+  canvas.addEventListener('pointerup', endCameraOrbit);
+  canvas.addEventListener('pointercancel', endCameraOrbit);
+  canvas.addEventListener('lostpointercapture', endCameraOrbit);
+  canvas.addEventListener('wheel', e => {
+    if (cameraMode !== 3) return;
+    cameraOrbitDistance = clamp(cameraOrbitDistance + Math.sign(e.deltaY) * 0.65, 2.8, 12);
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', e => { if (cameraMode === 3) e.preventDefault(); });
 
   // Diagnostics & Calibration modal logic
   function syncDiagnosticsUI() {
@@ -1331,7 +1443,13 @@ function togglePause() {
 
 function cycleCamera() {
   cameraMode = (cameraMode + 1) % 4;
-  const names = ['CHASE CAMERA', 'LOW BUMPER VIEW', 'TACTICAL OVERHEAD', 'GARAGE INSPECTION'];
+  canvas.classList.toggle('orbit-inspection', cameraMode === 3);
+  cameraPointerId = null;
+  if (cameraMode === 3) {
+    cameraOrbitYaw = pose.yaw + Math.PI;
+    cameraOrbitPitch = 0.72;
+  }
+  const names = ['CHASE CAMERA', 'LOW BUMPER VIEW', 'TACTICAL OVERHEAD', 'GARAGE INSPECTION · DRAG TO ORBIT'];
   displayToast(names[cameraMode]);
 }
 
@@ -1612,18 +1730,18 @@ function stepPhysics(dt: number) {
   for (let side = 0; side < tracks.length; side++) {
     const tr = tracks[side];
     const beltSpeed = side === 0 ? driveResult.trackSpeedLeft : driveResult.trackSpeedRight;
-    tr.phase -= beltSpeed * dt * 1.6;
+    tr.phase = (tr.phase + beltSpeed * dt + trackLoopLength) % trackLoopLength;
 
     for (let i = 0; i < tr.cleats.length; i++) {
-      const t = (i / tr.cleats.length) * Math.PI * 2 + tr.phase;
+      const point = sampleTrackLoop((i / tr.cleats.length) * trackLoopLength + tr.phase);
       const q = tr.cleats[i];
-      q.position.y = 0.32 + Math.sin(t) * 0.18;
-      q.position.z = Math.cos(t) * 0.74;
-      q.rotation.x = -Math.atan2(Math.cos(t) * 0.18, -Math.sin(t) * 0.74);
+      q.position.y = point.y;
+      q.position.z = point.z;
+      q.rotation.x = point.rotationX;
     }
 
     for (const w of tr.rollers) {
-      w.rotation.x += beltSpeed * dt * 2.5;
+      w.rotation.x += beltSpeed * dt / 0.17;
     }
   }
 
@@ -1672,13 +1790,16 @@ function stepPhysics(dt: number) {
 // 12. Camera Positioning & Tracking
 // -------------------------------------------------------------
 function updateCamera(dt: number) {
-  const yaw = pose.yaw;
+  const yawError = Math.atan2(Math.sin(pose.yaw - cameraFollowYaw), Math.cos(pose.yaw - cameraFollowYaw));
+  cameraFollowYaw += yawError * (1 - Math.exp(-dt * 3.2));
+  const yaw = cameraFollowYaw;
   let offset: THREE.Vector3;
   let lookTarget: THREE.Vector3;
 
   if (cameraMode === 0) {
     // Dynamic chase camera
-    offset = V(-Math.sin(yaw) * 6.8, 4.8, -Math.cos(yaw) * 6.8);
+    // The taller sightline clears the start/finish trusses while keeping the course visible.
+    offset = V(-Math.sin(yaw) * 5.8, 6.3, -Math.cos(yaw) * 5.8);
     lookTarget = V(pose.x + Math.sin(yaw) * 0.5, pose.y + 0.65, pose.z + Math.cos(yaw) * 0.5);
   } else if (cameraMode === 1) {
     // Low bumper view
@@ -1689,15 +1810,29 @@ function updateCamera(dt: number) {
     offset = V(0, 13.5, -0.4);
     lookTarget = V(pose.x, pose.y, pose.z);
   } else {
-    // Garage / inspection orbit
-    const t = performance.now() * 0.0005;
-    offset = V(Math.sin(t) * 4.5, 3.2, Math.cos(t) * 4.5);
+    // User-controlled mechanical inspection orbit; camera input never reaches vehicle controls.
+    const horizontal = Math.cos(cameraOrbitPitch) * cameraOrbitDistance;
+    offset = V(Math.sin(cameraOrbitYaw) * horizontal, Math.sin(cameraOrbitPitch) * cameraOrbitDistance, Math.cos(cameraOrbitYaw) * horizontal);
     lookTarget = V(pose.x, pose.y + 0.5, pose.z);
   }
 
-  const desired = V(pose.x, pose.y, pose.z).add(offset);
-  camera.position.lerp(desired, 1 - Math.exp(-dt * 4.5));
-  camera.lookAt(lookTarget);
+  cameraLookTarget.copy(lookTarget);
+  cameraDesiredPosition.set(pose.x, pose.y, pose.z).add(offset);
+
+  // Keep the view from entering visible course geometry. The same scene colliders used for
+  // rendering are queried; this only moves the camera and never changes vehicle motion.
+  cameraDirection.copy(cameraDesiredPosition).sub(cameraLookTarget);
+  const desiredDistance = cameraDirection.length();
+  cameraDirection.normalize();
+  cameraRaycaster.set(cameraLookTarget, cameraDirection);
+  cameraRaycaster.far = desiredDistance;
+  cameraRayHits.length = 0;
+  cameraRaycaster.intersectObjects(cameraOccluders, false, cameraRayHits);
+  const obstruction = cameraRayHits.find(hit => hit.distance > 0.35);
+  if (obstruction) cameraDesiredPosition.copy(cameraLookTarget).addScaledVector(cameraDirection, Math.max(0.5, obstruction.distance - 0.28));
+
+  camera.position.lerp(cameraDesiredPosition, 1 - Math.exp(-dt * (cameraMode === 3 ? 5.5 : 3.2)));
+  camera.lookAt(cameraLookTarget);
 }
 
 // -------------------------------------------------------------
@@ -1865,4 +2000,10 @@ window.addEventListener('resize', () => {
 
 // Render UI & Start animation
 renderUI();
+camera.fov = config.cameraFov;
+camera.updateProjectionMatrix();
+$<HTMLInputElement>('#cameraFov').value = String(config.cameraFov);
+$<HTMLInputElement>('#cameraSens').value = String(config.cameraSensitivity);
+$<HTMLSelectElement>('#quality').value = config.quality;
+setGraphicsQuality(config.quality);
 animate();

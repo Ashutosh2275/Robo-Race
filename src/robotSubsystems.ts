@@ -44,8 +44,11 @@ export type SubsystemsState = {
 
 export const AMBIENT_TEMP = 28.0; // °C
 
+// Gameplay defaults only. The physical robot's pack chemistry/capacity are unknown.
+const SIM_BATTERY_CAPACITY_MAH = 5000;
+
 export function createInitialSubsystems(): SubsystemsState {
-  const capacityMah = 5000;
+  const capacityMah = SIM_BATTERY_CAPACITY_MAH;
   return {
     battery: {
       voltage: 16.4,
@@ -107,7 +110,8 @@ export function stepSubsystems(
   const mahConsumed = (totalCurrent * 1000 / 3600) * dt;
   sub.battery.chargeMah = Math.max(0, sub.battery.chargeMah - mahConsumed);
   sub.battery.percentage = Math.max(0, Math.min(100, (sub.battery.chargeMah / sub.battery.capacityMah) * 100));
-  // 4S LiPo discharge curve from 16.8V (full) to 13.0V (empty)
+  // Generic simulated voltage curve; chemistry, cell count and real voltage limits
+  // have not been identified from the reference photographs.
   sub.battery.voltage = 13.0 + (sub.battery.percentage / 100) * 3.8;
 
   if (totalCurrent > 0.1) {
