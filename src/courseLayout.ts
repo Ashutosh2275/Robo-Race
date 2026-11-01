@@ -43,6 +43,8 @@ export const PARALLEL_PLANK_CENTERS = [
 // A wider driving envelope keeps the robot's full track covers clear while
 // leaving room to steer around the slalom blocks instead of striking their ends.
 export const DRIVE_ROUTE_WIDTH = 4.0;
+export const ARENA_FLOOR_HEIGHT = -0.33;
+export const ROUTE_DECK_HEIGHT = 0.03;
 function circularArc(cx: number, cz: number, radius: number, start: number, end: number, count: number, xAxis = 'cos') {
   return Array.from({ length: count + 1 }, (_, i) => {
     const a = start + (end - start) * i / count;
@@ -64,7 +66,8 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: 10.65, z: 0.1 }, // rotating disc
   { x: 1.4, z: 0.0 },  // mixed terrain
   { x: -3.1, z: -4.0 }, // fire
-  { x: -7.7, z: -4.0 }, // single plank and water
+  { x: -4.8, z: -4.0 }, // short fire-to-water cooling crossing
+  { x: -7.0, z: -4.0 }, // narrow raised single-plank bridge
   { x: -10.0, z: -4.0 }, // oil exit
   { x: -13.2, z: -4.0 },
   // Smooth U-turn shelf at radius 2m connects the oil lane to the twin planks.
@@ -76,6 +79,57 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -13.2, z: -12.0 }, // final checkpoint and straight
   { x: -15.0, z: -12.0 },
 ];
+
+/** Physical connectors for the optional elevated switchback training branch. */
+export const HILL_ENTRY_LINK: CoursePoint[] = [
+  { x: 10.65, z: 0.1 }, { x: 9.8, z: -0.55 }, { x: 8.9, z: -1.35 }, { x: 8.0, z: -2.0 },
+];
+export const HILL_EXIT_LINK: CoursePoint[] = [
+  // Leave the summit landing beyond its edge before descending, so this
+  // connector cannot overlap the climbing deck at a conflicting elevation.
+  { x: 8.0, z: -13.4 }, { x: 5.8, z: -13.4 }, { x: 3.2, z: -11.5 }, { x: 1.0, z: -10.0 }, { x: -0.4, z: -8.8 }, { x: -0.2, z: -8.0 },
+];
+
+function rampedLinkHeightAt(x: number, z: number, points: CoursePoint[], width: number, startY: number, endY: number, startFlatDistance = 0): number | null {
+  const lengths: number[] = [];
+  let totalLength = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const length = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z);
+    lengths.push(length);
+    totalLength += length;
+  }
+  let closestDist = Infinity;
+  let linkDistance = 0;
+  let prefix = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const lenSq = dx * dx + dz * dz;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / lenSq));
+    const dist = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+    if (dist < closestDist) {
+      closestDist = dist;
+      linkDistance = prefix + lengths[i] * t;
+    }
+    prefix += lengths[i];
+  }
+  if (closestDist > width / 2) return null;
+  const u = Math.max(0, Math.min(1, (linkDistance - startFlatDistance) / (totalLength - startFlatDistance)));
+  const eased = u * u * (3 - 2 * u);
+  return startY + (endY - startY) * eased;
+}
+
+function supportsRoadAt(x: number, z: number, points: CoursePoint[], width: number): boolean {
+  const halfWidth = width / 2;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const lenSq = dx * dx + dz * dz;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / lenSq));
+    if (Math.hypot(x - (a.x + t * dx), z - (a.z + t * dz)) <= halfWidth) return true;
+  }
+  return false;
+}
 
 /** Basic layout validation used by tests and the in-game route audit. */
 export function validateDriveRoute(route: CoursePoint[] = DRIVE_ROUTE, minWidth = DRIVE_ROUTE_WIDTH) {
@@ -184,13 +238,12 @@ export function validateSlalomClearance(
 export const HILL_NODES: HillNode[] = [
   { x: 8.0, z: -2.0, y: 0.03 },    // Base entry
   { x: 14.5, z: -2.0, y: 1.50 },   // Leg 1 crest
-  { x: 14.5, z: -4.8, y: 1.50 },   // Landing 1
-  { x: 8.0, z: -4.8, y: 3.00 },    // Leg 2 crest
-  { x: 8.0, z: -7.6, y: 3.00 },    // Landing 2
-  { x: 14.5, z: -7.6, y: 4.50 },   // Leg 3 crest
-  { x: 14.5, z: -10.4, y: 4.50 },  // Summit landing
-  { x: 8.0, z: -10.4, y: 2.25 },   // Descent leg 1
-  { x: 8.0, z: -12.5, y: 0.03 },   // Descent exit
+  { x: 14.5, z: -5.8, y: 1.50 },   // Landing 1 (3.8m shelf, no platform overlap)
+  { x: 8.0, z: -5.8, y: 3.00 },    // Leg 2 crest
+  { x: 8.0, z: -9.6, y: 3.00 },    // Landing 2
+  { x: 14.5, z: -9.6, y: 4.50 },   // Leg 3 crest
+  { x: 14.5, z: -13.4, y: 4.50 },  // Summit landing
+  { x: 8.0, z: -13.4, y: 3.00 },   // Descending switchback leg
 ];
 
 export const HILL_SEGMENTS: HillSegment[] = [];
@@ -206,6 +259,12 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
  * Height lookup for the switchback hill.
  */
 export function hillHeightAt(x: number, z: number): number | null {
+  // Square landing decks bridge the mitered path at every turn. Their spacing
+  // is validated so shelves cannot overlap at different heights.
+  for (const node of HILL_NODES) {
+    if (Math.abs(x - node.x) <= 1.7 && Math.abs(z - node.z) <= 1.7) return node.y;
+  }
+
   let closestDist = Infinity;
   let computedH: number | null = null;
 
@@ -218,11 +277,17 @@ export function hillHeightAt(x: number, z: number): number | null {
     const pz = seg.a.z + t * dz;
     const dist = Math.hypot(x - px, z - pz);
 
-    // Keep the analytic ground support exactly inside the rendered platform;
-    // extending it beyond the deck lets the robot hover off its visible edge.
+    // Keep the analytic ground support inside the rendered platform. Flatten
+    // each turn shelf by half a deck width, then ease the incline between the
+    // shelves. This makes adjacent switchbacks meet at one shared elevation.
     if (dist <= seg.width / 2 && dist < closestDist) {
       closestDist = dist;
-      computedH = seg.a.y + (seg.b.y - seg.a.y) * t;
+      const length = Math.sqrt(lenSq);
+      const flat = Math.min(seg.width / 2, length * 0.25);
+      const inclineLength = Math.max(0.001, length - flat * 2);
+      const u = Math.max(0, Math.min(1, (t * length - flat) / inclineLength));
+      const eased = u * u * (3 - 2 * u);
+      computedH = seg.a.y + (seg.b.y - seg.a.y) * eased;
     }
   }
 
@@ -301,6 +366,12 @@ export function evaluateCourseHeight(x: number, z: number): number {
   const hHill = hillHeightAt(x, z);
   if (hHill !== null) return hHill;
 
+  // The summit return is a real descending road deck. Interpolate its
+  // elevation over the connector length so the visuals and ground contact
+  // share one continuous ramp rather than snapping to the arena floor.
+  const hillExitHeight = rampedLinkHeightAt(x, z, HILL_EXIT_LINK, 3.4, 3.0, ROUTE_DECK_HEIGHT, 1.9);
+  if (hillExitHeight !== null) return hillExitHeight;
+
   // Rotating disc platform at x = 10.65, z = 0.1
   const discR = Math.hypot(x - 10.65, z - 0.1);
   if (discR < 1.35) {
@@ -308,13 +379,11 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return 0.28 * (1 - t * t * (3 - 2 * t));
   }
 
-  // Curved timber ramp at x = 4.8, z = 8.0 (length = 3.0, width = 2.8, height = 0.88)
+  // Curved timber ramp at x = 4.8, z = 8.0 (smooth 40° peak slope, 0.88m crest)
   if (Math.abs(z - 8.0) <= DRIVE_ROUTE_WIDTH / 2 && x >= 3.3 && x <= 6.3) {
     const t = (x - 3.3) / 3.0;
-    const smoothCurve = Math.min(
-      Math.sin(Math.min(1, t * 2) * Math.PI * 0.5),
-      Math.sin(Math.min(1, (1 - t) * 2) * Math.PI * 0.5)
-    );
+    const u = t <= 0.5 ? t * 2 : (1 - t) * 2;
+    const smoothCurve = u * u * (3 - 2 * u);
     return 0.03 + 0.85 * smoothCurve;
   }
 
@@ -347,8 +416,10 @@ export function evaluateCourseHeight(x: number, z: number): number {
     }
   }
 
-  // Single plank bridge at x = -7.7, z = -4.0 (width 2.4, height 0.22)
-  if (x >= -9.55 && x <= -5.85 && Math.abs(z - (-4.0)) < 1.2) {
+  // Short ramp-to-plank-to-ramp crossing before the oil patch.
+  if (Math.abs(z - (-4.0)) <= 1.2 && x >= -7.95 && x <= -6.05) {
+    if (x < -7.7) return 0.03 + 0.19 * ((x + 7.95) / 0.25);
+    if (x > -6.3) return 0.22 - 0.19 * ((x + 6.3) / 0.25);
     return 0.22;
   }
 
@@ -357,17 +428,23 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return 0.08;
   }
 
-  // Water hazard shallow cooling basin at x in [-7.5, -5.5], z in [-4.8, -3.2]
-  if (x >= -7.5 && x <= -5.5 && Math.abs(z - (-4.0)) < 1.1) {
-    return 0.05; // Slightly recessed pool
+  // Deep enough for the tracks to enter the immediately following water basin.
+  if (x >= -5.8 && x <= -3.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
+    return -0.12;
   }
 
   // Oil is a very thin surface treatment, not a floating physics layer.
-  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < 1.2) {
+  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
     return 0.05;
   }
 
-  return 0.03; // Default arena floor level
+  // The road is an elevated supported deck; leaving its boundaries drops the
+  // robot to the lower arena floor instead of keeping it on an invisible plane.
+  if (supportsRoadAt(x, z, DRIVE_ROUTE, DRIVE_ROUTE_WIDTH)
+    || supportsRoadAt(x, z, HILL_ENTRY_LINK, 3.4)
+    || supportsRoadAt(x, z, HILL_EXIT_LINK, 3.4)) return ROUTE_DECK_HEIGHT;
+
+  return ARENA_FLOOR_HEIGHT;
 }
 
 /**
@@ -381,17 +458,21 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
 
   // Mandatory Environmental Hazard Sequence: Fire -> Transition -> Water -> Oil
   // 1. Fire Zone: x in [-3.8, -1.8], z in [-4.8, -3.2]
-  if (x >= -3.8 && x <= -1.8 && Math.abs(z - (-4.0)) < 1.1) {
+  if (x >= -3.8 && x <= -1.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
     return { grip: 0.90, rollingResistance: 0.35, hazard: 'fire' };
   }
 
-  // 2. Water Zone: x in [-7.5, -5.5], z in [-4.8, -3.2]
-  if (x >= -7.5 && x <= -5.5 && Math.abs(z - (-4.0)) < 1.1) {
+  // 2. Water Zone: immediately after the fire, spanning the full driving lane.
+  if (x >= -5.8 && x <= -3.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
     return { grip: 0.58, rollingResistance: 0.65, hazard: 'water' };
   }
 
+  if (x >= -7.95 && x <= -6.05 && Math.abs(z - (-4.0)) <= 1.2) {
+    return { grip: 0.82, rollingResistance: 0.52, hazard: 'none' };
+  }
+
   // 3. Oil Slicks: x in [-10.5, -8.0], z in [-4.8, -3.2]
-  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < 1.2) {
+  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
     return { grip: 0.18, rollingResistance: 0.12, hazard: 'oil' };
   }
 

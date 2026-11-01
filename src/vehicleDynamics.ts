@@ -127,6 +127,8 @@ export function stepVehicle3D(
   const inverted = isVehicleInverted(pose.pitch, pose.roll);
   if (inverted) {
     pose.isFlipped = true;
+    pose.isGrounded = true;
+    pose.vy = 0;
     pose.flippedTimer += dt;
     // When upside down, vehicle rests on top of chassis / track covers
     const restingY = avgGroundH + CHASSIS_HEIGHT - TRACK_CONTACT_OFFSET + 0.05;
@@ -175,8 +177,23 @@ export function stepVehicle3D(
     pose.flippedTimer = 0;
   }
 
-  // Normal ground height following
-  pose.y += (targetY - pose.y) * Math.min(1, dt * 12);
+  // Follow ramps smoothly while supported. Leaving a raised road produces a
+  // real gravity-driven drop to the lower arena floor instead of snapping the
+  // chassis directly to the next sampled height.
+  if (targetY < pose.y - 0.06) {
+    pose.isGrounded = false;
+    pose.vy -= gravity * dt;
+    pose.y += pose.vy * dt;
+    if (pose.y <= targetY) {
+      pose.y = targetY;
+      pose.vy = 0;
+      pose.isGrounded = true;
+    }
+  } else {
+    pose.isGrounded = true;
+    pose.vy = 0;
+    pose.y += (targetY - pose.y) * Math.min(1, dt * 12);
+  }
 }
 
 /**

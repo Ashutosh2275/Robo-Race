@@ -31,6 +31,9 @@ import {
   MAP_SCALE,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
+  ARENA_FLOOR_HEIGHT,
+  HILL_ENTRY_LINK,
+  HILL_EXIT_LINK,
   PARALLEL_PLANK_CENTERS,
   CHECKPOINTS,
   SLALOM_BARRIERS,
@@ -265,39 +268,6 @@ function slopedDeck(id: string, x0: number, x1: number, z: number, width: number
   return mesh;
 }
 
-function slopedSegmentDeck(id: string, a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, width: number, thickness: number, material: THREE.Material) {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const length = Math.hypot(dx, dz);
-  const nx = -dz / length;
-  const nz = dx / length;
-  const half = width / 2;
-  const vertices = [
-    a.x + nx * half, a.y, a.z + nz * half,
-    a.x - nx * half, a.y, a.z - nz * half,
-    b.x - nx * half, b.y, b.z - nz * half,
-    b.x + nx * half, b.y, b.z + nz * half,
-    a.x + nx * half, a.y - thickness, a.z + nz * half,
-    a.x - nx * half, a.y - thickness, a.z - nz * half,
-    b.x - nx * half, b.y - thickness, b.z - nz * half,
-    b.x + nx * half, b.y - thickness, b.z + nz * half,
-  ];
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setIndex([
-    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
-    0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
-    2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0,
-  ]);
-  geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = id;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  course.add(mesh);
-  return { nx, nz, length, mesh };
-}
-
 function beamBetween(a: THREE.Vector3, b: THREE.Vector3, thickness: number, material: THREE.Material) {
   const delta = b.clone().sub(a);
   const beam = new THREE.Mesh(new THREE.BoxGeometry(delta.length(), thickness, thickness), material);
@@ -310,7 +280,7 @@ function beamBetween(a: THREE.Vector3, b: THREE.Vector3, thickness: number, mate
 }
 
 // Main Arena Floors & Dedicated Path-Based Racing Circuit
-box(course, mats.floor, V(0, -0.24, 0), V(40, 0.45, 32), 0, false);
+box(course, mats.floor, V(0, ARENA_FLOOR_HEIGHT - 0.225, 0), V(40, 0.45, 36), 0, false);
 
 // Build one continuous road first. Obstacles are layered onto this measured
 // corridor below; there are no detached rectangular road pads or oversized
@@ -384,15 +354,15 @@ function createRouteRibbon(offset: number, width: number, material: THREE.Materi
   course.add(mesh);
 }
 
+createRouteRibbon(0, DRIVE_ROUTE_WIDTH + 0.12, mats.black, -0.16);
 createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006);
 createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.020);
 createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.020);
 
 // A connected optional training spur makes the steep switchback a usable
 // obstacle detour between the rotating-disc area and the final hairpin.
-const hillEntryLink = [{ x: 10.65, z: 0.1 }, { x: 9.8, z: -0.55 }, { x: 8.9, z: -1.35 }, { x: 8.0, z: -2.0 }];
-const hillExitLink = [{ x: 8.0, z: -12.5 }, { x: 5.2, z: -11.3 }, { x: 2.4, z: -10.0 }, { x: -0.4, z: -8.8 }, { x: -0.2, z: -8.0 }];
-for (const link of [hillEntryLink, hillExitLink]) {
+for (const link of [HILL_ENTRY_LINK, HILL_EXIT_LINK]) {
+  createRouteRibbon(0, 3.52, mats.black, -0.16, link);
   createRouteRibbon(0, 3.4, mats.asphalt, 0.006, link);
   createRouteRibbon(-(3.4 / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.020, link);
   createRouteRibbon(3.4 / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.020, link);
@@ -400,12 +370,12 @@ for (const link of [hillEntryLink, hillExitLink]) {
 
 // Perimeter Barriers
 for (const [id, x, z, w, d] of [
-  ['wall_north', 0, -13.82, 36, 0.32],
-  ['wall_south', 0, 13.82, 36, 0.32],
-  ['wall_west', -18.02, 0, 0.32, 27.5],
-  ['wall_east', 18.02, 0, 0.32, 27.5],
+  ['wall_north', 0, -17.82, 36, 0.32],
+  ['wall_south', 0, 17.82, 36, 0.32],
+  ['wall_west', -18.02, 0, 0.32, 36],
+  ['wall_east', 18.02, 0, 0.32, 36],
 ] as [string, number, number, number, number][]) {
-  solidBox(id, x, z, w, d, 0.78, mats.barrier, 0, 0.39);
+  solidBox(id, x, z, w, d, 0.78, mats.barrier, 0, ARENA_FLOOR_HEIGHT + 0.39);
 }
 
 // Yellow hazard stripes along perimeter
@@ -467,19 +437,15 @@ for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
 
 // Curved Wooden Ramp at x = 4.8, z = 8.0 (length 3.0, width 3.2, peak height 0.88)
 // Realistic arched wooden timber decking with bevelled transition
-const rampGroup = new THREE.Group();
-rampGroup.position.set(4.8, 0, 8.0);
-course.add(rampGroup);
-
-// Individual boards sit on the same analytic surface used by the tire contacts.
+// Separate timber boards follow the actual curved ramp profile instead of
+// floating as flat steps above or below the robot's contact surface.
 const plankCount = 18;
 for (let p = 0; p < plankCount; p++) {
-  const u = (p + 0.5) / plankCount;
-  const px = (u - 0.5) * 3.0;
-  const localX = 4.8 + px;
-  const surfaceY = evaluateCourseHeight(localX, 8.0);
-  const plank = box(rampGroup, mats.wood, V(px, surfaceY - 0.045, 0), V(3.0 / plankCount + 0.02, 0.09, DRIVE_ROUTE_WIDTH));
-  plank.castShadow = true;
+  const step = 3.0 / plankCount;
+  const x0 = 3.3 + p * step;
+  const x1 = Math.min(6.3, x0 + step + 0.02);
+  slopedDeck(`curved_ramp_board_${p}`, x0, x1, 8.0, DRIVE_ROUTE_WIDTH,
+    evaluateCourseHeight(x0, 8.0), evaluateCourseHeight(x1, 8.0), 0.09, mats.wood);
 }
 colliders.push({ id: 'curved_ramp', x: 4.8, z: 8.0, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: 0.455, height: 0.85, rot: 0, walkable: true });
 for (const side of [-1, 1]) {
@@ -591,37 +557,76 @@ for (const rk of rockData) {
 // 3. Mandatory Environmental Hazards: Fire -> Water -> Oil
 // -------------------------------------------------------------
 // Hazard 1: Fire Zone (x in [-3.8, -1.8], z in [-4.8, -3.2])
-const fireFloor = box(course, mats.black, V(-2.8, 0.015, -4.0), V(2.2, 0.03, 2.2));
-box(course, mats.yellow, V(-2.8, 0.022, -4.0), V(2.4, 0.012, 2.4), 0, false);
+const fireFloor = box(course, mats.black, V(-2.8, 0.015, -4.0), V(2.2, 0.03, DRIVE_ROUTE_WIDTH - 0.08));
+box(course, mats.yellow, V(-2.8, 0.022, -4.0), V(2.4, 0.012, DRIVE_ROUTE_WIDTH), 0, false);
 const fireFlames: THREE.Mesh[] = [];
 for (let f = 0; f < 6; f++) {
   const fx = -3.5 + f * 0.28;
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.55, 8), mats.fire);
-  flame.position.set(fx, 0.32, -4.0 + (f % 2 === 0 ? 0.3 : -0.3));
+  flame.position.set(fx, 0.32, -4.0 + (f % 2 === 0 ? 1.25 : -1.25));
   course.add(flame);
   fireFlames.push(flame);
+  const core = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.28, 7), new THREE.MeshBasicMaterial({ color: '#ffd783', transparent: true, opacity: 0.92 }));
+  core.position.set(fx, 0.21, flame.position.z);
+  course.add(core);
 }
 const fireLight = new THREE.PointLight('#ff6a1a', 15, 6, 1.5);
 fireLight.position.set(-2.8, 0.9, -4.0);
 scene.add(fireLight);
+const smokeCanvas = document.createElement('canvas');
+smokeCanvas.width = smokeCanvas.height = 128;
+const smokeContext = smokeCanvas.getContext('2d')!;
+const smokeGradient = smokeContext.createRadialGradient(64, 64, 8, 64, 64, 62);
+smokeGradient.addColorStop(0, 'rgba(55,58,60,0.42)');
+smokeGradient.addColorStop(0.55, 'rgba(76,79,80,0.20)');
+smokeGradient.addColorStop(1, 'rgba(85,88,88,0)');
+smokeContext.fillStyle = smokeGradient;
+smokeContext.fillRect(0, 0, 128, 128);
+const smokeTexture = new THREE.CanvasTexture(smokeCanvas);
+const smokeMaterial = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0.48, depthWrite: false });
+const fireSmoke: THREE.Sprite[] = [];
+for (let i = 0; i < 7; i++) {
+  const smoke = new THREE.Sprite(smokeMaterial.clone());
+  smoke.position.set(-3.45 + i * 0.22, 0.75 + (i % 3) * 0.12, -4.0 + (i % 2 ? 0.95 : -0.95));
+  smoke.scale.set(0.55, 0.8, 1);
+  course.add(smoke);
+  fireSmoke.push(smoke);
+}
 
-// Short Clean Transition Deck at x = -4.6, z = -4.0
-box(course, mats.metal, V(-4.6, 0.05, -4.0), V(1.4, 0.08, 2.2));
+// Narrow single-plank crossing between the deep water and oil modules.
+slopedDeck('single_plank_entry', -7.95, -7.70, -4.0, 2.4, 0.03, 0.22, 0.14, mats.wood);
+box(course, mats.wood, V(-7.0, 0.14, -4.0), V(1.4, 0.16, 2.4));
+box(course, mats.black, V(-7.0, 0.045, -4.0), V(1.45, 0.05, 2.48));
+slopedDeck('single_plank_exit', -6.30, -6.05, -4.0, 2.4, 0.22, 0.03, 0.14, mats.wood);
+for (const side of [-1, 1]) {
+  solidBox(`single_plank_side_guide_${side}`, -7.0, -4.0 + side * 1.42, 1.9, 0.16, 0.28, mats.black, 0, 0.17);
+}
 
-// Hazard 2: Water Cooling Basin (x in [-7.5, -5.5], z in [-4.8, -3.2])
-const waterPool = box(course, mats.water, V(-6.5, 0.04, -4.0), V(2.2, 0.02, 2.2));
+// Hazard 2: road-width cooling basin directly after fire. The floor is low,
+// while the animated water surface sits above the track tread line.
+const waterPool = box(course, mats.water, V(-4.8, 0.045, -4.0), V(2.0, 0.03, DRIVE_ROUTE_WIDTH - 0.08));
 waterPool.castShadow = false;
-box(course, mats.metal, V(-6.5, 0.02, -4.0), V(2.35, 0.04, 2.35), 0, false);
+box(course, mats.metal, V(-4.8, -0.16, -4.0), V(2.12, 0.08, DRIVE_ROUTE_WIDTH + 0.08), 0, false);
+const hazardWaterRipples: THREE.Mesh[] = [];
+for (let i = 0; i < 5; i++) {
+  const ripple = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.20, 24), new THREE.MeshBasicMaterial({ color: '#a9f4ff', transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+  ripple.rotation.x = -Math.PI / 2;
+  ripple.position.set(-5.55 + i * 0.36, 0.064, -4.0 + (i % 2 ? 0.7 : -0.7));
+  course.add(ripple);
+  hazardWaterRipples.push(ripple);
+}
 
-// Hazard 3: Oil Slicks (x in [-10.5, -8.0], z in [-4.8, -3.2])
-box(course, mats.oil, V(-9.25, 0.04, -4.0), V(2.6, 0.02, 2.4), 0, false);
+// Hazard 3: oil follows the raised plank crossing (x in [-10.5, -8.0]).
+box(course, mats.oil, V(-9.25, 0.04, -4.0), V(2.6, 0.02, DRIVE_ROUTE_WIDTH - 0.08), 0, false);
 
 // -------------------------------------------------------------
 // 4. Switchback Climbing Hill (Part 7)
 // -------------------------------------------------------------
-// One miter-joined deck replaces the old overlapping midpoint-height slabs.
-// The underside is drawn separately so the supported climb reads as one route.
+// One miter-joined climbing surface replaces stacked midpoint-height slabs.
+// The height profile eases each incline and stays level through every landing.
 const hillDeckWidth = 3.4;
+createRouteRibbon(0, hillDeckWidth, mats.wood, 0.006, HILL_NODES);
+createRouteRibbon(0, hillDeckWidth, mats.black, -0.16, HILL_NODES);
 for (let i = 0; i < HILL_NODES.length - 1; i++) {
   const a = HILL_NODES[i];
   const b = HILL_NODES[i + 1];
@@ -632,8 +637,7 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
   const midY = (a.y + b.y) / 2;
   const midZ = (a.z + b.z) / 2;
   const w = hillDeckWidth; // Broad enough for both track covers through every turn shelf.
-  const deck = slopedSegmentDeck(`hill_deck_${i}`, a, b, w, 0.16, mats.wood);
-  slopedSegmentDeck(`hill_underside_${i}`, { ...a, y: a.y - 0.16 }, { ...b, y: b.y - 0.16 }, w, 0.12, mats.black);
+  const deck = { nx: -dz / len, nz: dx / len, length: len };
   colliders.push({
     id: `hill_seg_${i}`,
     x: midX,
@@ -646,7 +650,7 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
     walkable: true,
   });
 
-  // Raised edge beams follow the real slope instead of hovering at its midpoint.
+  // Raised edge beams follow each slope and meet at the level landing shelves.
   for (const side of [-1, 1]) {
     const offset = side * (w / 2 - 0.12);
     const railStart = V(a.x + deck.nx * offset, a.y + 0.30, a.z + deck.nz * offset);
@@ -748,7 +752,11 @@ if (!slalomClearanceAudit.valid) {
   console.error('Slalom passage validation failed:', slalomClearanceAudit.issues);
 }
 
-const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE);
+const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE).map(anchor => ({
+  ...anchor,
+  y: evaluateCourseHeight(anchor.x / MAP_SCALE, anchor.z / MAP_SCALE) - TRACK_CONTACT_OFFSET,
+}));
+const worldCourseHeight = (x: number, z: number) => evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE);
 
 // -------------------------------------------------------------
 // 7. Fixed Rigid Robot Model with Realistic Mechatronics (Part 3)
@@ -1709,7 +1717,7 @@ function startRace() {
   });
 
   const anchor = recoveryAnchors[0];
-  applyRecovery(pose, anchor, evaluateCourseHeight);
+  applyRecovery(pose, anchor, worldCourseHeight);
   motionState.x = pose.x;
   motionState.z = pose.z;
   motionState.vx = 0;
@@ -1749,7 +1757,7 @@ function recoverVehicle() {
     checkpoint.passed = i < currentCheckpoint;
     (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
   });
-  applyRecovery(pose, anchor, evaluateCourseHeight);
+  applyRecovery(pose, anchor, worldCourseHeight);
 
   motionState.x = pose.x;
   motionState.z = pose.z;
@@ -2060,12 +2068,12 @@ function stepPhysics(dt: number) {
   if (splashRate > 0 && Math.random() < splashRate) {
     const p = splashParticles.find(drop => drop.life <= 0);
     if (p) {
-      const side = Math.random() < 0.5 ? -1 : 1;
+  const side = Math.random() < 0.5 ? -1 : 1;
       const rightX = Math.cos(pose.yaw);
       const rightZ = -Math.sin(pose.yaw);
       p.life = 0.42 + Math.random() * 0.22;
       p.mesh.visible = true;
-      p.mesh.position.set(pose.x + rightX * side * 0.78, pose.y + 0.13, pose.z + rightZ * side * 0.78);
+      p.mesh.position.set(pose.x + rightX * side * 0.78, Math.max(pose.y + 0.24, 0.09), pose.z + rightZ * side * 0.78);
       p.vx = pose.vx * 0.18 + rightX * side * (0.45 + Math.random() * 0.65);
       p.vy = 0.75 + Math.random() * 1.1;
       p.vz = pose.vz * 0.18 + rightZ * side * (0.45 + Math.random() * 0.65);
@@ -2330,6 +2338,16 @@ function animate() {
   discGroup.rotation.y += frameTime * 0.45;
   for (let f = 0; f < fireFlames.length; f++) {
     fireFlames[f].scale.y = 0.8 + Math.sin(now * 0.015 + f * 1.5) * 0.35;
+    fireFlames[f].rotation.z = Math.sin(now * 0.009 + f * 1.7) * 0.12;
+  }
+  fireLight.intensity = 13.5 + Math.sin(now * 0.021) * 2.2 + Math.sin(now * 0.047) * 0.8;
+  for (let i = 0; i < fireSmoke.length; i++) {
+    const phase = (now * 0.00032 + i * 0.15) % 1;
+    const smoke = fireSmoke[i];
+    smoke.position.y = 0.52 + phase * 1.35;
+    smoke.position.x = -3.45 + i * 0.22 + Math.sin(now * 0.0012 + i) * phase * 0.28;
+    smoke.scale.set(0.42 + phase * 0.52, 0.56 + phase * 0.74, 1);
+    (smoke.material as THREE.SpriteMaterial).opacity = 0.42 * (1 - phase);
   }
   for (let i = 0; i < bridgeWaterRipples.length; i++) {
     const ripple = bridgeWaterRipples[i];
@@ -2337,6 +2355,13 @@ function animate() {
     const size = 0.48 + phase * 1.35;
     ripple.scale.set(size, size, size);
     (ripple.material as THREE.MeshBasicMaterial).opacity = 0.18 * (1 - phase);
+  }
+  for (let i = 0; i < hazardWaterRipples.length; i++) {
+    const ripple = hazardWaterRipples[i];
+    const phase = (now * 0.0003 + i * 0.21) % 1;
+    const size = 0.65 + phase * 0.9;
+    ripple.scale.set(size, size, size);
+    (ripple.material as THREE.MeshBasicMaterial).opacity = 0.24 * (1 - phase);
   }
 
   updateCamera(frameTime);

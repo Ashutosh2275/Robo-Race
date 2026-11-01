@@ -96,6 +96,15 @@ test('a higher-grip motor can climb a moderate grade', () => {
   assert.ok(s.vx > 0);
 });
 
+test('validated ~35 degree switchback ramps remain climbable with the configured timber grip', () => {
+  const s = state({ yaw: Math.PI / 2 });
+  const slope = Math.tan(35 * Math.PI / 180);
+  for (let i = 0; i < 240; i++) {
+    integrateDrive(s, 1, 1, { grip: 0.84, rollingResistance: 0.48 }, { x: slope, z: 0 }, config, 1 / 120);
+  }
+  assert.ok(s.vx > 0.1, `full throttle should climb the validated 35° grade, got ${s.vx.toFixed(2)} m/s`);
+});
+
 test('braking counters downhill motion and wall response removes inward velocity', () => {
   const s = state({ yaw: -Math.PI / 2, vx: -2 });
   integrateDrive(s, 0, 0, asphalt, { x: .3, z: 0 }, config, .2, true);

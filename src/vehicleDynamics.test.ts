@@ -93,6 +93,19 @@ test('track underside sits on the sampled ground height without the previous 0.1
   assert.ok(Math.abs(p.y + TRACK_CONTACT_OFFSET - flatGround()) < 0.002);
 });
 
+test('leaving a raised road falls under gravity and settles on the lower arena floor', () => {
+  const raisedY = 0.03 - TRACK_CONTACT_OFFSET;
+  const lowerGround = -0.33;
+  const pose = makePose({ y: raisedY });
+  stepVehicle3D(pose, () => lowerGround, 0, 0, 0.05);
+  assert.equal(pose.isGrounded, false);
+  assert.ok(pose.vy < 0, 'unsupported robot gains downward velocity');
+  assert.ok(pose.y < raisedY && pose.y > lowerGround - TRACK_CONTACT_OFFSET, 'falls instead of teleporting to floor');
+  for (let i = 0; i < 10; i++) stepVehicle3D(pose, () => lowerGround, 0, 0, 0.05);
+  assert.equal(pose.isGrounded, true);
+  assert.ok(Math.abs(pose.y - (lowerGround - TRACK_CONTACT_OFFSET)) < 1e-6);
+});
+
 test('severe drop on one side triggers rollover to inverted state', () => {
   // Height function where right side of the bridge is floor (0.0), left side is bridge deck (0.8)
   const bridgeDrop = (x: number) => (x > 0 ? 0.0 : 0.8);

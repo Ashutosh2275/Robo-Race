@@ -14,6 +14,9 @@ import {
   SPEED_BREAKER_XS,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
+  HILL_EXIT_LINK,
+  ARENA_FLOOR_HEIGHT,
+  ROUTE_DECK_HEIGHT,
   PARALLEL_PLANK_CENTERS,
   PARALLEL_PLANK_CENTER_Z,
   PARALLEL_PLANK_SPACING_LOCAL,
@@ -37,7 +40,7 @@ test('evaluateCourseHeight returns realistic heights across course features', ()
   assert.ok(bridgeH > 0.55, `expected bridge deck > 0.55, got ${bridgeH}`);
 
   // Switchback hill crest
-  const hillSummitH = evaluateCourseHeight(14.5, -7.6);
+  const hillSummitH = evaluateCourseHeight(14.5, -9.6);
   assert.ok(hillSummitH > 4.0, `expected hill summit > 4.0, got ${hillSummitH}`);
 });
 
@@ -51,6 +54,16 @@ test('raised bridge and curved ramp ground samples match their full-width physic
     assert.ok(Math.abs(evaluateCourseHeight(x, 6.0) - center) < 1e-6, 'ramp must support the road edge too');
     assert.ok(Math.abs(evaluateCourseHeight(x, 10.0) - center) < 1e-6, 'ramp must support both track edges');
   }
+  const rampSlope = Math.atan2(evaluateCourseHeight(4.10, 8.0) - evaluateCourseHeight(4.00, 8.0), 0.10) * 180 / Math.PI;
+  assert.ok(rampSlope >= 35 && rampSlope <= 42, `curved ramp peak should be a climbable 35-42°, got ${rampSlope.toFixed(1)}°`);
+});
+
+test('road boundaries are raised above a lower arena floor and the water/plank hazards have separate heights', () => {
+  assert.equal(evaluateCourseHeight(-14.2, 8.0), ROUTE_DECK_HEIGHT);
+  assert.equal(evaluateCourseHeight(17, 12), ARENA_FLOOR_HEIGHT, 'off-road position must fall to the lower floor');
+  assert.equal(evaluateCourseHeight(-4.8, -4.0), -0.12, 'water crossing lowers the robot into the pool');
+  assert.equal(evaluateCourseHeight(-7.0, -4.0), 0.22, 'single plank is independently raised');
+  assert.equal(evaluateCourseHeight(-9.2, -4.0), 0.05, 'oil remains a thin surface layer');
 });
 
 test('hill height support ends at the visible platform edge and joins every segment endpoint', () => {
@@ -59,15 +72,42 @@ test('hill height support ends at the visible platform edge and joins every segm
     assert.ok(height !== null && Math.abs(height - node.y) < 1e-6, `hill node (${node.x}, ${node.z}) should meet its deck`);
   }
   assert.equal(hillHeightAt(8.0, -0.29), null, 'raised analytic ground must not extend beyond the rendered deck');
+  assert.ok(Math.abs(evaluateCourseHeight(9.4, -2.0) - HILL_NODES[0].y) < 1e-6, 'lower turn shelf stays level');
+  assert.ok(Math.abs(evaluateCourseHeight(13.1, -2.0) - HILL_NODES[1].y) < 1e-6, 'upper turn shelf stays level');
+  const climbSlope = Math.atan2(evaluateCourseHeight(11.30, -2.0) - evaluateCourseHeight(11.20, -2.0), 0.10) * 180 / Math.PI;
+  assert.ok(climbSlope >= 32 && climbSlope <= 39, `switchback ramp should peak near 35°, got ${climbSlope.toFixed(1)}°`);
+});
+
+test('elevated hill return is a continuous supported descent to the course road', () => {
+  const start = HILL_EXIT_LINK[0];
+  const end = HILL_EXIT_LINK.at(-1)!;
+  assert.ok(Math.abs(evaluateCourseHeight(start.x, start.z) - 3.0) < 1e-6, 'return begins at the summit elevation');
+  assert.ok(Math.abs(evaluateCourseHeight(end.x, end.z) - ROUTE_DECK_HEIGHT) < 1e-6, 'return joins the lower road deck');
+  let maximumGrade = 0;
+  for (let segment = 0; segment < HILL_EXIT_LINK.length - 1; segment++) {
+    const a = HILL_EXIT_LINK[segment];
+    const b = HILL_EXIT_LINK[segment + 1];
+    for (let i = 0; i < 30; i++) {
+      const t0 = i / 30;
+      const t1 = (i + 1) / 30;
+      const h0 = evaluateCourseHeight(a.x + (b.x - a.x) * t0, a.z + (b.z - a.z) * t0);
+      const h1 = evaluateCourseHeight(a.x + (b.x - a.x) * t1, a.z + (b.z - a.z) * t1);
+      const distance = Math.hypot(b.x - a.x, b.z - a.z) / 30;
+      maximumGrade = Math.max(maximumGrade, Math.abs(h1 - h0) / distance);
+    }
+  }
+  assert.ok(maximumGrade < 0.65, `return descent grade should stay traversable, got ${maximumGrade.toFixed(2)}`);
 });
 
 test('evaluateCourseSurface implements mandatory sequence: fire -> water -> oil', () => {
   const fireSurf = evaluateCourseSurface(-2.8, -4.0);
   assert.equal(fireSurf.hazard, 'fire');
 
-  const waterSurf = evaluateCourseSurface(-6.5, -4.0);
+  const waterSurf = evaluateCourseSurface(-4.8, -4.0);
   assert.equal(waterSurf.hazard, 'water');
   assert.ok(waterSurf.grip < 0.7);
+
+  assert.equal(evaluateCourseSurface(-7.0, -4.0).hazard, 'none', 'single plank is a separate timber obstacle');
 
   const oilSurf = evaluateCourseSurface(-9.2, -4.0);
   assert.equal(oilSurf.hazard, 'oil');
