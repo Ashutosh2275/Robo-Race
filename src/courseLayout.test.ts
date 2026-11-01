@@ -190,8 +190,12 @@ test('slalom blocks cross the corridor with a continuous alternating pass width'
   for (let i = 0; i < SLALOM_BARRIERS.length; i++) {
     const b = SLALOM_BARRIERS[i];
     assert.ok(b.width > 0 && b.depth > 0 && b.height > 0);
+    assert.ok(b.width >= 1.3 && b.depth <= 0.7, 'barriers should be elongated lane modules rather than cube placeholders');
+    assert.ok(b.height >= 0.8, 'barrier shell must remain visible and physically substantial');
     if (i > 0) {
       assert.ok(SLALOM_BARRIERS[i - 1].x < b.x, 'barriers must be ordered along the driving direction');
+      assert.ok(SLALOM_BARRIERS[i - 1].x + SLALOM_BARRIERS[i - 1].width / 2 < b.x - b.width / 2,
+        'neighboring barrier modules must not overlap along the route');
       assert.notEqual(Math.sign(SLALOM_BARRIERS[i - 1].z - 8), Math.sign(b.z - 8), 'barriers alternate sides');
     }
   }
@@ -201,7 +205,7 @@ test('each slalom block leaves a physically passable opening for the robot envel
   const audit = validateSlalomClearance();
   assert.equal(audit.valid, true, audit.issues.join('; '));
   for (const barrier of SLALOM_BARRIERS) {
-    assert.ok(barrier.height >= 0.9, `${barrier.id} must be clearly visible above the track surface`);
+    assert.ok(barrier.height >= 0.8, `${barrier.id} must be clearly visible above the track surface`);
   }
 });
 

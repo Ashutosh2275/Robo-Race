@@ -201,9 +201,9 @@ export const SLALOM_BARRIERS = Array.from({ length: 5 }, (_, i) => ({
   id: `slalom_barrier_${i}`,
   x: -10.4 + i * 2.25,
   z: 8.0 + (i % 2 === 0 ? 1.72 : -1.72),
-  width: 0.34,
-  depth: 0.82,
-  height: 0.92,
+  width: 1.45, // length along the lane, not a cube-like placeholder
+  depth: 0.66, // maximum cross-lane footprint, including weighted feet
+  height: 0.82,
 }));
 export const SPEED_BREAKER_XS = [0, 1.05, 2.1] as const;
 

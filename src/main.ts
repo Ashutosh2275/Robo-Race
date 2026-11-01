@@ -279,6 +279,71 @@ function beamBetween(a: THREE.Vector3, b: THREE.Vector3, thickness: number, mate
   return beam;
 }
 
+/** Reusable modular slalom barrier: weighted feet, molded body, reflectors and visible end hardware. */
+function buildSlalomBarrier(data: typeof SLALOM_BARRIERS[number]) {
+  const { x, z, width: length, depth, height } = data;
+  const group = new THREE.Group();
+  group.name = data.id;
+  group.position.set(x, 0, z);
+  course.add(group);
+
+  const footDepth = depth;
+  const bodyDepth = Math.max(0.32, depth - 0.24);
+  const footWidth = length * 0.34;
+  for (const side of [-1, 1]) {
+    box(group, mats.rubber, V(side * length * 0.30, 0.055, 0), V(footWidth, 0.11, footDepth));
+    // A small amber toe plate and two recessed fixing points make the feet
+    // read as weighted event hardware rather than a floating cuboid.
+    box(group, mats.yellow, V(side * length * 0.30, 0.114, 0), V(footWidth * 0.72, 0.018, footDepth * 0.84));
+    for (const face of [-1, 1]) {
+      cyl(group, mats.metal, V(side * length * 0.30, 0.125, face * (footDepth * 0.38)), 0.035, 0.018, 'y', 10);
+    }
+  }
+
+  const bodyBottom = 0.12;
+  const bodyHeight = height - bodyBottom;
+  const body = box(group, mats.yellow, V(0, bodyBottom + bodyHeight / 2, 0), V(length, bodyHeight, bodyDepth));
+  body.castShadow = true;
+  cameraOccluders.push(body);
+
+  // Raised top and end caps protect the molded shell and clarify the intended
+  // module boundaries when viewed at driving height.
+  box(group, mats.coverYellow, V(0, height - 0.035, 0), V(length - 0.10, 0.07, bodyDepth + 0.035));
+  for (const end of [-1, 1]) {
+    box(group, mats.black, V(end * (length / 2 - 0.025), bodyBottom + bodyHeight / 2, 0), V(0.07, bodyHeight + 0.025, bodyDepth + 0.06));
+    for (const face of [-1, 1]) {
+      cyl(group, mats.metal, V(end * (length / 2 - 0.10), 0.23, face * (bodyDepth / 2 + 0.038)), 0.035, 0.025, 'z', 10);
+    }
+  }
+
+  // Red retroreflective panels with pale borders repeat on both faces, so the
+  // barrier remains legible from either approach direction.
+  const panelCount = Math.max(2, Math.floor(length / 0.38));
+  for (let panel = 0; panel < panelCount; panel++) {
+    const panelX = -length / 2 + (panel + 0.5) * length / panelCount;
+    if (Math.abs(panelX) > length / 2 - 0.15) continue;
+    for (const face of [-1, 1]) {
+      const zFace = face * (bodyDepth / 2 + 0.014);
+      box(group, mats.curbWhite, V(panelX, bodyBottom + bodyHeight * 0.57, zFace), V(0.19, 0.30, 0.018));
+      box(group, mats.red, V(panelX, bodyBottom + bodyHeight * 0.57, zFace + face * 0.012), V(0.125, 0.22, 0.020));
+    }
+  }
+
+  // One simple envelope collider covers the shell and its feet without
+  // generating redundant colliders for decorative bolts and reflectors.
+  colliders.push({
+    id: data.id,
+    x,
+    z,
+    hx: length / 2 + 0.06,
+    hz: footDepth / 2,
+    y: (height + 0.06) / 2,
+    height: height + 0.06,
+    rot: 0,
+    walkable: false,
+  });
+}
+
 // Main Arena Floors & Dedicated Path-Based Racing Circuit
 box(course, mats.floor, V(0, ARENA_FLOOR_HEIGHT - 0.225, 0), V(40, 0.45, 36), 0, false);
 
@@ -413,10 +478,10 @@ gantry(-14.2, 8.0, 'START', mats.green);
 gantry(-15.0, -12.0, 'FINISH', mats.yellow);
 
 // Alternating slalom barriers leave a verified, robot-width side passage.
-for (const [i, barrier] of SLALOM_BARRIERS.entries()) {
-  // The inner end remains near the centerline to require steering, while the
-  // outside opening clears the complete track-cover collision envelope.
-  solidBox(barrier.id, barrier.x, barrier.z, barrier.width, barrier.depth, barrier.height, i % 2 === 0 ? mats.yellow : mats.barrier, 0, barrier.height / 2);
+for (const barrier of SLALOM_BARRIERS) {
+  // Alternating sides force a steering weave; each module stays short enough
+  // to preserve a clear opening and is built with real feet and reflectors.
+  buildSlalomBarrier(barrier);
 }
 
 // Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)
