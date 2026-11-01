@@ -29,6 +29,60 @@ export type CheckpointGate = {
 
 export type CoursePoint = { x: number; z: number };
 
+/** Route centreline in course-local metres. The road is built from this path
+ * before obstacle modules are placed, so every section has a continuous base. */
+export const DRIVE_ROUTE_WIDTH = 3.0;
+export const DRIVE_ROUTE: CoursePoint[] = [
+  { x: -16.4, z: 8.0 }, // clear staging bay behind the start gantry
+  { x: -14.2, z: 8.0 }, // start line
+  { x: -11.5, z: 8.0 },
+  // Alternating steering corridor through the five staggered slalom modules.
+  { x: -10.9, z: 7.1 }, { x: -10.0, z: 7.1 },
+  { x: -9.35, z: 8.85 }, { x: -8.45, z: 8.85 },
+  { x: -7.75, z: 8.9 }, { x: -6.35, z: 8.9 },
+  { x: -5.65, z: 7.1 }, { x: -4.85, z: 7.1 },
+  { x: -4.0, z: 8.85 }, { x: -3.3, z: 8.85 },
+  { x: -2.85, z: 7.1 }, { x: -1.0, z: 7.1 },
+  { x: -0.2, z: 8.0 },
+  { x: 3.2, z: 8.0 },  // breakers
+  { x: 4.4, z: 8.0 },  // ramp checkpoint
+  { x: 4.8, z: 8.0 },  // curved ramp
+  { x: 9.6, z: 8.0 },  // raised bridge
+  { x: 13.2, z: 4.7 }, // marble pit approach
+  { x: 10.65, z: 0.1 }, // rotating disc
+  { x: 1.4, z: 0.0 },  // mixed terrain
+  { x: -3.1, z: -4.0 }, // fire
+  { x: -7.7, z: -4.0 }, // single plank and water
+  { x: -10.0, z: -4.0 }, // oil exit
+  { x: -12.2, z: -4.0 },
+  { x: -12.2, z: -7.7 }, // turn into parallel planks
+  { x: -7.5, z: -7.7 }, // checkpoint 10, crossed eastbound
+  { x: -4.2, z: -7.7 },
+  { x: -2.8, z: -9.6 }, // final hairpin
+  { x: -5.2, z: -11.1 },
+  { x: -8.6, z: -11.1 },
+  { x: -13.2, z: -12.0 }, // final checkpoint and straight
+  { x: -15.0, z: -12.0 },
+];
+
+/** Basic layout validation used by tests and the in-game route audit. */
+export function validateDriveRoute(route: CoursePoint[] = DRIVE_ROUTE, minWidth = DRIVE_ROUTE_WIDTH) {
+  const issues: string[] = [];
+  if (route.length < 2) issues.push('Route needs at least two points');
+  if (!(minWidth > 0)) issues.push('Route width must be positive');
+  for (let i = 0; i < route.length; i++) {
+    const p = route[i];
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.z)) issues.push(`Route point ${i} is not finite`);
+    if (Math.abs(p.x) + minWidth / 2 > 19.5 || Math.abs(p.z) + minWidth / 2 > 15.5) {
+      issues.push(`Route point ${i} exceeds the arena drive bounds`);
+    }
+    if (i > 0 && Math.hypot(p.x - route[i - 1].x, p.z - route[i - 1].z) < 0.15) {
+      issues.push(`Route segment ${i - 1} is zero length`);
+    }
+  }
+  return { valid: issues.length === 0, issues };
+}
+
 /** True only when the vehicle centre crosses a gate plane in its forward direction. */
 export function crossesCheckpointGate(
   previous: CoursePoint,
@@ -335,8 +389,8 @@ export const CHECKPOINTS: CheckpointGate[] = [
   { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: Math.atan2(-2.55, -4.6), width: 3.4 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 3.4 },
   { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: Math.atan2(-4.5, -4.0), width: 3.4 },
-  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -7.7, yaw: Math.atan2(-4.4, -3.7), width: 3.4 },
-  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: Math.atan2(-5.7, -4.3), width: 3.4 },
+  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -7.7, yaw: Math.PI / 2, width: 3.4 },
+  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 3.4 },
 ];
 
 /**

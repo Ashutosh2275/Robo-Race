@@ -10,6 +10,9 @@ import {
   crossesCheckpointGate,
   SLALOM_BARRIERS,
   SPEED_BREAKER_XS,
+  DRIVE_ROUTE,
+  DRIVE_ROUTE_WIDTH,
+  validateDriveRoute,
   type CourseCollider,
 } from './courseLayout.ts';
 
@@ -62,6 +65,44 @@ test('all 11 checkpoints are defined in sequential order', () => {
   assert.equal(CHECKPOINTS.length, 11);
   for (let i = 0; i < CHECKPOINTS.length; i++) {
     assert.equal(CHECKPOINTS[i].id, i + 1);
+  }
+});
+
+test('continuous drive corridor stays in the arena and passes every checkpoint in order', () => {
+  const audit = validateDriveRoute();
+  assert.equal(audit.valid, true, audit.issues.join('; '));
+  assert.ok(DRIVE_ROUTE_WIDTH >= 2.8 && DRIVE_ROUTE_WIDTH <= 3.2, 'road width should fit the robot without oversized empty shoulders');
+  let previousIndex = -1;
+  for (const gate of CHECKPOINTS) {
+    const index = DRIVE_ROUTE.findIndex(p => Math.hypot(p.x - gate.x, p.z - gate.z) < 0.01);
+    assert.ok(index > previousIndex, `checkpoint ${gate.id} must be on the connected road in order`);
+    previousIndex = index;
+  }
+  for (let i = 1; i < DRIVE_ROUTE.length; i++) {
+    const length = Math.hypot(DRIVE_ROUTE[i].x - DRIVE_ROUTE[i - 1].x, DRIVE_ROUTE[i].z - DRIVE_ROUTE[i - 1].z);
+    assert.ok(length >= 0.15, `route segment ${i - 1} is disconnected`);
+  }
+});
+
+test('required obstacles sit on or within the road corridor rather than on detached pads', () => {
+  const distanceToRoute = (point: { x: number; z: number }) => Math.min(...DRIVE_ROUTE.slice(1).map((b, i) => {
+    const a = DRIVE_ROUTE[i];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / (dx * dx + dz * dz)));
+    return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
+  }));
+  const requiredCenters = [
+    ...SLALOM_BARRIERS.map(b => ({ x: b.x, z: b.z, footprintAllowance: b.depth / 2 })),
+    ...SPEED_BREAKER_XS.map(x => ({ x, z: 8, footprintAllowance: 0 })),
+    { x: 4.8, z: 8, footprintAllowance: 0 }, { x: 9.6, z: 8, footprintAllowance: 0 }, { x: 13.45, z: 4.55, footprintAllowance: 0 },
+    { x: 10.65, z: 0.1, footprintAllowance: 0 }, { x: 2.8, z: 0, footprintAllowance: 0 }, { x: -2.8, z: -4, footprintAllowance: 0 },
+    { x: -6.5, z: -4, footprintAllowance: 0 }, { x: -9.25, z: -4, footprintAllowance: 0 }, { x: -7.7, z: -4, footprintAllowance: 0 },
+    { x: -7.35, z: -8.49, footprintAllowance: 0.4 }, { x: -7.35, z: -6.91, footprintAllowance: 0.4 },
+  ];
+  for (const center of requiredCenters) {
+    assert.ok(distanceToRoute(center) <= DRIVE_ROUTE_WIDTH / 2 + center.footprintAllowance + 0.15,
+      `obstacle at (${center.x}, ${center.z}) falls outside the drive corridor`);
   }
 });
 

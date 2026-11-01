@@ -29,6 +29,8 @@ import {
 } from './universalController';
 import {
   MAP_SCALE,
+  DRIVE_ROUTE,
+  DRIVE_ROUTE_WIDTH,
   CHECKPOINTS,
   SLALOM_BARRIERS,
   SPEED_BREAKER_XS,
@@ -37,6 +39,7 @@ import {
   evaluateCourseSurface,
   generateRockFieldStones,
   validateRouteClearance,
+  validateDriveRoute,
   crossesCheckpointGate,
   type CourseCollider,
 } from './courseLayout';
@@ -177,7 +180,7 @@ function generateSurfaceTexture(base: string, marks: string[], kind: 'grain' | '
 
 const mats = {
   floor: new THREE.MeshStandardMaterial({ color: '#272a2c', roughness: 0.94, map: generateSurfaceTexture('#272a2c', ['#383b3d', '#1f2122', '#414446'], 'grain') }),
-  asphalt: new THREE.MeshStandardMaterial({ color: '#1f2224', roughness: 0.88, metalness: 0.05, map: generateSurfaceTexture('#1f2224', ['#2e3133', '#161819', '#393c3e'], 'asphalt') }),
+  asphalt: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.88, metalness: 0.05, map: generateSurfaceTexture('#3b4143', ['#4a5052', '#303638', '#53595b'], 'asphalt') }),
   laneStripeWhite: new THREE.MeshStandardMaterial({ color: '#f2f4f7', roughness: 0.55 }),
   laneStripeYellow: new THREE.MeshStandardMaterial({ color: '#e8af28', roughness: 0.60 }),
   curbRed: new THREE.MeshStandardMaterial({ color: '#c72b22', roughness: 0.62 }),
@@ -238,57 +241,49 @@ function solidBox(id: string, x: number, z: number, w: number, d: number, h: num
 // Main Arena Floors & Dedicated Path-Based Racing Circuit
 box(course, mats.floor, V(0, -0.24, 0), V(40, 0.45, 32), 0, false);
 
-// Path-based asphalt track helper with white boundary lines and dashed centerlines
-function createPavedTrackCorridor(x: number, z: number, lengthX: number, lengthZ: number, rot = 0) {
-  // Paved dark asphalt racing surface
-  box(course, mats.asphalt, V(x, 0.015, z), V(lengthX, 0.02, lengthZ), rot, false);
-
-  // White boundary stripes along corridor edges
-  if (lengthX >= lengthZ) {
-    const halfZ = lengthZ / 2;
-    box(course, mats.laneStripeWhite, V(x, 0.026, z - halfZ + 0.06), V(lengthX, 0.01, 0.12), rot, false);
-    box(course, mats.laneStripeWhite, V(x, 0.026, z + halfZ - 0.06), V(lengthX, 0.01, 0.12), rot, false);
-    // Dashed yellow centerline
-    for (let dx = -lengthX / 2 + 1.2; dx < lengthX / 2 - 1.0; dx += 2.4) {
-      box(course, mats.laneStripeYellow, V(x + dx, 0.026, z), V(1.2, 0.01, 0.10), rot, false);
+// Build one continuous road first. Obstacles are layered onto this measured
+// corridor below; there are no detached rectangular road pads or oversized
+// paved dead zones. The road follows all gates and obstacle approaches.
+function createRouteRibbon(offset: number, width: number, material: THREE.Material, yLift: number) {
+  const routePoints = DRIVE_ROUTE.map(p => V(p.x, 0, p.z));
+  const curve = new THREE.CatmullRomCurve3(routePoints, false, 'centripetal', 0.35);
+  const points = curve.getSpacedPoints(Math.max(220, DRIVE_ROUTE.length * 18));
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const half = width * 0.5;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const before = points[Math.max(0, i - 1)];
+    const after = points[Math.min(points.length - 1, i + 1)];
+    const dx = after.x - before.x;
+    const dz = after.z - before.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = dz / len;
+    const nz = -dx / len;
+    for (const side of [-1, 1]) {
+      const x = p.x + nx * (offset + side * half);
+      const z = p.z + nz * (offset + side * half);
+      positions.push(x, evaluateCourseHeight(x, z) + yLift, z);
     }
-  } else {
-    const halfX = lengthX / 2;
-    box(course, mats.laneStripeWhite, V(x - halfX + 0.06, 0.026, z), V(0.12, 0.01, lengthZ), rot, false);
-    box(course, mats.laneStripeWhite, V(x + halfX - 0.06, 0.026, z), V(0.12, 0.01, lengthZ), rot, false);
-    // Dashed yellow centerline
-    for (let dz = -lengthZ / 2 + 1.2; dz < lengthZ / 2 - 1.0; dz += 2.4) {
-      box(course, mats.laneStripeYellow, V(x, 0.026, z + dz), V(0.10, 0.01, 1.2), rot, false);
+    if (i < points.length - 1) {
+      const a = i * 2;
+      // Vertex order must face upward in Three.js' Y-up coordinate system.
+      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
     }
   }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  course.add(mesh);
 }
 
-// Red and white racing rumble kerbs
-function createRumbleKerb(x: number, z: number, lengthX: number, lengthZ: number) {
-  const count = Math.max(4, Math.floor(Math.max(lengthX, lengthZ) / 0.45));
-  for (let i = 0; i < count; i++) {
-    const t = i / count;
-    const px = lengthX >= lengthZ ? x - lengthX / 2 + (i + 0.5) * (lengthX / count) : x;
-    const pz = lengthX < lengthZ ? z - lengthZ / 2 + (i + 0.5) * (lengthZ / count) : z;
-    const w = lengthX >= lengthZ ? lengthX / count : lengthX;
-    const d = lengthX < lengthZ ? lengthZ / count : lengthZ;
-    box(course, i % 2 === 0 ? mats.curbRed : mats.curbWhite, V(px, 0.035, pz), V(w, 0.04, d), 0, false);
-  }
-}
-
-// Build dedicated 4.0m wide circuit corridors
-createPavedTrackCorridor(-5.5, 8.0, 18.5, 4.0); // Start -> Slalom -> Breakers
-createPavedTrackCorridor(7.5, 8.0, 8.0, 4.0);   // Ramp approach & bridge corridor
-createPavedTrackCorridor(13.4, 6.2, 4.0, 6.5);  // Turn 1 connection
-createPavedTrackCorridor(4.5, 0.0, 15.0, 4.0);  // Mixed terrain stretch
-createPavedTrackCorridor(-6.0, -4.0, 13.0, 4.0); // Hazard Alley corridor
-createPavedTrackCorridor(-7.5, -7.7, 9.0, 4.0); // Twin Planks straight
-createPavedTrackCorridor(-13.5, -12.0, 8.0, 4.0); // Finish straight
-
-// Rumble kerbs along turn apexes
-createRumbleKerb(13.5, 9.8, 3.8, 0.45);
-createRumbleKerb(15.2, 5.0, 0.45, 4.2);
-createRumbleKerb(-4.2, -9.6, 0.45, 3.8);
+createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.035);
+createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.09), 0.055, mats.laneStripeWhite, 0.052);
+createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.052);
 
 // Perimeter Barriers
 for (const [id, x, z, w, d] of [
@@ -308,9 +303,13 @@ for (let x = -17; x <= 17; x += 2) {
 
 // Gantry builder
 function gantry(x: number, z: number, label: string, color: THREE.Material) {
-  solidBox(`gantry_post_${label}_L`, x, z - 2.85, 0.22, 0.22, 2.8, mats.black, 0, 1.4);
-  solidBox(`gantry_post_${label}_R`, x, z + 2.85, 0.22, 0.22, 2.8, mats.black, 0, 1.4);
-  box(course, color, V(x, 2.65, z), V(0.35, 0.38, 5.9));
+  const gateHalfSpan = DRIVE_ROUTE_WIDTH / 2 + 0.38;
+  solidBox(`gantry_post_${label}_L`, x, z - gateHalfSpan, 0.18, 0.18, 2.55, mats.black, 0, 1.275);
+  solidBox(`gantry_post_${label}_R`, x, z + gateHalfSpan, 0.18, 0.18, 2.55, mats.black, 0, 1.275);
+  // Keep the gantry just wider than the driving corridor: oversized beams had
+  // been filling the chase-camera view and made the entry look blocked.
+  const crossbar = box(course, color, V(x, 2.42, z), V(0.22, 0.22, gateHalfSpan * 2 + 0.16));
+  cameraOccluders.push(crossbar);
   const cvs = document.createElement('canvas');
   cvs.width = 512;
   cvs.height = 96;
@@ -321,9 +320,9 @@ function gantry(x: number, z: number, label: string, color: THREE.Material) {
   cx.font = '800 45px Arial';
   cx.textAlign = 'center';
   cx.fillText(label, 256, 64);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.68), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cvs) }));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.54), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cvs) }));
   sign.rotation.y = -Math.PI / 2;
-  sign.position.set(x, 2.65, z);
+  sign.position.set(x, 2.42, z);
   course.add(sign);
 }
 
@@ -576,8 +575,12 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
 });
 
 const routeClearanceAudit = validateRouteClearance(colliders);
+const driveRouteAudit = validateDriveRoute();
 if (!routeClearanceAudit.valid) {
   console.warn('Course clearance audit found possible checkpoint obstructions:', routeClearanceAudit.issues);
+}
+if (!driveRouteAudit.valid) {
+  console.error('Drive corridor validation failed:', driveRouteAudit.issues);
 }
 
 const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE);
