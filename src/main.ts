@@ -948,7 +948,7 @@ function renderUI() {
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> RIGHT · <kbd>D</kbd> LEFT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE
     </div>
     <div class="toast"></div>
     <div class="mobile-controls">
@@ -1002,12 +1002,14 @@ function renderUI() {
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
-        A: Always left relative to heading<br>
-        T: Turn front right (D: alias)<br>
-        W+A / S+A: Left arcs (nose rotates left)<br>
+        A: Turn right relative to heading<br>
+        D: Turn left relative to heading<br>
+        T: Optional right-turn key<br>
+        W+A / S+A: Right arcs (nose rotates right)<br>
+        W+D / S+D: Left arcs (nose rotates left)<br>
         W+T / S+T: Right arcs (nose rotates right)<br>
-        A alone: Pivot left · T/D alone: Pivot right<br>
-        A+T / A+D: Opposing steering cancels to 0<br>
+        A/T alone: Pivot right · D alone: Pivot left<br>
+        A+D: Opposing steering cancels to 0<br>
         W+S: Opposing throttle cancels to 0<br>
         Space: Mechanical brake · R: Safe checkpoint recovery
       </div>
@@ -1367,7 +1369,7 @@ function showMenu() {
           <span class="tag">11 ORDERED GATES</span>
         </div>
         <p style="font-size:11px;margin:12px 0 14px">
-          <b>Keyboard:</b> W/S Drive · A Left · D Right · Space Brake · R Recover · C Camera · Esc Pause<br>
+          <b>Keyboard:</b> W/S Drive · A Right · D Left · Space Brake · R Recover · C Camera · Esc Pause<br>
           <b>Controllers:</b> Compatible with Xbox, PS, RadioMaster & EdgeTX transmitters
         </p>
         <button class="action" id="btnStartRace">START RACE</button>

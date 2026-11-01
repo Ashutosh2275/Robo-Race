@@ -35,7 +35,7 @@ function simulateStep(state: DriveState, throttle: number, steering: number, sur
   return integrateDrive(state, tracks.left, tracks.right, surface, slope, config, dt);
 }
 
-test('Eight-Direction Movement: all 8 canonical states obey non-negotiable heading rules', () => {
+test('Eight-Direction Movement: normalized differential commands obey heading rules', () => {
   // 1. Forward (W): moves +Z, zero yaw change
   {
     const s = createState();
@@ -44,7 +44,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.equal(s.yaw, 0, 'Forward should not rotate yaw');
   }
 
-  // 2. Forward-Left (W+A): moves +Z and nose rotates LEFT (yaw < 0 in +Z forward convention)
+  // 2. Forward-left semantic command: moves +Z and nose rotates left.
   {
     const s = createState();
     simulateStep(s, 1, 1);
@@ -52,7 +52,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.ok(s.yaw < 0, `Forward-left must rotate nose LEFT (negative yaw), got ${s.yaw}`);
   }
 
-  // 3. Forward-Right (W+T / W+D): moves +Z and nose rotates RIGHT (yaw > 0 in +Z forward convention)
+  // 3. Forward-right semantic command: moves +Z and nose rotates right.
   {
     const s = createState();
     simulateStep(s, 1, -1);
@@ -68,7 +68,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.equal(s.yaw, 0, 'Reverse should not rotate yaw');
   }
 
-  // 5. Backward-Left (S+A): moves -Z and nose rotates LEFT (yaw < 0, NOT INVERTED)
+  // 5. Backward-left semantic command: moves -Z and nose rotates left.
   {
     const s = createState();
     simulateStep(s, -1, 1);
@@ -76,7 +76,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.ok(s.yaw < 0, `Backward-left MUST turn nose LEFT (negative yaw), got ${s.yaw}`);
   }
 
-  // 6. Backward-Right (S+T / S+D): moves -Z and nose rotates RIGHT (yaw > 0, NOT INVERTED)
+  // 6. Backward-right semantic command: moves -Z and nose rotates right.
   {
     const s = createState();
     simulateStep(s, -1, -1);
@@ -84,7 +84,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.ok(s.yaw > 0, `Backward-right MUST turn nose RIGHT (positive yaw), got ${s.yaw}`);
   }
 
-  // 7. Pivot-Left (A alone): in-place rotation with nose turning LEFT (yaw < 0)
+  // 7. Semantic pivot-left command: in-place rotation with nose turning left.
   {
     const s = createState();
     simulateStep(s, 0, 1);
@@ -92,7 +92,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
     assert.ok(s.yaw < 0, `Pivot left must rotate nose LEFT, got ${s.yaw}`);
   }
 
-  // 8. Pivot-Right (T alone / D alone): in-place rotation with nose turning RIGHT (yaw > 0)
+  // 8. Semantic pivot-right command: in-place rotation with nose turning right.
   {
     const s = createState();
     simulateStep(s, 0, -1);
@@ -101,7 +101,7 @@ test('Eight-Direction Movement: all 8 canonical states obey non-negotiable headi
   }
 });
 
-test('Reversing throttle NEVER flips the semantic steering sign', () => {
+test('Reverse throttle never flips normalized steering semantics', () => {
   const fwdLeft = createState();
   simulateStep(fwdLeft, 1, 1);
 
@@ -109,8 +109,8 @@ test('Reversing throttle NEVER flips the semantic steering sign', () => {
   simulateStep(revLeft, -1, 1);
 
   // Both MUST have negative yaw (nose turns left)
-  assert.ok(fwdLeft.yaw < 0, 'W+A must turn nose left');
-  assert.ok(revLeft.yaw < 0, 'S+A must turn nose left');
+  assert.ok(fwdLeft.yaw < 0, 'normalized forward-left steering must turn the nose left');
+  assert.ok(revLeft.yaw < 0, 'normalized reverse-left steering must turn the nose left');
   assert.equal(Math.sign(fwdLeft.yaw), Math.sign(revLeft.yaw), 'Steering sign must be identical forward vs reverse');
 
   const fwdRight = createState();
@@ -120,16 +120,16 @@ test('Reversing throttle NEVER flips the semantic steering sign', () => {
   simulateStep(revRight, -1, -1);
 
   // Both MUST have positive yaw (nose turns right)
-  assert.ok(fwdRight.yaw > 0, 'W+T must turn nose right');
-  assert.ok(revRight.yaw > 0, 'S+T must turn nose right');
+  assert.ok(fwdRight.yaw > 0, 'normalized forward-right steering must turn the nose right');
+  assert.ok(revRight.yaw > 0, 'normalized reverse-right steering must turn the nose right');
   assert.equal(Math.sign(fwdRight.yaw), Math.sign(revRight.yaw), 'Steering sign must be identical forward vs reverse');
 });
 
 test('Opposing keyboard inputs cancel cleanly without residual steering or throttle', () => {
-  // A + T
+  // A + T now both map to right; they must not cancel.
   const keysAT = keyboardKeysFromCodes(new Set(['KeyA', 'KeyT']));
   const axesAT = resolveKeyboardAxes(keysAT);
-  assert.equal(axesAT.steering, 0, 'A+T must cancel steering to 0');
+  assert.equal(axesAT.steering, -1, 'A+T both request right steering');
   assert.equal(axesAT.throttle, 0);
 
   // A + D
@@ -143,14 +143,14 @@ test('Opposing keyboard inputs cancel cleanly without residual steering or throt
   assert.equal(axesWS.throttle, 0, 'W+S must cancel throttle to 0');
   assert.equal(axesWS.steering, 0);
 
-  // W + S + A + T
-  const keysAll = keyboardKeysFromCodes(new Set(['KeyW', 'KeyS', 'KeyA', 'KeyT']));
+  // W + S + A + D cancels both axes.
+  const keysAll = keyboardKeysFromCodes(new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD']));
   const axesAll = resolveKeyboardAxes(keysAll);
   assert.equal(axesAll.throttle, 0);
   assert.equal(axesAll.steering, 0);
 });
 
-test('Consistent steering direction across varying terrain slopes and friction', () => {
+test('Normalized steering stays consistent across terrain slopes and friction', () => {
   // Level ground
   const levelLeft = createState();
   simulateStep(levelLeft, 0.5, 1, asphalt, { x: 0, z: 0 });

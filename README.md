@@ -10,9 +10,10 @@ A browser-based tracked-robot racing simulator built with **Vite**, **TypeScript
 - **Exact Kinematics**:
   $$v_L = v - \frac{\omega \cdot b}{2}, \quad v_R = v + \frac{\omega \cdot b}{2}$$
 - **Calibrated Directional Steering**:
-  - `A`: Always commands LEFT yaw rotation relative to robot heading.
-  - `D` / `B`: Always commands RIGHT yaw rotation relative to robot heading.
-  - Reversing throttle (`S`) **never flips the steering direction**. `S+A` reverses while the nose rotates left; `S+D` reverses while the nose rotates right.
+  - `A`: Commands RIGHT yaw rotation relative to robot heading.
+  - `D`: Commands LEFT yaw rotation relative to robot heading.
+  - Optional `T` / `B` keys remain right-turn aliases; arrow keys follow their named directions.
+  - Reversing throttle (`S`) **never flips the steering direction**. `S+A` reverses while the nose rotates right; `S+D` reverses while the nose rotates left.
   - `W+S` cancels throttle to neutral; `A+D` cancels steering to neutral.
   - Browser focus loss or tab switching immediately zeroes commands to prevent runaway robots.
 - **Universal Device Support**:
@@ -115,12 +116,12 @@ Launches a headless browser instance, verifies rendering, starts a live race, te
 |---|---|
 | **W** | Drive forward |
 | **S** | Drive backward |
-| **A** | Turn front toward left |
-| **D** / **B** | Turn front toward right |
-| **W + A** | Forward-left curved movement |
-| **W + D** | Forward-right curved movement |
-| **S + A** | Reverse while front turns left |
-| **S + D** | Reverse while front turns right |
+| **A** | Turn front toward right |
+| **D** | Turn front toward left |
+| **W + A** | Forward-right curved movement |
+| **W + D** | Forward-left curved movement |
+| **S + A** | Reverse while front turns right |
+| **S + D** | Reverse while front turns left |
 | **Space** | Mechanical brake |
 | **R** | Safe recovery to last checkpoint |
 | **C** | Cycle camera (Chase, Low Bumper, Tactical, Garage) |

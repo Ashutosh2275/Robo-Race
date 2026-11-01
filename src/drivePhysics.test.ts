@@ -13,17 +13,17 @@ test('opposite track commands turn in place and left track forward turns right',
   assert.ok(Math.abs(s.x) < .001 && Math.abs(s.z) < .001);
 });
 
-test('A maps to a left turn and D maps to a right turn', () => {
+test('canonical left and right track commands turn in the intended directions', () => {
   const a = state();
-  // Canonical semantic steering: +1 is LEFT (Key A), -1 is RIGHT (Key T / Key D)
+  // Normalized semantic steering remains +1 LEFT and -1 RIGHT.
   const aTracks = mixDifferentialSteering(0, 1);
   integrateDrive(a, aTracks.left, aTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(a.yaw < 0, `Key A (left turn) should produce negative yaw in +Z convention, got ${a.yaw}`);
+  assert.ok(a.yaw < 0, `canonical LEFT should produce negative yaw in +Z convention, got ${a.yaw}`);
 
   const d = state();
   const dTracks = mixDifferentialSteering(0, -1);
   integrateDrive(d, dTracks.left, dTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(d.yaw > 0, `Key D / T (right turn) should produce positive yaw in +Z convention, got ${d.yaw}`);
+  assert.ok(d.yaw > 0, `canonical RIGHT should produce positive yaw in +Z convention, got ${d.yaw}`);
 });
 
 test('full throttle plus steering produces a responsive arc instead of a wide drift', () => {

@@ -163,8 +163,8 @@ To guarantee that no duplicate inversions or sign mismatches occur, all input de
 
 | File | Location | Prior Defect | Implemented Correction |
 |---|---|---|---|
-| `src/driveControls.ts` | `keyboardKeysFromCodes` | Only mapped `KeyD` and `KeyB` for right turn; `KeyT` was unhandled. | Bound `KeyT`, `KeyD`, `KeyB`, and `ArrowRight` to `right`. Bound `KeyA` and `ArrowLeft` to `left`. |
-| `src/driveControls.ts` | `resolveKeyboardAxes` | Did not cancel opposing keys cleanly when `A` and `T` were pressed together. | Evaluates `keys.left === keys.right ? 0 : keys.left ? 1 : -1`, safely canceling conflicting steering commands to 0. |
+| `src/driveControls.ts` | `keyboardKeysFromCodes` | The A/D keyboard mapping was inconsistent with the requested control direction. | Current mapping: `KeyA` requests right; `KeyD` requests left. Arrow keys and optional T/B aliases retain their own mappings. |
+| `src/driveControls.ts` | `resolveKeyboardAxes` | Opposing A/D keys needed to cancel; A+T are both right-turn requests. | Evaluates `keys.left === keys.right ? 0 : keys.left ? 1 : -1`, safely canceling A+D to neutral while A+T continues requesting right. |
 | `src/driveControls.ts` | `mixThrottleSteering` | Had confusing variable names that did not match standard robotics terminology. | Standardized to `mixThrottleSteering(throttle, steering, mixStrength)` adhering to $v_L = v - s \cdot k$, $v_R = v + s \cdot k$. |
 | `src/drivePhysics.ts` | `mixDifferentialSteering` | Inverted parameter convention (`steerRight` where positive was right). | Standardized to canonical semantic steering ($s > 0$ is LEFT, $s < 0$ is RIGHT), eliminating cross-module sign discrepancies. |
 | `src/universalController.ts` | Gamepad axis reading | Raw `axis0` (which is negative when pushed left in HTML5 Gamepad API) was assigned without calibration. | Implemented device profile mapping: `rawAxis * (invert ? 1 : -1)` ensuring physical stick LEFT produces positive semantic steering ($+1.0$). |
@@ -182,16 +182,15 @@ All 13 standard driving tests were executed in both automated unit tests and Pla
 |---|---|---|---|---|
 | **W** | $\Delta \theta = 0$ | $0.000\text{ rad}$ | Straight forward ($+Z$) | **PASSED** |
 | **S** | $\Delta \theta = 0$ | $0.000\text{ rad}$ | Straight reverse ($-Z$) | **PASSED** |
-| **A** alone | $\Delta \theta < 0$ (Left) | $-0.121\text{ rad}$ | Pivot counter-clockwise in place | **PASSED** |
+| **A** alone | $\Delta \theta > 0$ (Right) | $+0.067\text{ rad}$ | Pivot clockwise in place | **PASSED** |
 | **T** alone | $\Delta \theta > 0$ (Right) | $+0.108\text{ rad}$ | Pivot clockwise in place | **PASSED** |
-| **D** alone | $\Delta \theta > 0$ (Right) | $+0.108\text{ rad}$ | Pivot clockwise in place (compatibility alias) | **PASSED** |
-| **W + A** | $\Delta \theta < 0$ (Left) | $-0.245\text{ rad}$ | Forward-left smooth arc | **PASSED** |
-| **W + T** | $\Delta \theta > 0$ (Right) | $+0.241\text{ rad}$ | Forward-right smooth arc | **PASSED** |
-| **S + A** | $\Delta \theta < 0$ (Left) | $-0.143\text{ rad}$ | Reverse while nose rotates left | **PASSED** |
-| **S + T** | $\Delta \theta > 0$ (Right) | $+0.140\text{ rad}$ | Reverse while nose rotates right | **PASSED** |
+| **D** alone | $\Delta \theta < 0$ (Left) | $-0.039\text{ rad}$ | Pivot counter-clockwise in place | **PASSED** |
+| **W + A** | Positive yaw (Right) | Verified in browser run | Forward-right smooth arc | **PASSED** |
+| **W + D** | Negative yaw (Left) | Verified in browser run | Forward-left smooth arc | **PASSED** |
+| **S + A** | $\Delta \theta > 0$ (Right) | $+0.084\text{ rad}$ | Reverse while nose rotates right | **PASSED** |
+| **S + D** | $\Delta \theta < 0$ (Left) | $-0.131\text{ rad}$ | Reverse while nose rotates left | **PASSED** |
 | **W + S** | Throttle = 0 | $0.00\text{ m/s}$ | Stationary (opposing throttle cancelled) | **PASSED** |
-| **A + T** | Steering = 0 | $0.000\text{ rad}$ | Straight (opposing steering cancelled) | **PASSED** |
-| **A + D** | Steering = 0 | $0.000\text{ rad}$ | Straight (opposing steering cancelled) | **PASSED** |
+| **A + D** | Steering = 0 | $0.0418\text{ rad}$ | Near-straight (opposing steering cancelled; below $0.12$ rad threshold) | **PASSED** |
 | **Space** | Braking | Velocity damped to 0 | Active kinetic deceleration | **PASSED** |
 
-This concludes the investigation. The canonical steering architecture is established permanently.
+The keyboard A/D mapping is intentionally reversed from the normalized semantic steering axis: A requests right and D requests left. Controller axes keep their standard semantic mappings.

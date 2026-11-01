@@ -14,8 +14,8 @@ where:
 - $v_L, v_R$ are ground-relative left and right track target velocities.
 
 ### Strict Steering Rules
-1. **A always turns the robot's front to the LEFT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
-2. **D always turns the robot's front to the RIGHT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
+1. **A turns the robot's front to the RIGHT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
+2. **D turns the robot's front to the LEFT relative to heading**, regardless of whether W (forward) or S (reverse) is held.
 3. Reversing throttle never flips the steering sign.
 4. Opposing inputs resolve cleanly:
    - `W + S` cancels throttle to neutral while preserving active steering.
@@ -31,12 +31,12 @@ where:
 |---|---|---|---|---|---|
 | **W** | Forward | $+1.00$ | $+1.00$ | Neutral ($0$) | Forward along heading |
 | **S** | Reverse | $-1.00$ | $-1.00$ | Neutral ($0$) | Reverse along heading |
-| **A** | Pivot Left | $-0.48$ | $+0.48$ | Counter-clockwise (Left) | Zero translation (in-place) |
-| **D / B** | Pivot Right | $+0.48$ | $-0.48$ | Clockwise (Right) | Zero translation (in-place) |
-| **W + A** | Forward-Left Arc | $+0.14$ | $+1.00$ | Left ($\Delta \text{yaw} < 0$) | Forward curving to left |
-| **W + D** | Forward-Right Arc | $+1.00$ | $+0.14$ | Right ($\Delta \text{yaw} > 0$) | Forward curving to right |
-| **S + A** | Reverse-Left Arc | $-1.00$ | $-0.14$ | Left ($\Delta \text{yaw} < 0$) | Reverse with nose turning left |
-| **S + D** | Reverse-Right Arc | $-0.14$ | $-1.00$ | Right ($\Delta \text{yaw} > 0$) | Reverse with nose turning right |
+| **A** | Pivot Right | $+0.48$ | $-0.48$ | Clockwise (Right) | Zero translation (in-place) |
+| **D** | Pivot Left | $-0.48$ | $+0.48$ | Counter-clockwise (Left) | Zero translation (in-place) |
+| **W + A** | Forward-Right Arc | $+1.00$ | $+0.14$ | Right ($\Delta \text{yaw} > 0$) | Forward curving to right |
+| **W + D** | Forward-Left Arc | $+0.14$ | $+1.00$ | Left ($\Delta \text{yaw} < 0$) | Forward curving to left |
+| **S + A** | Reverse-Right Arc | $-0.14$ | $-1.00$ | Right ($\Delta \text{yaw} > 0$) | Reverse with nose turning right |
+| **S + D** | Reverse-Left Arc | $-1.00$ | $-0.14$ | Left ($\Delta \text{yaw} < 0$) | Reverse with nose turning left |
 | **Space** | Mechanical Brake | $0.00$ | $0.00$ | Stopped | Decelerates to stop |
 | **R** | Safe Recovery | $0.00$ | $0.00$ | Aligned with anchor | Restored upright at checkpoint |
 
@@ -68,6 +68,6 @@ where:
 
 ## Automated Test Suites
 
-The current suite contains 47 unit tests across seven test files, including directional gate crossing, slalom module geometry, ground-contact height, recovery clearance selection, four-wheel/two-motor topology, and zero-integrity shutdown.
+The current suite contains 48 unit tests across seven test files, including keyboard A-right/D-left mapping, directional gate crossing, slalom module geometry, ground-contact height, recovery clearance selection, four-wheel/two-motor topology, and zero-integrity shutdown.
 
 The Chromium gameplay check measures the live robot yaw while holding A and D, tests W+A/W+D and S+A/S+D, checks opposing steering, compares the track underside with sampled terrain, validates course clearance, forces structural integrity to zero and confirms motion stays stopped until restart. The 2026-11-01 run passed. It does not verify every physical controller model or complete a full human-driven race.
