@@ -1,6 +1,9 @@
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import fs from 'node:fs';
+import assert from 'node:assert/strict';
+
+const angleDelta = (after, before) => Math.atan2(Math.sin(after - before), Math.cos(after - before));
 
 async function main() {
   console.log('--- STARTING E2E GAMEPLAY VERIFICATION ---');
@@ -52,6 +55,11 @@ async function main() {
   console.log('Waiting for race to become active...');
   await page.waitForFunction(() => window.__gameDebug?.raceState === 'racing', { timeout: 10000 });
   console.log('Race is active! (GO!)');
+  const startupDebug = await page.evaluate(() => window.__gameDebug);
+  const contactGap = Math.abs(startupDebug.groundContact.trackBottomY - startupDebug.groundContact.terrainY);
+  console.log(`Track-to-ground contact gap: ${contactGap.toFixed(4)} m`);
+  assert.ok(contactGap < 0.01, `robot belt should contact the ground, gap=${contactGap}`);
+  assert.equal(startupDebug.routeClearanceAudit.valid, true, `route audit: ${startupDebug.routeClearanceAudit.issues.join('; ')}`);
 
   // Take screenshot of race starting
   fs.mkdirSync('outputs', { recursive: true });
@@ -83,6 +91,7 @@ async function main() {
   await page.waitForTimeout(600);
   const yawDuringA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before A: ${yawBeforeA.toFixed(3)}, Yaw during A: ${yawDuringA.toFixed(3)} (Delta: ${(yawDuringA - yawBeforeA).toFixed(3)})`);
+  assert.ok(angleDelta(yawDuringA, yawBeforeA) < -0.03, 'A must rotate the robot nose left in actual gameplay');
   await page.keyboard.up('KeyA');
   await page.waitForTimeout(300);
 
@@ -93,6 +102,7 @@ async function main() {
   await page.waitForTimeout(600);
   const yawDuringT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before T: ${yawBeforeT.toFixed(3)}, Yaw during T: ${yawDuringT.toFixed(3)} (Delta: ${(yawDuringT - yawBeforeT).toFixed(3)} -> Right)`);
+  assert.ok(angleDelta(yawDuringT, yawBeforeT) > 0.03, 'T right-turn alias should rotate the nose right');
   await page.keyboard.up('KeyT');
   await page.waitForTimeout(300);
 
@@ -102,6 +112,7 @@ async function main() {
   await page.waitForTimeout(600);
   const yawDuringD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before D: ${yawBeforeD.toFixed(3)}, Yaw during D: ${yawDuringD.toFixed(3)} (Delta: ${(yawDuringD - yawBeforeD).toFixed(3)} -> Right)`);
+  assert.ok(angleDelta(yawDuringD, yawBeforeD) > 0.03, 'D must rotate the robot nose right in actual gameplay');
   await page.keyboard.up('KeyD');
   await page.waitForTimeout(300);
 
@@ -114,6 +125,7 @@ async function main() {
   const yawDuringAT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   const deltaAT = Math.abs(yawDuringAT - yawBeforeAT);
   console.log(`Yaw delta during A+T: ${deltaAT.toFixed(4)} (Expected ~0 rad rotation)`);
+  assert.ok(deltaAT < 0.12, 'opposing A+D steering keys must cancel');
   await page.keyboard.up('KeyT');
   await page.keyboard.up('KeyA');
   await page.waitForTimeout(300);
@@ -123,6 +135,8 @@ async function main() {
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
+  const forwardLeftDebug = await page.evaluate(() => window.__gameDebug);
+  assert.ok(angleDelta(forwardLeftDebug.pose.yaw, yawBeforeAT) < 0, 'W+A must produce a left-curving trajectory');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
@@ -131,6 +145,8 @@ async function main() {
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyT');
   await page.waitForTimeout(1000);
+  const forwardRightDebug = await page.evaluate(() => window.__gameDebug);
+  assert.ok(angleDelta(forwardRightDebug.pose.yaw, forwardLeftDebug.pose.yaw) > 0, 'W+D must produce a right-curving trajectory');
   await page.keyboard.up('KeyT');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
@@ -143,6 +159,7 @@ async function main() {
   await page.waitForTimeout(1000);
   const yawDuringSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Left)`);
+  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) < -0.03, 'S+A must still turn the nose left while reversing');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
@@ -154,6 +171,7 @@ async function main() {
   await page.waitForTimeout(1000);
   const yawDuringST = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   console.log(`Yaw before S+T: ${yawBeforeST.toFixed(3)}, Yaw during S+T: ${yawDuringST.toFixed(3)} (Delta: ${(yawDuringST - yawBeforeST).toFixed(3)} -> Right)`);
+  assert.ok(angleDelta(yawDuringST, yawBeforeST) > 0.03, 'S+D must still turn the nose right while reversing');
   await page.keyboard.up('KeyT');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
@@ -220,6 +238,20 @@ async function main() {
   // Final screenshot
   await page.screenshot({ path: 'outputs/gameplay-final.png' });
   console.log('Saved outputs/gameplay-final.png');
+
+  // Structural health at zero must disable movement until a full restart.
+  console.log('Testing zero-integrity failure and race restart...');
+  await page.evaluate(() => { window.__gameDebug.subsystems.integrity.chassis = 0; });
+  await page.waitForFunction(() => window.__gameDebug?.raceState === 'failed', { timeout: 3000 });
+  const stoppedBefore = await page.evaluate(() => ({ x: window.__gameDebug.pose.x, z: window.__gameDebug.pose.z }));
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(250);
+  await page.keyboard.up('KeyW');
+  const stoppedAfter = await page.evaluate(() => ({ x: window.__gameDebug.pose.x, z: window.__gameDebug.pose.z }));
+  assert.ok(Math.hypot(stoppedAfter.x - stoppedBefore.x, stoppedAfter.z - stoppedBefore.z) < 1e-6, 'a dead robot must not move');
+  await page.click('#btnRestartFailed');
+  await page.waitForFunction(() => window.__gameDebug?.raceState === 'racing', { timeout: 7000 });
+  assert.equal(await page.evaluate(() => window.__gameDebug.subsystems.integrity.chassis), 100, 'restart must restore a new race state');
 
   // Clean up
   await browser.close();

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { integrateDrive, slopeAt, type DriveState } from './drivePhysics';
 import { CONTROL_PRESETS, type ControlTuning, type VehicleTuning } from './driveControls';
+import { DRIVE_SPROCKET_RADIUS_M, MOTOR_SPECIFICATIONS, maxMotorAccelerationMps2, maxTrackSpeedMps } from './drivetrainConfig';
 import {
   stepVehicle3D,
   applyRecovery,
@@ -10,10 +11,14 @@ import {
   type VehiclePose,
   TRACK_WIDTH,
   TRACK_LENGTH,
+  TRACK_CONTACT_OFFSET,
+  ROBOT_COLLISION_HEIGHT,
+  getFootprintAabbHalfExtents,
 } from './vehicleDynamics';
 import {
   createInitialSubsystems,
   stepSubsystems,
+  isRobotDestroyed,
   type SubsystemsState,
   type HazardType,
 } from './robotSubsystems';
@@ -25,11 +30,14 @@ import {
 import {
   MAP_SCALE,
   CHECKPOINTS,
+  SLALOM_BARRIERS,
+  SPEED_BREAKER_XS,
   HILL_NODES,
   evaluateCourseHeight,
   evaluateCourseSurface,
   generateRockFieldStones,
   validateRouteClearance,
+  crossesCheckpointGate,
   type CourseCollider,
 } from './courseLayout';
 import './style.css';
@@ -323,15 +331,15 @@ gantry(-14.2, 8.0, 'START', mats.green);
 gantry(-15.0, -12.0, 'FINISH', mats.yellow);
 
 // Slalom Barriers with guaranteed 3.0m clear driving lane
-for (let i = 0; i < 5; i++) {
-  const x = -9.2 + i * 1.35;
-  const z = 8.0 + (i % 2 === 0 ? 1.15 : -1.15);
-  solidBox(`slalom_barrier_${i}`, x, z, 1.35, 0.36, 0.78, i % 2 === 0 ? mats.yellow : mats.barrier, 0.06, 0.39);
+for (const [i, barrier] of SLALOM_BARRIERS.entries()) {
+  // Place each modular block across the lane, so the robot has to alternate
+  // through the open side instead of driving parallel to a decorative wall.
+  solidBox(barrier.id, barrier.x, barrier.z, barrier.width, barrier.depth, barrier.height, i % 2 === 0 ? mats.yellow : mats.barrier, 0, barrier.height / 2);
 }
 
 // Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)
-for (let i = 0; i < 3; i++) {
-  const x = -2.1 + i * 1.05;
+for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
+  const x = SPEED_BREAKER_XS[i];
   // Smooth cylinder half spanning the full 3.8m corridor width
   const bumpGeo = new THREE.CylinderGeometry(0.42, 0.42, 3.8, 24, 1, false, 0, Math.PI);
   const bump = new THREE.Mesh(bumpGeo, i % 2 === 0 ? mats.yellow : mats.black);
@@ -567,6 +575,11 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   };
 });
 
+const routeClearanceAudit = validateRouteClearance(colliders);
+if (!routeClearanceAudit.valid) {
+  console.warn('Course clearance audit found possible checkpoint obstructions:', routeClearanceAudit.issues);
+}
+
 const recoveryAnchors = createDefaultRecoveryAnchors(MAP_SCALE);
 
 // -------------------------------------------------------------
@@ -633,7 +646,7 @@ box(chassis, mats.yellow, V(0, 0.56, 0.32), V(0.06, 0.04, 0.08)); // XT60
 
 // Track Assemblies and Yellow Protective Coverings (strictly inside robotBody)
 const trackCovers: THREE.Mesh[] = [];
-const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; rollers: THREE.Mesh[]; phase: number }[] = [];
+const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; wheels: THREE.Mesh[]; phase: number }[] = [];
 
 function createTrackBeltGeometry() {
   const centerZ = 0.58;
@@ -726,18 +739,17 @@ for (const side of [-1, 1]) {
   belt.receiveShadow = true;
   trackGroup.add(belt);
 
-  // Pale circular exposed end wheels (drive sprocket & idler)
+  // Two wheels per side, four total: one motor wheel and one passive idler.
+  // The reference images do not reveal which wheel is powered, so use the
+  // requested diagonal default (left-front + right-rear) as a documented
+  // configuration assumption. Idlers receive no independent torque.
+  const wheelList: THREE.Mesh[] = [];
   for (const end of [-1, 1]) {
-    cyl(trackGroup, mats.wheel, V(0, 0.32, end * 0.76), 0.21, 0.36, 'x', 24);
-    cyl(trackGroup, mats.metal, V(side * 0.19, 0.32, end * 0.76), 0.05, 0.04, 'x', 12);
-  }
-
-  // Intermediate road wheels
-  const rollerList: THREE.Mesh[] = [];
-  for (const z of [-0.42, 0, 0.42]) {
-    const r = cyl(trackGroup, mats.wheel, V(0, 0.32, z), 0.17, 0.35, 'x', 18);
-    cyl(trackGroup, mats.metal, V(side * 0.18, 0.32, z), 0.04, 0.03, 'x', 12);
-    rollerList.push(r);
+    const isPowered = side < 0 ? end > 0 : end < 0;
+    const wheel = cyl(trackGroup, mats.wheel, V(0, 0.32, end * 0.58), DRIVE_SPROCKET_RADIUS_M, 0.36, 'x', 24);
+    wheel.userData = { role: isPowered ? 'motor-driven sprocket' : 'passive belt-driven idler' };
+    cyl(trackGroup, mats.metal, V(side * 0.19, 0.32, end * 0.58), 0.05, 0.04, 'x', 12);
+    wheelList.push(wheel);
   }
 
   // Track cleats (treads) that animate along stadium path
@@ -753,7 +765,7 @@ for (const side of [-1, 1]) {
     cleats.push(q);
   }
 
-  tracks.push({ group: trackGroup, cleats, rollers: rollerList, phase: 0 });
+  tracks.push({ group: trackGroup, cleats, wheels: wheelList, phase: 0 });
 }
 
 // Contact shadow beneath robot (placed in scene, follows vehicle on ground)
@@ -842,6 +854,7 @@ const motionState: DriveState = {
   yaw: pose.yaw,
   angular: 0,
 };
+let previousRacePosition = { x: pose.x, z: pose.z };
 
 let subsystems: SubsystemsState = createInitialSubsystems();
 let raceState: 'menu' | 'countdown' | 'racing' | 'paused' | 'finished' | 'failed' = 'menu';
@@ -1419,6 +1432,24 @@ function showResults() {
   $('#btnMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
 }
 
+function showFailure(reason: string) {
+  const o = $<HTMLDivElement>('#overlay');
+  o.innerHTML = `
+    <div class="overlay">
+      <div class="card">
+        <div class="eyebrow" style="color:#ff7770">RACE FAILED · ROBOT DISABLED</div>
+        <h1>Run ended.</h1>
+        <p>${reason}. Structural integrity reached zero. The drivetrain is disabled and this attempt cannot be recovered.</p>
+        <p>Time: <b>${formatTime(elapsed)}</b> · Battery: ${subsystems.battery.percentage.toFixed(0)}%</p>
+        <button class="action" id="btnRestartFailed">RESTART RACE</button>
+        <div class="subactions"><button class="iconbtn" id="btnFailedMenu">MAIN MENU</button></div>
+      </div>
+    </div>
+  `;
+  $('#btnRestartFailed', o).addEventListener('click', startRace);
+  $('#btnFailedMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
+}
+
 function hideOverlays() {
   const o = $<HTMLDivElement>('#overlay');
   if (o) o.innerHTML = '';
@@ -1491,6 +1522,7 @@ function startRace() {
   motionState.vz = 0;
   motionState.yaw = pose.yaw;
   motionState.angular = 0;
+  previousRacePosition = { x: pose.x, z: pose.z };
 
   raceState = 'countdown';
   countdown = 3.0;
@@ -1503,10 +1535,26 @@ function restartRace() {
 }
 
 function recoverVehicle() {
-  if (recoveryCooldown > 0) return;
+  if (raceState !== 'racing' || isRobotDestroyed(subsystems) || recoveryCooldown > 0) return;
   recoveryCooldown = 1.0;
 
-  const anchor = getSafeRecoveryAnchor(currentCheckpoint, recoveryAnchors);
+  const anchor = getSafeRecoveryAnchor(currentCheckpoint, recoveryAnchors, candidate => {
+    const half = getFootprintAabbHalfExtents(candidate.yaw);
+    const x = candidate.x / MAP_SCALE;
+    const z = candidate.z / MAP_SCALE;
+    return colliders.every(c => c.walkable ||
+      Math.abs(x - c.x) >= c.hx + half.x / MAP_SCALE ||
+      Math.abs(z - c.z) >= c.hz + half.z / MAP_SCALE);
+  });
+  if (!anchor) {
+    displayToast('NO CLEAR RECOVERY POINT · MOVE TO SAFETY');
+    return;
+  }
+  currentCheckpoint = anchor.checkpointIndex;
+  checkpointMeshes.forEach((checkpoint, i) => {
+    checkpoint.passed = i < currentCheckpoint;
+    (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+  });
   applyRecovery(pose, anchor, evaluateCourseHeight);
 
   motionState.x = pose.x;
@@ -1515,6 +1563,7 @@ function recoverVehicle() {
   motionState.vz = 0;
   motionState.yaw = pose.yaw;
   motionState.angular = 0;
+  previousRacePosition = { x: pose.x, z: pose.z };
 
   penaltyTime += config.penalty;
   tone(380, 0.18, 0.05);
@@ -1567,16 +1616,20 @@ let accumulator = 0;
 let lastFrameTime = performance.now();
 
 function collidesWithBarrier(x: number, z: number, y: number) {
+  const half = getFootprintAabbHalfExtents(pose.yaw);
+  const robotBottom = y + TRACK_CONTACT_OFFSET;
+  const robotTop = y + ROBOT_COLLISION_HEIGHT;
   for (const c of colliders) {
     if (c.walkable) continue;
+    if (c.y + c.height / 2 < robotBottom || c.y - c.height / 2 > robotTop) continue;
     const dx = x - c.x * MAP_SCALE;
     const dz = z - c.z * MAP_SCALE;
     const halfW = c.hx * MAP_SCALE;
     const halfD = c.hz * MAP_SCALE;
 
-    if (Math.abs(dx) < halfW + 0.85 && Math.abs(dz) < halfD + 0.85) {
-      const overlapX = (halfW + 0.85) - Math.abs(dx);
-      const overlapZ = (halfD + 0.85) - Math.abs(dz);
+    if (Math.abs(dx) < halfW + half.x && Math.abs(dz) < halfD + half.z) {
+      const overlapX = (halfW + half.x) - Math.abs(dx);
+      const overlapZ = (halfD + half.z) - Math.abs(dz);
       if (overlapX < overlapZ) {
         return { nx: dx > 0 ? 1 : -1, nz: 0 };
       } else {
@@ -1596,6 +1649,11 @@ function stepPhysics(dt: number) {
     motionState,
     subsystems,
     currentCheckpoint,
+    routeClearanceAudit,
+    groundContact: {
+      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
+      trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
+    },
   };
 
   if (raceState === 'countdown') {
@@ -1638,8 +1696,13 @@ function stepPhysics(dt: number) {
     { grip: effectiveGrip, rollingResistance: surf.rollingResistance },
     slope,
     {
-      maxSpeed: tuning.maxSpeed * config.sensitivity,
-      motorAcceleration: tuning.acceleration,
+      maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])),
+      motorTrackSpeed: Math.min(maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])),
+      motorAcceleration: Math.min(
+        tuning.acceleration,
+        maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[0]),
+        maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[1]),
+      ) * subsystems.motors.thermalThrottle,
       braking: tuning.braking,
       turnRate: tuning.maxRotation,
       turnResponse: tuning.steeringResponse,
@@ -1702,6 +1765,18 @@ function stepPhysics(dt: number) {
     dt
   );
 
+  if (isRobotDestroyed(subsystems)) {
+    raceState = 'failed';
+    controller.neutralize();
+    motionState.vx = 0;
+    motionState.vz = 0;
+    motionState.angular = 0;
+    pose.vx = 0;
+    pose.vz = 0;
+    pose.yawRate = 0;
+    showFailure('Chassis integrity depleted');
+  }
+
   // Update Three.js Robot Rigidbody Position and Rotation (unified rigid structure)
   robot.position.set(pose.x, pose.y, pose.z);
   robot.rotation.y = pose.yaw;
@@ -1724,6 +1799,11 @@ function stepPhysics(dt: number) {
     inputs,
     subsystems,
     currentCheckpoint,
+    routeClearanceAudit,
+    groundContact: {
+      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
+      trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
+    },
   };
 
   // Animate track cleats and road wheels independently for left and right tracks
@@ -1740,8 +1820,10 @@ function stepPhysics(dt: number) {
       q.rotation.x = point.rotationX;
     }
 
-    for (const w of tr.rollers) {
-      w.rotation.x += beltSpeed * dt / 0.17;
+    for (const w of tr.wheels) {
+      // Passive idlers turn only because the same belt pulls them; both
+      // end wheels share the belt's speed and never add drive force.
+      w.rotation.x += beltSpeed * dt / DRIVE_SPROCKET_RADIUS_M;
     }
   }
 
@@ -1767,11 +1849,10 @@ function stepPhysics(dt: number) {
   }
 
   // Checkpoint validation
-  if (currentCheckpoint < checkpointMeshes.length) {
+  if (raceState === 'racing' && currentCheckpoint < checkpointMeshes.length) {
     const cp = checkpointMeshes[currentCheckpoint];
-    const distSq = (pose.x - cp.worldX) ** 2 + (pose.z - cp.worldZ) ** 2;
 
-    if (distSq < (2.2 * MAP_SCALE) ** 2) {
+    if (crossesCheckpointGate(previousRacePosition, { x: pose.x, z: pose.z }, cp)) {
       cp.passed = true;
       currentCheckpoint++;
       (cp.bar.material as THREE.MeshBasicMaterial).color.set('#f0bd53');
@@ -1784,6 +1865,7 @@ function stepPhysics(dt: number) {
       }
     }
   }
+  previousRacePosition = { x: pose.x, z: pose.z };
 }
 
 // -------------------------------------------------------------
@@ -1856,6 +1938,7 @@ function updateHUD(dt: number) {
   }
   if (n) {
     n.innerHTML = raceState === 'finished' ? 'COURSE COMPLETE' :
+      raceState === 'failed' ? 'ROBOT DISABLED · RESTART REQUIRED' :
       raceState === 'countdown' ? `RACE STARTS IN <i>${Math.max(1, Math.ceil(countdown))}</i>` :
       raceState === 'paused' ? 'RACE PAUSED' :
       `PASS GATE <i>${String(currentCheckpoint + 1).padStart(2, '0')}</i> IN ORDER`;

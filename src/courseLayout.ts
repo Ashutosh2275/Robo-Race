@@ -27,6 +27,34 @@ export type CheckpointGate = {
   width: number;
 };
 
+export type CoursePoint = { x: number; z: number };
+
+/** True only when the vehicle centre crosses a gate plane in its forward direction. */
+export function crossesCheckpointGate(
+  previous: CoursePoint,
+  current: CoursePoint,
+  gate: CheckpointGate,
+  worldScale = MAP_SCALE,
+  vehicleWidth = 1.98,
+): boolean {
+  const gx = gate.x * worldScale;
+  const gz = gate.z * worldScale;
+  const fx = Math.sin(gate.yaw);
+  const fz = Math.cos(gate.yaw);
+  const d0 = (previous.x - gx) * fx + (previous.z - gz) * fz;
+  const d1 = (current.x - gx) * fx + (current.z - gz) * fz;
+  if (!(d0 < 0 && d1 >= 0)) return false;
+
+  const t = d0 / (d0 - d1);
+  const crossX = previous.x + (current.x - previous.x) * t;
+  const crossZ = previous.z + (current.z - previous.z) * t;
+  const rx = Math.cos(gate.yaw);
+  const rz = -Math.sin(gate.yaw);
+  const lateral = Math.abs((crossX - gx) * rx + (crossZ - gz) * rz);
+  const halfOpening = gate.width * worldScale * 0.5 - vehicleWidth * 0.5;
+  return lateral <= halfOpening;
+}
+
 export type HillNode = {
   x: number;
   z: number;
@@ -41,6 +69,16 @@ export type HillSegment = {
 
 // Map scale constant matching scene
 export const MAP_SCALE = 1.3;
+
+export const SLALOM_BARRIERS = Array.from({ length: 5 }, (_, i) => ({
+  id: `slalom_barrier_${i}`,
+  x: -10.4 + i * 2.25,
+  z: 8.0 + (i % 2 === 0 ? 1.1 : -1.1),
+  width: 0.36,
+  depth: 1.8,
+  height: 0.78,
+}));
+export const SPEED_BREAKER_XS = [0, 1.05, 2.1] as const;
 
 // Switchback Hill Nodes with wide turning landings
 export const HILL_NODES: HillNode[] = [
@@ -185,11 +223,10 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return 0.62 * Math.min(tAscent, tDescent);
   }
 
-  // Speed breakers at x = -2.1, -1.05, 0.0 at z = 8.0 (Obstacle 3: smooth competition humps)
+  // Speed breakers at x = 0.0, 1.05, 2.1 at z = 8.0, after the slalom.
   if (Math.abs(z - 8.0) < 1.85) {
     let bump = 0;
-    for (let i = 0; i < 3; i++) {
-      const bx = -2.1 + i * 1.05;
+    for (const bx of SPEED_BREAKER_XS) {
       const d = Math.abs(x - bx);
       if (d < 0.45) {
         bump = Math.max(bump, 0.03 + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
@@ -288,16 +325,18 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
  */
 export const CHECKPOINTS: CheckpointGate[] = [
   { id: 1, label: 'Gate 01 - Start Straight', x: -11.5, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 2, label: 'Gate 02 - Slalom Exit', x: -4.8, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 3, label: 'Gate 03 - Breakers Clear', x: 0.8, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 4, label: 'Gate 04 - Ramp Approach', x: 3.6, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
+  // Placed just beyond the final staggered barrier so the vehicle can fully
+  // clear the slalom before the checkpoint trigger is considered passed.
+  { id: 2, label: 'Gate 02 - Slalom Exit', x: -0.2, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
+  { id: 3, label: 'Gate 03 - Breakers Clear', x: 3.2, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
+  { id: 4, label: 'Gate 04 - Ramp Approach', x: 4.4, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
   { id: 5, label: 'Gate 05 - Bridge Crest', x: 9.6, z: 8.0, yaw: Math.PI / 2, width: 3.4 },
-  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.PI, width: 3.4 },
-  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: -Math.PI / 2, width: 3.4 },
+  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.atan2(3.6, -3.3), width: 3.4 },
+  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: Math.atan2(-2.55, -4.6), width: 3.4 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 3.4 },
-  { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: -Math.PI / 2, width: 3.4 },
-  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -7.7, yaw: -Math.PI / 2, width: 3.4 },
-  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 3.4 },
+  { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: Math.atan2(-4.5, -4.0), width: 3.4 },
+  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -7.7, yaw: Math.atan2(-4.4, -3.7), width: 3.4 },
+  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: Math.atan2(-5.7, -4.3), width: 3.4 },
 ];
 
 /**

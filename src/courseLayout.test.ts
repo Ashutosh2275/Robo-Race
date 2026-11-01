@@ -7,6 +7,9 @@ import {
   validateRouteClearance,
   HILL_NODES,
   CHECKPOINTS,
+  crossesCheckpointGate,
+  SLALOM_BARRIERS,
+  SPEED_BREAKER_XS,
   type CourseCollider,
 } from './courseLayout.ts';
 
@@ -60,6 +63,28 @@ test('all 11 checkpoints are defined in sequential order', () => {
   for (let i = 0; i < CHECKPOINTS.length; i++) {
     assert.equal(CHECKPOINTS[i].id, i + 1);
   }
+});
+
+test('slalom blocks cross the corridor with a continuous alternating pass width', () => {
+  assert.equal(SLALOM_BARRIERS.length, 5);
+  assert.equal(SPEED_BREAKER_XS.length, 3);
+  for (let i = 0; i < SLALOM_BARRIERS.length; i++) {
+    const b = SLALOM_BARRIERS[i];
+    assert.ok(b.width > 0 && b.depth > 0 && b.height > 0);
+    if (i > 0) {
+      assert.ok(SLALOM_BARRIERS[i - 1].x < b.x, 'barriers must be ordered along the driving direction');
+      assert.notEqual(Math.sign(SLALOM_BARRIERS[i - 1].z - 8), Math.sign(b.z - 8), 'barriers alternate sides');
+    }
+  }
+});
+
+test('checkpoint gates require a forward crossing through the opening', () => {
+  const gate = CHECKPOINTS[0];
+  const gx = gate.x * 1.3;
+  const gz = gate.z * 1.3;
+  assert.equal(crossesCheckpointGate({ x: gx - 1, z: gz }, { x: gx + 1, z: gz }, gate), true);
+  assert.equal(crossesCheckpointGate({ x: gx + 1, z: gz }, { x: gx - 1, z: gz }, gate), false, 'reverse travel cannot validate a gate');
+  assert.equal(crossesCheckpointGate({ x: gx - 1, z: gz + 3 }, { x: gx + 1, z: gz + 3 }, gate), false, 'the robot must pass within the gate width');
 });
 
 test('validateRouteClearance catches any collider placed inside a checkpoint gate', () => {

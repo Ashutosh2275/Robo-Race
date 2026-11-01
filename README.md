@@ -1,6 +1,6 @@
 # Robo Race 3D — Tracked Differential-Drive Simulator
 
-A high-fidelity browser-based tracked-robot racing simulator built with **Vite**, **TypeScript**, and **Three.js**. The simulation accurately models differential-drive robotics, track slip, rigid body 3D rollover dynamics, mechatronics (battery, motor, ESC thermal modeling), and environmental hazards.
+A browser-based tracked-robot racing simulator built with **Vite**, **TypeScript**, and **Three.js**. It uses a fixed-timestep custom differential-drive model, sampled terrain support, traction-limited slope motion, visual rollover, mechatronics estimates and environmental hazards. It is a game simulation, not a validated rigid-body robotics solver.
 
 ---
 
@@ -22,20 +22,27 @@ A high-fidelity browser-based tracked-robot racing simulator built with **Vite**
   - RC Transmitters (RadioMaster Boxer, Pocket, TX16S, FlySky, EdgeTX via USB HID joystick mode)
   - Configurable dead zones, exponential (expo) response curves, and sensitivity scaling.
 
-### 2. Fixed Rigid Chassis Model & Mechatronics Cutaway
+### 2. Four-wheel, two-motor tracked robot
+- Exactly four primary end wheels: two per side, with one powered wheel and one passive belt-driven idler on each side.
+- Exactly two independent motor configurations at the user-specified 600 RPM, driving two continuous visual belts. The default powered pair is left-front/right-rear; the supplied photos do not identify the powered diagonal, so this is configurable.
+- RPM and torque are converted through a configurable gear ratio, gearbox efficiency, sprocket radius and simulated mass. Gear ratio (1.8), torque (2 Nm), sprocket radius (0.18 m) and robot mass (2 kg) are provisional game-tuning assumptions, not measured specifications.
+- The visual belt underside is aligned with four sampled ground contacts. The controller follows a height field; it does not solve every mesh as a physical rigid body.
+
+### 3. Fixed Rigid Chassis Model & Mechatronics Cutaway
 - **Rigid Silhouette Guarantee**: The robot chassis mesh maintains strictly fixed dimensions and cannot stretch, bulge, or deform during movement or high-speed impacts.
 - **Visual Design**: Rugged industrial yellow protective track covers, exposed pale circular drive sprockets and idler road wheels, and black continuous rubber tracks.
 - **Open Compartment Mechatronics**:
   - Generic simulation-only battery, connector, motor, controller and receiver stand-ins in the cutaway; exact hardware models are not verified by the photographs
 - **Cutaway Mode**: Toggle with `⚙ CUTAWAY` to inspect interior components.
 
-### 3. 3D Rollover, Inverted State & Checkpoint Recovery
+### 4. 3D Rollover, Inverted State & Checkpoint Recovery
 - Full 3D pose tracking: `pitch`, `yaw`, `roll`, and angular velocities.
 - Dynamic ground tracking with tipping torques when driving off bridges or steep ramps.
 - Overturn detection: when tilted past $90^\circ$, the vehicle enters an upside-down resting state where tracks spin in the air without ground traction.
 - Safe Recovery Anchors: 10 designated safe recovery points along the route. Press `R` or the recovery button to reset upright with zero velocity and an added time penalty.
+- Structural integrity at zero ends the attempt, disables the drivetrain and requires a race restart; ordinary recovery cannot revive a destroyed robot.
 
-### 4. Course Layout & Environmental Hazards
+### 5. Course Layout & Environmental Hazards
 - **Course Sections**:
   1. Starting straight with gantry and lane markings
   2. 5-staggered slalom gates with guaranteed $2.8\text{ m}$ lane clearance
@@ -55,7 +62,7 @@ A high-fidelity browser-based tracked-robot racing simulator built with **Vite**
   12. Corrected parallel plank bridge with plank spacing calibrated to the $1.58\text{ m}$ track center distance.
   13. 11 sequential checkpoint gates with illuminated indicators.
 
-### 5. Mechatronics Simulation Subsystems
+### 6. Mechatronics Simulation Subsystems
 - **Battery System**: Simulated charge, voltage, current and estimated runtime respond to motor load and track slip. Numeric capacity and voltage curve are gameplay defaults, not verified specifications of the real robot.
 - **Motors**: Independent left/right temperature and thermal throttling use gameplay coefficients, not measured motor specifications.
 - **ESC**: Simulated temperature and power delivery with gradual overheating response; the real ESC model is unknown.
@@ -88,7 +95,7 @@ npm run preview
 ```bash
 npm test
 ```
-Runs 38 automated tests across differential kinematics, vehicle dynamics, mechatronics subsystems, route layout, and obstacle clearances.
+Runs 47 automated tests across differential kinematics, vehicle dynamics, drivetrain topology, mechatronics subsystems, route layout, and obstacle clearances.
 
 ### Running E2E Gameplay Verification
 ```bash

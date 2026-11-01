@@ -1,6 +1,6 @@
 export type Vec2 = { x: number; z: number };
 export type DriveState = { x: number; z: number; vx: number; vz: number; yaw: number; angular: number };
-export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number; coastDeceleration?: number };
+export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number; coastDeceleration?: number; motorTrackSpeed?: number };
 export type Surface = { grip: number; rollingResistance: number };
 
 /**
@@ -112,8 +112,10 @@ export function integrateDrive(
   state.vz = forward.z * longitudinal + rightAxis.z * lateral;
 
   // In the scene's +Z-forward convention, positive yaw points to +X (right).
-  // Differential yaw follows the actual traction-limited force difference,
-  // so low-grip turns lose authority instead of steering as if grip were free.
+  // A left turn therefore has negative yaw. When the right belt is faster,
+  // the chassis rotates left: the sign is (leftForce - rightForce).
+  // Yaw follows actual traction-limited force difference, not a separate
+  // steering animation, so low-grip turns lose authority naturally.
   const angularTarget = config.motorAcceleration > 0
     ? (leftForce - rightForce) / config.motorAcceleration * config.turnRate
     : 0;
@@ -132,8 +134,11 @@ export function integrateDrive(
       Math.abs(motorRequest) < 1e-5 ? 0 : 1 - Math.min(1, Math.abs(motorForce / motorRequest)),
     ),
     tractionLimit,
-    trackSpeedLeft: brake ? 0 : left * config.maxSpeed,
-    trackSpeedRight: brake ? 0 : right * config.maxSpeed,
+    // Belt speed is motor-side speed, so it remains visible while the chassis
+    // slips under a torque/traction limit. A locked neutral drivetrain leaves
+    // the belts stationary even if the hull is sliding down a slope.
+    trackSpeedLeft: brake ? 0 : left * (config.motorTrackSpeed ?? config.maxSpeed),
+    trackSpeedRight: brake ? 0 : right * (config.motorTrackSpeed ?? config.maxSpeed),
   };
 }
 

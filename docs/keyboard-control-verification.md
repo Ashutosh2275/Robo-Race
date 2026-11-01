@@ -9,7 +9,7 @@ $$v_R = v + \frac{\omega \cdot b}{2}$$
 
 where:
 - $v$ is commanded linear velocity (forward $> 0$, reverse $< 0$).
-- $\omega$ is commanded yaw rate ($\omega > 0$ for left, $\omega < 0$ for right).
+- $\omega$ is the semantic left-turn rate ($\omega > 0$ for left, $\omega < 0$ for right). Three.js uses +Z-forward and positive world-Y yaw turns right, so engine yaw rate has the opposite sign.
 - $b$ is the contact center distance ($1.58\text{ m}$).
 - $v_L, v_R$ are ground-relative left and right track target velocities.
 
@@ -68,9 +68,6 @@ where:
 
 ## Automated Test Suites
 
-All 33 unit tests pass across 5 suites:
-1. `src/drivePhysics.test.ts` (12 tests) — Differential physics, slope gravity, torque limits, track slip.
-2. `src/driveControls.test.ts` (6 tests) — 16 WASD states, 8 directional movements, opposing key cancellation, A-left/D-right mapping.
-3. `src/vehicleDynamics.test.ts` (6 tests) — Track contact patches, pitch/roll dynamics, bridge drop rollover, upside-down persistence, safe recovery.
-4. `src/robotSubsystems.test.ts` (5 tests) — Current consumption, motor slip heating, fire damage, water cooling, collision impact damage.
-5. `src/courseLayout.test.ts` (5 tests) — Height evaluations, fire-water-oil hazard sequence, deterministic rock field, 11 checkpoints, route clearance audit.
+The current suite contains 47 unit tests across seven test files, including directional gate crossing, slalom module geometry, ground-contact height, recovery clearance selection, four-wheel/two-motor topology, and zero-integrity shutdown.
+
+The Chromium gameplay check measures the live robot yaw while holding A and D, tests W+A/W+D and S+A/S+D, checks opposing steering, compares the track underside with sampled terrain, validates course clearance, forces structural integrity to zero and confirms motion stays stopped until restart. The 2026-11-01 run passed. It does not verify every physical controller model or complete a full human-driven race.

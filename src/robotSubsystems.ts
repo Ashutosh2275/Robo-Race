@@ -84,6 +84,11 @@ export function createInitialSubsystems(): SubsystemsState {
   };
 }
 
+/** Structural integrity at zero permanently ends the current race attempt. */
+export function isRobotDestroyed(sub: SubsystemsState): boolean {
+  return sub.integrity.chassis <= 0;
+}
+
 export function stepSubsystems(
   sub: SubsystemsState,
   leftCmd: number,

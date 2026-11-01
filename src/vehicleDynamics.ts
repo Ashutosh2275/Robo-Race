@@ -31,6 +31,23 @@ export type RecoveryAnchor = {
 export const TRACK_WIDTH = 1.58;   // Center-to-center distance between tracks (meters)
 export const TRACK_LENGTH = 1.70;  // Effective wheelbase / contact length (meters)
 export const CHASSIS_HEIGHT = 0.52; // Height from ground to top of track covers (meters)
+// The vehicle root is positioned at the centre of its four contact probes.
+// Visual belt geometry extends 0.12 m below that root; its lower skin is the
+// actual support plane on flat ground, not a cosmetic shadow offset.
+export const TRACK_CONTACT_OFFSET = 0.12;
+export const ROBOT_HALF_WIDTH = TRACK_WIDTH / 2 + 0.20; // includes yellow cover envelope
+export const ROBOT_HALF_LENGTH = TRACK_LENGTH / 2;
+export const ROBOT_COLLISION_HEIGHT = 1.06; // conservative top envelope incl. antenna
+
+/** World-axis half extents for the oriented robot footprint. */
+export function getFootprintAabbHalfExtents(yaw: number) {
+  const c = Math.abs(Math.cos(yaw));
+  const s = Math.abs(Math.sin(yaw));
+  return {
+    x: ROBOT_HALF_WIDTH * c + ROBOT_HALF_LENGTH * s,
+    z: ROBOT_HALF_WIDTH * s + ROBOT_HALF_LENGTH * c,
+  };
+}
 export const ROLLOVER_CRITICAL_ANGLE = 1.25; // ~72 degrees; beyond this, rollover occurs
 
 /**
@@ -91,7 +108,7 @@ export function stepVehicle3D(
   const hRR = heightAt(patches.rearRight.x, patches.rearRight.z);
 
   const avgGroundH = (hFL + hFR + hRL + hRR) / 4;
-  const targetY = avgGroundH + 0.14; // resting height above ground
+  const targetY = avgGroundH - TRACK_CONTACT_OFFSET;
 
   // Compute terrain slope pitch and roll under the vehicle
   const frontH = (hFL + hFR) * 0.5;
@@ -108,7 +125,7 @@ export function stepVehicle3D(
     pose.isFlipped = true;
     pose.flippedTimer += dt;
     // When upside down, vehicle rests on top of chassis / track covers
-    const restingY = avgGroundH + CHASSIS_HEIGHT + 0.05;
+    const restingY = avgGroundH + CHASSIS_HEIGHT - TRACK_CONTACT_OFFSET + 0.05;
     pose.y += (restingY - pose.y) * Math.min(1, dt * 10);
     // Damp angular rates while resting on roof
     pose.pitchRate *= Math.exp(-dt * 4);
@@ -167,16 +184,19 @@ export function stepVehicle3D(
  */
 export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
-    { id: 'start', label: 'Starting Gate', x: -14.2 * scale, z: 8.0 * scale, y: 0.14, yaw: Math.PI / 2, checkpointIndex: 0 },
-    { id: 'slalom', label: 'Post-Slalom Apron', x: -3.5 * scale, z: 8.0 * scale, y: 0.14, yaw: Math.PI / 2, checkpointIndex: 2 },
-    { id: 'ramp_exit', label: 'Ramp Descent Landing', x: 6.8 * scale, z: 8.0 * scale, y: 0.14, yaw: Math.PI / 2, checkpointIndex: 3 },
-    { id: 'bridge_entry', label: 'Bridge Approach', x: 7.2 * scale, z: 8.0 * scale, y: 0.14, yaw: Math.PI / 2, checkpointIndex: 4 },
-    { id: 'bridge_exit', label: 'Bridge Landing', x: 12.3 * scale, z: 8.0 * scale, y: 0.14, yaw: Math.PI / 2, checkpointIndex: 5 },
-    { id: 'disc_exit', label: 'Platform Transition', x: 8.5 * scale, z: 0.0 * scale, y: 0.14, yaw: -Math.PI / 2, checkpointIndex: 6 },
-    { id: 'mixed_terrain', label: 'Mixed Terrain Run', x: 2.0 * scale, z: 0.0 * scale, y: 0.14, yaw: -Math.PI / 2, checkpointIndex: 7 },
-    { id: 'hazard_entry', label: 'Technical Hazard Zone', x: -3.5 * scale, z: -4.0 * scale, y: 0.14, yaw: -Math.PI / 2, checkpointIndex: 8 },
-    { id: 'hairpins', label: 'Hairpin Entry', x: -7.5 * scale, z: -6.0 * scale, y: 0.14, yaw: -Math.PI / 2, checkpointIndex: 9 },
-    { id: 'finish_straight', label: 'Final Straight', x: -8.0 * scale, z: -12.0 * scale, y: 0.14, yaw: -Math.PI / 2, checkpointIndex: 10 },
+    { id: 'start', label: 'Starting Gate', x: -14.2 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
+    // Rewind recovery to the next still-required obstacle section, so a reset
+    // cannot teleport past the slalom or its speed breakers.
+    { id: 'slalom', label: 'Slalom Entry', x: -12.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
+    { id: 'speedbreaker_entry', label: 'Speed Breaker Entry', x: -0.5 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
+    { id: 'ramp_entry', label: 'Ramp Approach', x: 3.4 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
+    { id: 'bridge_entry', label: 'Bridge Approach', x: 7.2 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 4 },
+    { id: 'bridge_exit', label: 'Bridge Landing', x: 13.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(3.6, -3.3), checkpointIndex: 5 },
+    { id: 'disc_exit', label: 'Platform Transition', x: 11.8 * scale, z: 3.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-2.55, -4.6), checkpointIndex: 6 },
+    { id: 'mixed_terrain', label: 'Mixed Terrain Run', x: 2.0 * scale, z: 0.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 7 },
+    { id: 'hazard_entry', label: 'Technical Hazard Approach', x: -1.6 * scale, z: -2.4 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-4.5, -4.0), checkpointIndex: 8 },
+    { id: 'hairpins', label: 'Hairpin Entry', x: -5.7 * scale, z: -5.6 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-4.4, -3.7), checkpointIndex: 9 },
+    { id: 'finish_straight', label: 'Final Straight', x: -8.0 * scale, z: -12.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 10 },
   ];
 }
 
@@ -185,18 +205,15 @@ export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
  */
 export function getSafeRecoveryAnchor(
   checkpointIndex: number,
-  anchors: RecoveryAnchor[]
-): RecoveryAnchor {
-  // Find the anchor corresponding to the latest cleared checkpoint
-  let chosen = anchors[0];
-  for (const anchor of anchors) {
-    if (anchor.checkpointIndex <= checkpointIndex) {
-      chosen = anchor;
-    } else {
-      break;
-    }
+  anchors: RecoveryAnchor[],
+  isClear: (anchor: RecoveryAnchor) => boolean = () => true,
+): RecoveryAnchor | null {
+  // Find the latest checkpoint anchor that also has an unobstructed footprint.
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    const anchor = anchors[i];
+    if (anchor.checkpointIndex <= checkpointIndex && isClear(anchor)) return anchor;
   }
-  return chosen;
+  return null;
 }
 
 /**
@@ -210,7 +227,7 @@ export function applyRecovery(
   const groundY = heightAt(anchor.x, anchor.z);
   pose.x = anchor.x;
   pose.z = anchor.z;
-  pose.y = groundY + 0.14;
+  pose.y = groundY - TRACK_CONTACT_OFFSET;
   pose.yaw = anchor.yaw;
   pose.pitch = 0;
   pose.roll = 0;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialSubsystems, stepSubsystems, AMBIENT_TEMP } from './robotSubsystems.ts';
+import { createInitialSubsystems, stepSubsystems, AMBIENT_TEMP, isRobotDestroyed } from './robotSubsystems.ts';
 
 test('idle current draw is low and full throttle draws significant current', () => {
   const sIdle = createInitialSubsystems();
@@ -58,4 +58,14 @@ test('hard impact reduces chassis and drive wheel integrity', () => {
 
   assert.ok(s.integrity.chassis < 90);
   assert.ok(s.integrity.driveWheels < 95);
+});
+
+test('zero chassis integrity is a destroyed state and cannot be repaired by ordinary stepping', () => {
+  const s = createInitialSubsystems();
+  s.integrity.chassis = 0.1;
+  stepSubsystems(s, 1, 1, 0, 'none', 1, 1 / 120);
+  assert.equal(s.integrity.chassis, 0);
+  assert.equal(isRobotDestroyed(s), true);
+  stepSubsystems(s, 0, 0, 0, 'none', 0, 1);
+  assert.equal(s.integrity.chassis, 0, 'ordinary recovery/physics updates must not restore health');
 });
