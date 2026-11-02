@@ -16,6 +16,9 @@ export type VehiclePose = {
   isFlipped: boolean;
   isGrounded: boolean;
   flippedTimer: number;
+  /** Time a track edge has remained unsupported; filters one-frame terrain seams. */
+  sideDropTime?: number;
+  endDropTime?: number;
 };
 
 export type RecoveryAnchor = {
@@ -117,7 +120,18 @@ export function stepVehicle3D(
   const rightH = (hFR + hRR) * 0.5;
 
   const groundPitch = -Math.atan2(frontH - rearH, TRACK_LENGTH);
-  const groundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
+  const rawGroundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
+  const rollDifferential = Math.abs(rightH - leftH);
+  const pitchDifferential = Math.abs(frontH - rearH);
+  // A single corner probe crossing a board seam should not instantly bank the
+  // whole chassis. Hold a substantial support loss briefly before tipping.
+  pose.sideDropTime = rollDifferential > 0.38 ? (pose.sideDropTime ?? 0) + dt : 0;
+  pose.endDropTime = pitchDifferential > 0.72 ? (pose.endDropTime ?? 0) + dt : 0;
+  const sideDropActive = pose.sideDropTime >= 0.20;
+  const endDropActive = pose.endDropTime >= 0.20;
+  const groundRoll = rollDifferential > 0.38
+    ? Math.max(-0.16, Math.min(0.16, rawGroundRoll))
+    : rawGroundRoll;
   // A tracked chassis has very little suspension roll. Keep only a barely
   // perceptible lateral load cue; the former 0.16 rad bank made it look like
   // the robot was hovering and swinging like an aircraft during pivots.
@@ -142,23 +156,22 @@ export function stepVehicle3D(
   }
 
   // Not inverted: check for rollover tipping torques (e.g. driving off a bridge or severe bank)
-  const rollDifferential = Math.abs(rightH - leftH);
-  const pitchDifferential = Math.abs(frontH - rearH);
-
-  // If one side has dropped off an elevated surface (> 0.38m step)
-  if (rollDifferential > 0.38) {
-    // Gravitational overturning torque around the supported edge
+  // A sustained edge loss tips around the supported track with a gravity-scale
+  // angular acceleration. The short dwell prevents false rollovers at seams.
+  if (sideDropActive) {
     const tipDir = rightH < leftH ? 1 : -1;
-    pose.rollRate += tipDir * 9.5 * dt;
+    pose.rollRate += tipDir * 4.2 * dt;
+    pose.rollRate *= Math.exp(-dt * 0.4);
   } else {
     // Ground springs gently align roll with terrain
     const rollError = groundRoll + turnBank - pose.roll;
     pose.rollRate += rollError * 22 * dt - pose.rollRate * 9 * dt;
   }
 
-  if (pitchDifferential > 0.72) {
+  if (endDropActive) {
     const tipDir = frontH < rearH ? -1 : 1;
-    pose.pitchRate += tipDir * 9.5 * dt;
+    pose.pitchRate += tipDir * 4.2 * dt;
+    pose.pitchRate *= Math.exp(-dt * 0.4);
   } else {
     const pitchError = groundPitch - pose.pitch;
     pose.pitchRate += pitchError * 22 * dt - pose.pitchRate * 9 * dt;
@@ -256,6 +269,8 @@ export function applyRecovery(
   pose.pitchRate = 0;
   pose.yawRate = 0;
   pose.rollRate = 0;
+  pose.sideDropTime = 0;
+  pose.endDropTime = 0;
   pose.isFlipped = false;
   pose.flippedTimer = 0;
 }

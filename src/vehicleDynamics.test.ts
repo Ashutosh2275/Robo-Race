@@ -118,6 +118,15 @@ test('severe drop on one side triggers rollover to inverted state', () => {
   assert.ok(p.flippedTimer > 0);
 });
 
+test('a brief board-edge height seam does not throw the robot into a false rollover', () => {
+  const bridgeDrop = (x: number) => (x > 0 ? 0.0 : 0.8);
+  const p = makePose({ x: 0, z: 0, yaw: 0 });
+  for (let i = 0; i < 6; i++) stepVehicle3D(p, bridgeDrop, 1.0, 0, 1 / 60);
+  for (let i = 0; i < 30; i++) stepVehicle3D(p, flatGround, 1.0, 0, 1 / 60);
+  assert.equal(p.isFlipped, false, 'short support-probe transitions must not count as falling off the board');
+  assert.ok(Math.abs(p.roll) < 0.2, `robot should settle upright on the supported board, got ${p.roll.toFixed(3)} rad`);
+});
+
 test('inverted vehicle remains upside down until recovered', () => {
   const p = makePose({ pitch: 0, roll: Math.PI, isFlipped: true });
   for (let i = 0; i < 60; i++) {

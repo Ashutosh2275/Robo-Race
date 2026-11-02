@@ -58,6 +58,7 @@ function circularArc(cx: number, cz: number, radius: number, start: number, end:
 export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -16.4, z: 8.0 }, // clear staging bay behind the start gantry
   { x: -14.2, z: 8.0 }, // start line
+  { x: -13.0, z: 8.0 }, // checkpoint before the slalom wall entry
   { x: -11.5, z: 8.0 },
   { x: -0.2, z: 8.0 }, // straight corridor; the staggered barriers create the slalom
   { x: 3.2, z: 8.0 },  // breakers
@@ -219,11 +220,13 @@ export type HillSegment = {
 
 export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
   const side = i % 2 === 0 ? 'left' as const : 'right' as const;
-  const span = 1.85;
+  // Shorter walls preserve the alternating centre weave while leaving a broad
+  // opening for the full track-cover envelope, not just the chassis centre.
+  const span = 1.70;
   const sign = side === 'left' ? 1 : -1;
   return {
   id: `slalom_block_${i}`,
-  x: -10.4 + i * 2.25,
+  x: -11.7 + i * 2.60,
   side,
   z: 8.0 + sign * (DRIVE_ROUTE_WIDTH / 2 - span / 2),
   length: 0.62, // thickness along the direction of travel
@@ -255,7 +258,7 @@ export function validateSlalomClearance(
       issues.push(`${block.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
     }
     if (block.span <= 0 || block.length <= 0 || block.height <= 0) issues.push(`${block.id} has invalid physical dimensions`);
-    if (Math.abs(innerEdge - 8.0) > 0.25) issues.push(`${block.id} does not reach the centre weave zone`);
+    if (Math.abs(innerEdge - 8.0) > 0.35) issues.push(`${block.id} does not reach the centre weave zone`);
     if (i > 0) {
       const previous = blocks[i - 1];
       if (previous.side === block.side) issues.push(`${block.id} does not alternate sides`);
@@ -551,7 +554,9 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
  * 11 Ordered Checkpoints along the primary racing route.
  */
 export const CHECKPOINTS: CheckpointGate[] = [
-  { id: 1, label: 'Gate 01 - Start Straight', x: -11.5, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
+  // Clear the first staggered brick wall while keeping this validation gate
+  // on the straight before the slalom entry.
+  { id: 1, label: 'Gate 01 - Start Straight', x: -13.0, z: 8.0, yaw: Math.PI / 2, width: 4.4 },
   // Placed just beyond the final staggered barrier so the vehicle can fully
   // clear the slalom before the checkpoint trigger is considered passed.
   { id: 2, label: 'Gate 02 - Slalom Exit', x: -0.2, z: 8.0, yaw: Math.PI / 2, width: 4.4 },

@@ -194,9 +194,11 @@ test('slalom hurdles are alternating solid brick walls, spaced for a clear weave
   assert.equal(SPEED_BREAKER_XS.length, 3);
   for (let i = 0; i < SLALOM_BLOCKS.length; i++) {
     const b = SLALOM_BLOCKS[i];
-    assert.ok(b.length > 0 && b.span > 1.7 && b.height >= 1.0);
+    assert.ok(b.length > 0 && b.span >= 1.65 && b.span <= 1.75 && b.height >= 1.0,
+      'walls must still reach toward centre while leaving a wide track-cover opening');
     if (i > 0) {
       assert.ok(SLALOM_BLOCKS[i - 1].x < b.x, 'hurdles must be ordered along the driving direction');
+      assert.ok(b.x - SLALOM_BLOCKS[i - 1].x >= 2.59, 'give the robot turning room between walls');
       assert.ok(SLALOM_BLOCKS[i - 1].x + SLALOM_BLOCKS[i - 1].length / 2 < b.x - b.length / 2,
         'neighboring hurdles must remain separate');
       assert.notEqual(SLALOM_BLOCKS[i - 1].side, b.side, 'hurdles alternate from left then right');
