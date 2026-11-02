@@ -36,7 +36,7 @@ import {
   HILL_EXIT_LINK,
   PARALLEL_PLANK_CENTERS,
   CHECKPOINTS,
-  SLALOM_BARRIERS,
+  SLALOM_OBSTACLES,
   SPEED_BREAKER_XS,
   HILL_NODES,
   evaluateCourseHeight,
@@ -194,6 +194,7 @@ const mats = {
   curbWhite: new THREE.MeshStandardMaterial({ color: '#f0f0eb', roughness: 0.65 }),
   barrier: new THREE.MeshStandardMaterial({ color: '#e5e2d8', roughness: 0.72 }),
   yellow: new THREE.MeshStandardMaterial({ color: '#e5ad2a', roughness: 0.65 }),
+  orange: new THREE.MeshStandardMaterial({ color: '#e4551f', roughness: 0.72 }),
   coverYellow: new THREE.MeshStandardMaterial({ color: '#cb9f2a', roughness: 0.78, metalness: 0.12 }),
   black: new THREE.MeshStandardMaterial({ color: '#141618', roughness: 0.75, metalness: 0.15 }),
   rubber: new THREE.MeshStandardMaterial({ color: '#161917', roughness: 0.95, map: generateSurfaceTexture('#161917', ['#242926', '#101211'], 'chevron') }),
@@ -279,66 +280,61 @@ function beamBetween(a: THREE.Vector3, b: THREE.Vector3, thickness: number, mate
   return beam;
 }
 
-/** Reusable modular slalom barrier: weighted feet, molded body, reflectors and visible end hardware. */
-function buildSlalomBarrier(data: typeof SLALOM_BARRIERS[number]) {
-  const { x, z, width: length, depth, height } = data;
+/** Compact tire-and-cone slalom hurdle: a freestanding obstacle, not a fence panel. */
+function buildSlalomObstacle(data: typeof SLALOM_OBSTACLES[number]) {
+  const { x, z, width, depth, height } = data;
   const group = new THREE.Group();
   group.name = data.id;
   group.position.set(x, 0, z);
   course.add(group);
 
-  const footDepth = depth;
-  const bodyDepth = Math.max(0.32, depth - 0.24);
-  const footWidth = length * 0.34;
-  for (const side of [-1, 1]) {
-    box(group, mats.rubber, V(side * length * 0.30, 0.055, 0), V(footWidth, 0.11, footDepth));
-    // A small amber toe plate and two recessed fixing points make the feet
-    // read as weighted event hardware rather than a floating cuboid.
-    box(group, mats.yellow, V(side * length * 0.30, 0.114, 0), V(footWidth * 0.72, 0.018, footDepth * 0.84));
-    for (const face of [-1, 1]) {
-      cyl(group, mats.metal, V(side * length * 0.30, 0.125, face * (footDepth * 0.38)), 0.035, 0.018, 'y', 10);
-    }
+  // Weighted rubber base and two horizontal, individually modelled tires.
+  const base = cyl(group, mats.rubber, V(0, 0.075, 0), 0.46, 0.15, 'y', 24);
+  cameraOccluders.push(base);
+  const tireGeometry = new THREE.TorusGeometry(0.285, 0.095, 10, 28);
+  for (const y of [0.22, 0.42]) {
+    const tire = new THREE.Mesh(tireGeometry, mats.rubber);
+    tire.rotation.x = Math.PI / 2;
+    tire.position.set(0, y, 0);
+    tire.castShadow = true;
+    tire.receiveShadow = true;
+    group.add(tire);
+    cameraOccluders.push(tire);
+    cyl(group, mats.black, V(0, y, 0), 0.16, 0.045, 'y', 20);
+    cyl(group, mats.metal, V(0, y + 0.025, 0), 0.075, 0.012, 'y', 16);
   }
 
-  const bodyBottom = 0.12;
-  const bodyHeight = height - bodyBottom;
-  const body = box(group, mats.yellow, V(0, bodyBottom + bodyHeight / 2, 0), V(length, bodyHeight, bodyDepth));
-  body.castShadow = true;
-  cameraOccluders.push(body);
-
-  // Raised top and end caps protect the molded shell and clarify the intended
-  // module boundaries when viewed at driving height.
-  box(group, mats.coverYellow, V(0, height - 0.035, 0), V(length - 0.10, 0.07, bodyDepth + 0.035));
-  for (const end of [-1, 1]) {
-    box(group, mats.black, V(end * (length / 2 - 0.025), bodyBottom + bodyHeight / 2, 0), V(0.07, bodyHeight + 0.025, bodyDepth + 0.06));
-    for (const face of [-1, 1]) {
-      cyl(group, mats.metal, V(end * (length / 2 - 0.10), 0.23, face * (bodyDepth / 2 + 0.038)), 0.035, 0.025, 'z', 10);
-    }
+  // A traffic cone sits on the tire stack. Reflective bands make each target
+  // easy to see without visually joining it to its neighbours.
+  const coneBase = 0.52;
+  const coneHeight = Math.max(0.50, height - coneBase);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.27, coneHeight, 20), mats.orange);
+  cone.position.set(0, coneBase + coneHeight / 2, 0);
+  cone.castShadow = true;
+  cone.receiveShadow = true;
+  group.add(cone);
+  cameraOccluders.push(cone);
+  for (const [y, lower, upper] of [[0.70, 0.19, 0.14], [0.89, 0.095, 0.055]]) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(upper, lower, 0.085, 20), mats.curbWhite);
+    band.position.set(0, y, 0);
+    band.castShadow = true;
+    group.add(band);
+    cameraOccluders.push(band);
+  }
+  for (let i = 0; i < 4; i++) {
+    const angle = i * Math.PI / 2 + Math.PI / 4;
+    cyl(group, mats.metal, V(Math.cos(angle) * 0.35, 0.155, Math.sin(angle) * 0.35), 0.024, 0.02, 'y', 8);
   }
 
-  // Red retroreflective panels with pale borders repeat on both faces, so the
-  // barrier remains legible from either approach direction.
-  const panelCount = Math.max(2, Math.floor(length / 0.38));
-  for (let panel = 0; panel < panelCount; panel++) {
-    const panelX = -length / 2 + (panel + 0.5) * length / panelCount;
-    if (Math.abs(panelX) > length / 2 - 0.15) continue;
-    for (const face of [-1, 1]) {
-      const zFace = face * (bodyDepth / 2 + 0.014);
-      box(group, mats.curbWhite, V(panelX, bodyBottom + bodyHeight * 0.57, zFace), V(0.19, 0.30, 0.018));
-      box(group, mats.red, V(panelX, bodyBottom + bodyHeight * 0.57, zFace + face * 0.012), V(0.125, 0.22, 0.020));
-    }
-  }
-
-  // One simple envelope collider covers the shell and its feet without
-  // generating redundant colliders for decorative bolts and reflectors.
+  // One compact collision envelope approximates the tire/cone stack.
   colliders.push({
     id: data.id,
     x,
     z,
-    hx: length / 2 + 0.06,
-    hz: footDepth / 2,
-    y: (height + 0.06) / 2,
-    height: height + 0.06,
+    hx: width / 2,
+    hz: depth / 2,
+    y: height / 2,
+    height,
     rot: 0,
     walkable: false,
   });
@@ -503,11 +499,10 @@ function gantry(x: number, z: number, label: string, color: THREE.Material) {
 gantry(-14.2, 8.0, 'START', mats.green);
 gantry(-15.0, -12.0, 'FINISH', mats.yellow);
 
-// Alternating slalom barriers leave a verified, robot-width side passage.
-for (const barrier of SLALOM_BARRIERS) {
-  // Alternating sides force a steering weave; each module stays short enough
-  // to preserve a clear opening and is built with real feet and reflectors.
-  buildSlalomBarrier(barrier);
+// Five isolated tire-and-cone hurdles require alternating steering without
+// turning the slalom into a corridor fenced by long barrier panels.
+for (const obstacle of SLALOM_OBSTACLES) {
+  buildSlalomObstacle(obstacle);
 }
 
 // Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)

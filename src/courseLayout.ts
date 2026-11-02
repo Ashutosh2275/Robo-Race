@@ -198,38 +198,38 @@ export type HillSegment = {
   width: number;
 };
 
-export const SLALOM_BARRIERS = Array.from({ length: 5 }, (_, i) => ({
-  id: `slalom_barrier_${i}`,
+export const SLALOM_OBSTACLES = Array.from({ length: 5 }, (_, i) => ({
+  id: `slalom_tire_cone_${i}`,
   x: -10.4 + i * 2.25,
   z: 8.0 + (i % 2 === 0 ? 1.72 : -1.72),
-  width: 1.45, // length along the lane, not a cube-like placeholder
-  depth: 0.66, // maximum cross-lane footprint, including weighted feet
-  height: 0.82,
+  width: 0.92, // compact isolated hurdle footprint, not a fence segment
+  depth: 0.92,
+  height: 1.05,
 }));
 export const SPEED_BREAKER_XS = [0, 1.05, 2.1] as const;
 
-/** Checks that every staggered slalom barrier leaves a robot-width opening. */
+/** Checks that every staggered slalom hurdle leaves a robot-width opening. */
 export function validateSlalomClearance(
-  barriers = SLALOM_BARRIERS,
+  obstacles = SLALOM_OBSTACLES,
   corridorWidth = DRIVE_ROUTE_WIDTH,
 ): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
   const minimumOpening = ROBOT_HALF_WIDTH * 2 / MAP_SCALE + 0.45;
   const minimumCenterlineGap = 0.25;
   const halfCorridor = corridorWidth / 2;
-  for (const barrier of barriers) {
-    const sign = Math.sign(barrier.z - 8.0) || 1;
-    const innerEdge = barrier.z - sign * barrier.depth / 2;
+  for (const obstacle of obstacles) {
+    const sign = Math.sign(obstacle.z - 8.0) || 1;
+    const innerEdge = obstacle.z - sign * obstacle.depth / 2;
     // The open passage is the entire corridor from the far boundary to the
     // near edge of the staggered block. This is the space the robot actually
     // steers through, not the apparent gap between the block and centerline.
     const opening = halfCorridor + Math.abs(innerEdge - 8.0);
     if (opening < minimumOpening) {
-      issues.push(`${barrier.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
+      issues.push(`${obstacle.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
     }
     const centerlineGap = Math.abs(innerEdge - 8.0) * MAP_SCALE - ROBOT_HALF_WIDTH;
     if (centerlineGap < minimumCenterlineGap) {
-      issues.push(`${barrier.id} intrudes ${Math.max(0, -centerlineGap).toFixed(2)}m into the robot's straight-route envelope`);
+      issues.push(`${obstacle.id} intrudes ${Math.max(0, -centerlineGap).toFixed(2)}m into the robot's straight-route envelope`);
     }
   }
   return { valid: issues.length === 0, issues };

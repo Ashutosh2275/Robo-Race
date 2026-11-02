@@ -9,7 +9,7 @@ import {
   hillHeightAt,
   CHECKPOINTS,
   crossesCheckpointGate,
-  SLALOM_BARRIERS,
+  SLALOM_OBSTACLES,
   validateSlalomClearance,
   SPEED_BREAKER_XS,
   DRIVE_ROUTE,
@@ -163,7 +163,7 @@ test('required obstacles sit on or within the road corridor rather than on detac
     return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
   }));
   const requiredCenters = [
-    ...SLALOM_BARRIERS.map(b => ({ x: b.x, z: b.z, footprintAllowance: b.depth / 2 })),
+    ...SLALOM_OBSTACLES.map(b => ({ x: b.x, z: b.z, footprintAllowance: b.depth / 2 })),
     ...SPEED_BREAKER_XS.map(x => ({ x, z: 8, footprintAllowance: 0 })),
     { x: 4.8, z: 8, footprintAllowance: 0 }, { x: 9.6, z: 8, footprintAllowance: 0 }, { x: 13.45, z: 4.55, footprintAllowance: 0 },
     { x: 10.65, z: 0.1, footprintAllowance: 0 }, { x: 2.8, z: 0, footprintAllowance: 0 }, { x: -2.8, z: -4, footprintAllowance: 0 },
@@ -186,28 +186,28 @@ test('paired plank support spacing matches both robot track contact lines', () =
   assert.equal(centerGapHeight, 0.03, 'the gap between planks should remain a real gap');
 });
 
-test('slalom blocks cross the corridor with a continuous alternating pass width', () => {
-  assert.equal(SLALOM_BARRIERS.length, 5);
+test('slalom hurdles are isolated physical obstacles with a continuous alternating pass width', () => {
+  assert.equal(SLALOM_OBSTACLES.length, 5);
   assert.equal(SPEED_BREAKER_XS.length, 3);
-  for (let i = 0; i < SLALOM_BARRIERS.length; i++) {
-    const b = SLALOM_BARRIERS[i];
+  for (let i = 0; i < SLALOM_OBSTACLES.length; i++) {
+    const b = SLALOM_OBSTACLES[i];
     assert.ok(b.width > 0 && b.depth > 0 && b.height > 0);
-    assert.ok(b.width >= 1.3 && b.depth <= 0.7, 'barriers should be elongated lane modules rather than cube placeholders');
-    assert.ok(b.height >= 0.8, 'barrier shell must remain visible and physically substantial');
+    assert.ok(b.width <= 1.0 && b.depth <= 1.0, 'each slalom target must be a compact standalone obstacle, not a fence panel');
+    assert.ok(b.height >= 0.9, 'the tire-and-cone obstacle must remain visible and collidable');
     if (i > 0) {
-      assert.ok(SLALOM_BARRIERS[i - 1].x < b.x, 'barriers must be ordered along the driving direction');
-      assert.ok(SLALOM_BARRIERS[i - 1].x + SLALOM_BARRIERS[i - 1].width / 2 < b.x - b.width / 2,
-        'neighboring barrier modules must not overlap along the route');
-      assert.notEqual(Math.sign(SLALOM_BARRIERS[i - 1].z - 8), Math.sign(b.z - 8), 'barriers alternate sides');
+      assert.ok(SLALOM_OBSTACLES[i - 1].x < b.x, 'hurdles must be ordered along the driving direction');
+      assert.ok(SLALOM_OBSTACLES[i - 1].x + SLALOM_OBSTACLES[i - 1].width / 2 < b.x - b.width / 2,
+        'neighboring hurdles must remain separate');
+      assert.notEqual(Math.sign(SLALOM_OBSTACLES[i - 1].z - 8), Math.sign(b.z - 8), 'hurdles alternate sides');
     }
   }
 });
 
-test('each slalom block leaves a physically passable opening for the robot envelope', () => {
+test('each slalom hurdle leaves a physically passable opening for the robot envelope', () => {
   const audit = validateSlalomClearance();
   assert.equal(audit.valid, true, audit.issues.join('; '));
-  for (const barrier of SLALOM_BARRIERS) {
-    assert.ok(barrier.height >= 0.8, `${barrier.id} must be clearly visible above the track surface`);
+  for (const obstacle of SLALOM_OBSTACLES) {
+    assert.ok(obstacle.height >= 0.9, `${obstacle.id} must be clearly visible above the track surface`);
   }
 });
 
