@@ -201,9 +201,9 @@ export function stepVehicle3D(
  */
 export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
-    // Stage behind the gantry, so the frame does not sit between the chase
-    // camera and the robot when the race begins.
-    { id: 'start', label: 'Starting Bay', x: -16.4 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
+    // Stage on the lower approach, before the steep entry ramp. This keeps
+    // the complete track footprint on one level surface at race start.
+    { id: 'start', label: 'Starting Bay', x: -18.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
     // Rewind recovery to the next still-required obstacle section, so a reset
     // cannot teleport past the slalom or its speed breakers.
     { id: 'slalom', label: 'Slalom Entry', x: -12.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },

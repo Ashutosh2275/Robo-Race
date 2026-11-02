@@ -44,7 +44,9 @@ export const PARALLEL_PLANK_CENTERS = [
 // leaving room to steer around the slalom blocks instead of striking their ends.
 export const DRIVE_ROUTE_WIDTH = 4.0;
 export const ARENA_FLOOR_HEIGHT = -0.33;
-export const ROUTE_DECK_HEIGHT = 0.03;
+export const ROUTE_CLEARANCE_HEIGHT = 1.0;
+export const ROUTE_DECK_HEIGHT = ARENA_FLOOR_HEIGHT + ROUTE_CLEARANCE_HEIGHT;
+export const ROUTE_HEIGHT_OFFSET = ROUTE_DECK_HEIGHT - 0.03;
 function circularArc(cx: number, cz: number, radius: number, start: number, end: number, count: number, xAxis = 'cos') {
   return Array.from({ length: count + 1 }, (_, i) => {
     const a = start + (end - start) * i / count;
@@ -92,6 +94,9 @@ export const HILL_EXIT_LINK: CoursePoint[] = [
 ];
 
 function rampedLinkHeightAt(x: number, z: number, points: CoursePoint[], width: number, startY: number, endY: number, startFlatDistance = 0): number | null {
+  const first = points[0], last = points[points.length - 1];
+  if (Math.hypot(x - first.x, z - first.z) < 1e-6) return startY;
+  if (Math.hypot(x - last.x, z - last.z) < 1e-6) return endY;
   const lengths: number[] = [];
   let totalLength = 0;
   for (let i = 0; i < points.length - 1; i++) {
@@ -106,7 +111,16 @@ function rampedLinkHeightAt(x: number, z: number, points: CoursePoint[], width: 
     const a = points[i], b = points[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const lenSq = dx * dx + dz * dz;
-    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / lenSq));
+    const rawT = ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
+    // The analytic deck must end at its real endpoints. Clamping the first or
+    // last segment projection used to create invisible circular road pads
+    // outside the visible mesh, keeping the robot afloat beyond the ramp toe
+    // and finish edge.
+    if ((i === 0 && rawT < 0) || (i === points.length - 2 && rawT > 1)) {
+      prefix += lengths[i];
+      continue;
+    }
+    const t = Math.max(0, Math.min(1, rawT));
     const dist = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
     if (dist < closestDist) {
       closestDist = dist;
@@ -126,7 +140,12 @@ function supportsRoadAt(x: number, z: number, points: CoursePoint[], width: numb
     const a = points[i], b = points[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const lenSq = dx * dx + dz * dz;
-    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / lenSq));
+    const rawT = ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
+    // A route's first and last segments stop at their visible mesh endpoints.
+    // Clamping the projection here used to extend the raised road into an
+    // invisible pad beyond the ramp toe and hill-return landing.
+    if ((i === 0 && rawT < 0) || (i === points.length - 2 && rawT > 1)) continue;
+    const t = Math.max(0, Math.min(1, rawT));
     if (Math.hypot(x - (a.x + t * dx), z - (a.z + t * dz)) <= halfWidth) return true;
   }
   return false;
@@ -198,38 +217,49 @@ export type HillSegment = {
   width: number;
 };
 
-export const SLALOM_OBSTACLES = Array.from({ length: 5 }, (_, i) => ({
-  id: `slalom_tire_cone_${i}`,
+export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
+  const side = i % 2 === 0 ? 'left' as const : 'right' as const;
+  const span = 1.85;
+  const sign = side === 'left' ? 1 : -1;
+  return {
+  id: `slalom_block_${i}`,
   x: -10.4 + i * 2.25,
-  z: 8.0 + (i % 2 === 0 ? 1.72 : -1.72),
-  width: 0.92, // compact isolated hurdle footprint, not a fence segment
-  depth: 0.92,
+  side,
+  z: 8.0 + sign * (DRIVE_ROUTE_WIDTH / 2 - span / 2),
+  length: 0.62, // thickness along the direction of travel
+  span, // solid wall section from the road edge just past its centre
   height: 1.05,
-}));
+  };
+});
 export const SPEED_BREAKER_XS = [0, 1.05, 2.1] as const;
 
-/** Checks that every staggered slalom hurdle leaves a robot-width opening. */
+/** Checks that alternating slalom blocks leave enough width for the robot to weave through. */
 export function validateSlalomClearance(
-  obstacles = SLALOM_OBSTACLES,
+  blocks = SLALOM_BLOCKS,
   corridorWidth = DRIVE_ROUTE_WIDTH,
 ): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
   const minimumOpening = ROBOT_HALF_WIDTH * 2 / MAP_SCALE + 0.45;
-  const minimumCenterlineGap = 0.25;
   const halfCorridor = corridorWidth / 2;
-  for (const obstacle of obstacles) {
-    const sign = Math.sign(obstacle.z - 8.0) || 1;
-    const innerEdge = obstacle.z - sign * obstacle.depth / 2;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const sign = block.side === 'left' ? 1 : -1;
+    const innerEdge = block.z - sign * block.span / 2;
     // The open passage is the entire corridor from the far boundary to the
     // near edge of the staggered block. This is the space the robot actually
     // steers through, not the apparent gap between the block and centerline.
-    const opening = halfCorridor + Math.abs(innerEdge - 8.0);
+    const opening = block.side === 'left'
+      ? innerEdge - (8.0 - halfCorridor)
+      : (8.0 + halfCorridor) - innerEdge;
     if (opening < minimumOpening) {
-      issues.push(`${obstacle.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
+      issues.push(`${block.id} leaves only ${opening.toFixed(2)}m-local clearance for a ${minimumOpening.toFixed(2)}m robot passage`);
     }
-    const centerlineGap = Math.abs(innerEdge - 8.0) * MAP_SCALE - ROBOT_HALF_WIDTH;
-    if (centerlineGap < minimumCenterlineGap) {
-      issues.push(`${obstacle.id} intrudes ${Math.max(0, -centerlineGap).toFixed(2)}m into the robot's straight-route envelope`);
+    if (block.span <= 0 || block.length <= 0 || block.height <= 0) issues.push(`${block.id} has invalid physical dimensions`);
+    if (Math.abs(innerEdge - 8.0) > 0.25) issues.push(`${block.id} does not reach the centre weave zone`);
+    if (i > 0) {
+      const previous = blocks[i - 1];
+      if (previous.side === block.side) issues.push(`${block.id} does not alternate sides`);
+      if (previous.x + previous.length / 2 >= block.x - block.length / 2) issues.push(`${block.id} overlaps the previous hurdle`);
     }
   }
   return { valid: issues.length === 0, issues };
@@ -237,13 +267,13 @@ export function validateSlalomClearance(
 
 // Switchback Hill Nodes with wide turning landings
 export const HILL_NODES: HillNode[] = [
-  { x: 8.0, z: -2.0, y: 0.03 },    // Base entry
-  { x: 14.5, z: -2.0, y: 1.50 },   // Leg 1 crest
-  { x: 14.5, z: -5.8, y: 1.50 },   // Landing 1 (3.8m shelf, no platform overlap)
-  { x: 8.0, z: -5.8, y: 3.00 },    // Leg 2 crest
-  { x: 8.0, z: -9.6, y: 3.00 },    // Landing 2
-  { x: 14.5, z: -9.6, y: 4.50 },   // Leg 3 crest
-  { x: 14.5, z: -13.4, y: 4.50 },  // Summit landing
+  { x: 8.0, z: -2.0, y: ROUTE_DECK_HEIGHT },                 // Base entry at raised course elevation
+  { x: 14.5, z: -2.0, y: ROUTE_HEIGHT_OFFSET + 1.50 },       // Leg 1 crest
+  { x: 14.5, z: -5.8, y: ROUTE_HEIGHT_OFFSET + 1.50 },       // Landing 1 (3.8m shelf, no platform overlap)
+  { x: 8.0, z: -5.8, y: ROUTE_HEIGHT_OFFSET + 3.00 },        // Leg 2 crest
+  { x: 8.0, z: -9.6, y: ROUTE_HEIGHT_OFFSET + 3.00 },        // Landing 2
+  { x: 14.5, z: -9.6, y: ROUTE_HEIGHT_OFFSET + 4.50 },       // Leg 3 crest
+  { x: 14.5, z: -13.4, y: ROUTE_HEIGHT_OFFSET + 4.50 },      // Summit landing
 ];
 
 export const HILL_SEGMENTS: HillSegment[] = [];
@@ -362,6 +392,15 @@ export function generateRockFieldStones(seed = 20261027): StoneData[] {
  * Evaluates course ground height at unscaled world coordinates.
  */
 export function evaluateCourseHeight(x: number, z: number): number {
+  // The entrance is a real ramp from the arena floor to the one-metre-raised
+  // race deck. The lower start approach leads to the ramp toe and gantry.
+  if (Math.abs(z - 8.0) <= DRIVE_ROUTE_WIDTH / 2 && x >= -16.4 && x <= -14.2) {
+    // A short, steep 35.5-degree opening climb reaches the raised deck, then
+    // holds level to the start gate.
+    const t = Math.max(0, Math.min(1, (x + 16.4) / 1.4));
+    return ARENA_FLOOR_HEIGHT + (ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT) * t;
+  }
+
   // Check switchback hill
   const hHill = hillHeightAt(x, z);
   if (hHill !== null) return hHill;
@@ -369,14 +408,14 @@ export function evaluateCourseHeight(x: number, z: number): number {
   // The summit return is a real descending road deck. Interpolate its
   // elevation over the connector length so the visuals and ground contact
   // share one continuous ramp rather than snapping to the arena floor.
-  const hillExitHeight = rampedLinkHeightAt(x, z, HILL_EXIT_LINK, 3.4, 4.5, ROUTE_DECK_HEIGHT, 11.0);
+  const hillExitHeight = rampedLinkHeightAt(x, z, HILL_EXIT_LINK, 3.4, ROUTE_HEIGHT_OFFSET + 4.5, ROUTE_DECK_HEIGHT, 11.0);
   if (hillExitHeight !== null) return hillExitHeight;
 
   // Rotating disc platform at x = 10.65, z = 0.1
   const discR = Math.hypot(x - 10.65, z - 0.1);
   if (discR < 1.35) {
     const t = Math.max(0, Math.min(1, (discR - 1.0) / 0.35));
-    return 0.28 * (1 - t * t * (3 - 2 * t));
+    return (ROUTE_DECK_HEIGHT + 0.28) * (1 - t * t * (3 - 2 * t)) + ROUTE_DECK_HEIGHT * (t * t * (3 - 2 * t));
   }
 
   // Curved timber ramp at x = 4.8, z = 8.0 (smooth 40° peak slope, 0.88m crest)
@@ -384,14 +423,14 @@ export function evaluateCourseHeight(x: number, z: number): number {
     const t = (x - 3.3) / 3.0;
     const u = t <= 0.5 ? t * 2 : (1 - t) * 2;
     const smoothCurve = u * u * (3 - 2 * u);
-    return 0.03 + 0.85 * smoothCurve;
+    return ROUTE_DECK_HEIGHT + 0.85 * smoothCurve;
   }
 
   // Raised bridge ramps and deck at z = 8.0 (x = 7.8 to 11.4, bridge deck at 9.6, height = 0.62)
   if (Math.abs(z - 8.0) <= DRIVE_ROUTE_WIDTH / 2 && x >= 7.0 && x <= 12.2) {
     const tAscent = Math.max(0, Math.min(1, (x - 7.0) / 1.6));
     const tDescent = Math.max(0, Math.min(1, (12.2 - x) / 1.6));
-    return 0.03 + 0.59 * Math.min(tAscent, tDescent);
+    return ROUTE_DECK_HEIGHT + 0.59 * Math.min(tAscent, tDescent);
   }
 
   // Speed breakers at x = 0.0, 1.05, 2.1 at z = 8.0, after the slalom.
@@ -400,7 +439,7 @@ export function evaluateCourseHeight(x: number, z: number): number {
     for (const bx of SPEED_BREAKER_XS) {
       const d = Math.abs(x - bx);
       if (d < 0.45) {
-        bump = Math.max(bump, 0.03 + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
+        bump = Math.max(bump, ROUTE_DECK_HEIGHT + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
       }
     }
     if (bump > 0) return bump;
@@ -412,30 +451,30 @@ export function evaluateCourseHeight(x: number, z: number): number {
     const onLeftPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[0].z) < 0.38;
     const onRightPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[1].z) < 0.38;
     if (onLeftPlank || onRightPlank) {
-      return 0.30;
+      return ROUTE_DECK_HEIGHT + 0.27;
     }
   }
 
   // Short ramp-to-plank-to-ramp crossing before the oil patch.
   if (Math.abs(z - (-4.0)) <= 1.2 && x >= -7.95 && x <= -6.05) {
-    if (x < -7.7) return 0.03 + 0.19 * ((x + 7.95) / 0.25);
-    if (x > -6.3) return 0.22 - 0.19 * ((x + 6.3) / 0.25);
-    return 0.22;
+    if (x < -7.7) return ROUTE_DECK_HEIGHT + 0.19 * ((x + 7.95) / 0.25);
+    if (x > -6.3) return ROUTE_DECK_HEIGHT + 0.19 * (1 - (x + 6.3) / 0.25);
+    return ROUTE_DECK_HEIGHT + 0.19;
   }
 
   // Sand / Marble pit recess at x in [11.9, 15.0], z in [2.9, 6.2]
   if (x >= 11.9 && x <= 15.0 && z >= 2.9 && z <= 6.2) {
-    return 0.08;
+    return ROUTE_DECK_HEIGHT + 0.05;
   }
 
   // Deep enough for the tracks to enter the immediately following water basin.
   if (x >= -5.8 && x <= -3.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    return -0.12;
+    return ROUTE_DECK_HEIGHT + 0.03;
   }
 
   // Oil is a very thin surface treatment, not a floating physics layer.
   if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    return 0.05;
+    return ROUTE_DECK_HEIGHT + 0.02;
   }
 
   // The road is an elevated supported deck; leaving its boundaries drops the

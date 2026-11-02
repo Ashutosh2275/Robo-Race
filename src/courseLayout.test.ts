@@ -9,7 +9,7 @@ import {
   hillHeightAt,
   CHECKPOINTS,
   crossesCheckpointGate,
-  SLALOM_OBSTACLES,
+  SLALOM_BLOCKS,
   validateSlalomClearance,
   SPEED_BREAKER_XS,
   DRIVE_ROUTE,
@@ -29,7 +29,7 @@ import { TRACK_WIDTH } from './vehicleDynamics.ts';
 test('evaluateCourseHeight returns realistic heights across course features', () => {
   // Flat arena floor
   const floorH = evaluateCourseHeight(0, 0);
-  assert.equal(floorH, 0.03);
+  assert.equal(floorH, ROUTE_DECK_HEIGHT);
 
   // Wooden ramp crest at x = 4.8, z = 8.0
   const rampH = evaluateCourseHeight(4.8, 8.0);
@@ -45,10 +45,10 @@ test('evaluateCourseHeight returns realistic heights across course features', ()
 });
 
 test('raised bridge and curved ramp ground samples match their full-width physical decks', () => {
-  assert.ok(Math.abs(evaluateCourseHeight(7.0, 8.0) - 0.03) < 1e-6);
-  assert.ok(Math.abs(evaluateCourseHeight(8.6, 8.0) - 0.62) < 1e-6);
-  assert.ok(Math.abs(evaluateCourseHeight(9.6, 8.0) - 0.62) < 1e-6);
-  assert.ok(Math.abs(evaluateCourseHeight(12.2, 8.0) - 0.03) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(7.0, 8.0) - ROUTE_DECK_HEIGHT) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(8.6, 8.0) - (ROUTE_DECK_HEIGHT + 0.59)) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(9.6, 8.0) - (ROUTE_DECK_HEIGHT + 0.59)) < 1e-6);
+  assert.ok(Math.abs(evaluateCourseHeight(12.2, 8.0) - ROUTE_DECK_HEIGHT) < 1e-6);
   for (const x of [4.0, 4.8, 5.6]) {
     const center = evaluateCourseHeight(x, 8.0);
     assert.ok(Math.abs(evaluateCourseHeight(x, 6.0) - center) < 1e-6, 'ramp must support the road edge too');
@@ -56,14 +56,17 @@ test('raised bridge and curved ramp ground samples match their full-width physic
   }
   const rampSlope = Math.atan2(evaluateCourseHeight(4.10, 8.0) - evaluateCourseHeight(4.00, 8.0), 0.10) * 180 / Math.PI;
   assert.ok(rampSlope >= 35 && rampSlope <= 42, `curved ramp peak should be a climbable 35-42°, got ${rampSlope.toFixed(1)}°`);
+  const entryRampSlope = Math.atan2(evaluateCourseHeight(-15.7, 8.0) - evaluateCourseHeight(-16.3, 8.0), 0.6) * 180 / Math.PI;
+  assert.ok(entryRampSlope >= 34 && entryRampSlope <= 38, `initial climb should be about 35°, got ${entryRampSlope.toFixed(1)}°`);
 });
 
 test('road boundaries are raised above a lower arena floor and the water/plank hazards have separate heights', () => {
   assert.equal(evaluateCourseHeight(-14.2, 8.0), ROUTE_DECK_HEIGHT);
+  assert.equal(evaluateCourseHeight(-17.05, 8.0), ARENA_FLOOR_HEIGHT, 'the ramp toe must not extend as an invisible elevated pad behind its visible endpoint');
   assert.equal(evaluateCourseHeight(17, 12), ARENA_FLOOR_HEIGHT, 'off-road position must fall to the lower floor');
-  assert.equal(evaluateCourseHeight(-4.8, -4.0), -0.12, 'water crossing lowers the robot into the pool');
-  assert.equal(evaluateCourseHeight(-7.0, -4.0), 0.22, 'single plank is independently raised');
-  assert.equal(evaluateCourseHeight(-9.2, -4.0), 0.05, 'oil remains a thin surface layer');
+  assert.equal(evaluateCourseHeight(-4.8, -4.0), ROUTE_DECK_HEIGHT + 0.03, 'water remains a shallow inset in raised deck');
+  assert.equal(evaluateCourseHeight(-7.0, -4.0), ROUTE_DECK_HEIGHT + 0.19, 'single plank transition is independently raised');
+  assert.equal(evaluateCourseHeight(-9.2, -4.0), ROUTE_DECK_HEIGHT + 0.02, 'oil remains a thin surface layer');
 });
 
 test('hill height support ends at the visible platform edge and joins every segment endpoint', () => {
@@ -81,7 +84,7 @@ test('hill height support ends at the visible platform edge and joins every segm
 test('elevated hill return is a continuous supported descent to the course road', () => {
   const start = HILL_EXIT_LINK[0];
   const end = HILL_EXIT_LINK.at(-1)!;
-  assert.ok(Math.abs(evaluateCourseHeight(start.x, start.z) - 4.5) < 1e-6, 'return begins at the summit elevation');
+  assert.ok(Math.abs(evaluateCourseHeight(start.x, start.z) - (ROUTE_DECK_HEIGHT + 4.47)) < 1e-6, 'return begins at the summit elevation');
   assert.ok(Math.abs(evaluateCourseHeight(end.x, end.z) - ROUTE_DECK_HEIGHT) < 1e-6, 'return joins the lower road deck');
   let maximumGrade = 0;
   for (let segment = 0; segment < HILL_EXIT_LINK.length - 1; segment++) {
@@ -163,7 +166,7 @@ test('required obstacles sit on or within the road corridor rather than on detac
     return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
   }));
   const requiredCenters = [
-    ...SLALOM_OBSTACLES.map(b => ({ x: b.x, z: b.z, footprintAllowance: b.depth / 2 })),
+    ...SLALOM_BLOCKS.map(b => ({ x: b.x, z: b.z, footprintAllowance: b.span / 2 })),
     ...SPEED_BREAKER_XS.map(x => ({ x, z: 8, footprintAllowance: 0 })),
     { x: 4.8, z: 8, footprintAllowance: 0 }, { x: 9.6, z: 8, footprintAllowance: 0 }, { x: 13.45, z: 4.55, footprintAllowance: 0 },
     { x: 10.65, z: 0.1, footprintAllowance: 0 }, { x: 2.8, z: 0, footprintAllowance: 0 }, { x: -2.8, z: -4, footprintAllowance: 0 },
@@ -180,25 +183,23 @@ test('paired plank support spacing matches both robot track contact lines', () =
   const worldSpacing = Math.abs(PARALLEL_PLANK_CENTERS[1].z - PARALLEL_PLANK_CENTERS[0].z) * MAP_SCALE;
   assert.ok(Math.abs(worldSpacing - TRACK_WIDTH) < 1e-6, 'each track should align over one plank');
   for (const plank of PARALLEL_PLANK_CENTERS) {
-    assert.equal(evaluateCourseHeight(plank.x, plank.z), 0.3, 'plank top must be a continuous supported surface');
+    assert.equal(evaluateCourseHeight(plank.x, plank.z), ROUTE_DECK_HEIGHT + 0.27, 'plank top must be a continuous supported surface');
   }
   const centerGapHeight = evaluateCourseHeight(PARALLEL_PLANK_CENTERS[0].x, PARALLEL_PLANK_CENTER_Z);
-  assert.equal(centerGapHeight, 0.03, 'the gap between planks should remain a real gap');
+  assert.equal(centerGapHeight, ROUTE_DECK_HEIGHT, 'the gap between planks should remain a real gap');
 });
 
-test('slalom hurdles are isolated physical obstacles with a continuous alternating pass width', () => {
-  assert.equal(SLALOM_OBSTACLES.length, 5);
+test('slalom hurdles are alternating solid brick walls, spaced for a clear weave', () => {
+  assert.equal(SLALOM_BLOCKS.length, 5);
   assert.equal(SPEED_BREAKER_XS.length, 3);
-  for (let i = 0; i < SLALOM_OBSTACLES.length; i++) {
-    const b = SLALOM_OBSTACLES[i];
-    assert.ok(b.width > 0 && b.depth > 0 && b.height > 0);
-    assert.ok(b.width <= 1.0 && b.depth <= 1.0, 'each slalom target must be a compact standalone obstacle, not a fence panel');
-    assert.ok(b.height >= 0.9, 'the tire-and-cone obstacle must remain visible and collidable');
+  for (let i = 0; i < SLALOM_BLOCKS.length; i++) {
+    const b = SLALOM_BLOCKS[i];
+    assert.ok(b.length > 0 && b.span > 1.7 && b.height >= 1.0);
     if (i > 0) {
-      assert.ok(SLALOM_OBSTACLES[i - 1].x < b.x, 'hurdles must be ordered along the driving direction');
-      assert.ok(SLALOM_OBSTACLES[i - 1].x + SLALOM_OBSTACLES[i - 1].width / 2 < b.x - b.width / 2,
+      assert.ok(SLALOM_BLOCKS[i - 1].x < b.x, 'hurdles must be ordered along the driving direction');
+      assert.ok(SLALOM_BLOCKS[i - 1].x + SLALOM_BLOCKS[i - 1].length / 2 < b.x - b.length / 2,
         'neighboring hurdles must remain separate');
-      assert.notEqual(Math.sign(SLALOM_OBSTACLES[i - 1].z - 8), Math.sign(b.z - 8), 'hurdles alternate sides');
+      assert.notEqual(SLALOM_BLOCKS[i - 1].side, b.side, 'hurdles alternate from left then right');
     }
   }
 });
@@ -206,16 +207,16 @@ test('slalom hurdles are isolated physical obstacles with a continuous alternati
 test('each slalom hurdle leaves a physically passable opening for the robot envelope', () => {
   const audit = validateSlalomClearance();
   assert.equal(audit.valid, true, audit.issues.join('; '));
-  for (const obstacle of SLALOM_OBSTACLES) {
+  for (const obstacle of SLALOM_BLOCKS) {
     assert.ok(obstacle.height >= 0.9, `${obstacle.id} must be clearly visible above the track surface`);
   }
 });
 
-test('slalom clearance audit rejects the former blind block intruding into the straight route', () => {
-  const formerBlindBlock = [{ id: 'former_blind_block', x: -10.4, z: 9.1, width: 0.36, depth: 1.8, height: 0.78 }];
+test('slalom clearance audit rejects an overlong wall that blocks the opposite-side passage', () => {
+  const formerBlindBlock = [{ id: 'former_blind_block', x: -10.4, z: 9.4, side: 'left' as const, length: 0.62, span: 3.8, height: 1.05 }];
   const audit = validateSlalomClearance(formerBlindBlock);
   assert.equal(audit.valid, false, 'a block that overlaps the robot envelope on the route must fail validation');
-  assert.ok(audit.issues.some(issue => issue.includes('straight-route envelope')));
+  assert.ok(audit.issues.some(issue => issue.includes('clearance')));
 });
 
 test('checkpoint gates require a forward crossing through the opening', () => {

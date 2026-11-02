@@ -56,10 +56,22 @@ async function main() {
   await page.waitForFunction(() => window.__gameDebug?.raceState === 'racing', { timeout: 10000 });
   console.log('Race is active! (GO!)');
   const startupDebug = await page.evaluate(() => window.__gameDebug);
-  const contactGap = Math.abs(startupDebug.groundContact.trackBottomY - startupDebug.groundContact.terrainY);
+  console.log('Start pose/contact probes:', startupDebug.pose, startupDebug.groundContact);
+  // On an incline the vehicle centre is not on the ground height at every
+  // point along its contact patch. Compare the belt underside to the average
+  // terrain height sampled beneath all four track contact probes instead.
+  const contactGap = Math.abs(startupDebug.groundContact.trackBottomY - startupDebug.groundContact.supportY);
   console.log(`Track-to-ground contact gap: ${contactGap.toFixed(4)} m`);
   assert.ok(contactGap < 0.01, `robot belt should contact the ground, gap=${contactGap}`);
   assert.equal(startupDebug.routeClearanceAudit.valid, true, `route audit: ${startupDebug.routeClearanceAudit.issues.join('; ')}`);
+
+  // Reset to a clear start bay between directional probes. Otherwise a
+  // previous turn can leave the robot facing an obstacle and make the next
+  // key-combination check measure a collision instead of its steering sign.
+  const resetProbePose = async () => {
+    await page.keyboard.press('KeyR');
+    await page.waitForTimeout(350);
+  };
   assert.equal(startupDebug.slalomClearanceAudit.valid, true, `slalom clearance audit: ${startupDebug.slalomClearanceAudit.issues.join('; ')}`);
 
   // Take screenshot of race starting
@@ -87,6 +99,7 @@ async function main() {
 
   // 5. Keyboard convention is screen-relative: A counter-clockwise, D clockwise.
   console.log('Testing A (Counter-clockwise pivot)...');
+  await resetProbePose();
   const yawBeforeA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(600);
@@ -98,6 +111,7 @@ async function main() {
 
   // 6. Test T (right alias) and D (Rotate Right - yaw should increase)
   console.log('Testing T (Right pivot alias)...');
+  await resetProbePose();
   const yawBeforeT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyT');
   await page.waitForTimeout(600);
@@ -108,6 +122,7 @@ async function main() {
   await page.waitForTimeout(300);
 
   console.log('Testing D (Right pivot)...');
+  await resetProbePose();
   const yawBeforeD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(600);
@@ -119,6 +134,7 @@ async function main() {
 
   // 6b. A and D request opposite turns and cancel.
   console.log('Testing A + D Opposing Steering Cancellation...');
+  await resetProbePose();
   const yawBeforeAD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyA');
   await page.keyboard.down('KeyD');
@@ -133,6 +149,7 @@ async function main() {
 
   // 7. Test W+A (Forward-Left Curve) and W+D (Forward-Right Curve)
   console.log('Testing W+A (Forward-Left Curve)...');
+  await resetProbePose();
   const yawBeforeWA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyA');
@@ -144,6 +161,7 @@ async function main() {
   await page.waitForTimeout(300);
 
   console.log('Testing W+D (Forward-Right Curve)...');
+  await resetProbePose();
   const yawBeforeWD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyD');
@@ -156,6 +174,7 @@ async function main() {
 
   // 8. Reverse keyboard steering follows driving-game path curvature.
   console.log('Testing S+A (Reverse Clockwise Curve)...');
+  await resetProbePose();
   const yawBeforeSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyA');
@@ -168,6 +187,7 @@ async function main() {
   await page.waitForTimeout(300);
 
   console.log('Testing S+D (Reverse Counter-clockwise Curve)...');
+  await resetProbePose();
   const yawBeforeSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyD');
