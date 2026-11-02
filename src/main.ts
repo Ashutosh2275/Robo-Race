@@ -345,7 +345,7 @@ function buildSlalomBarrier(data: typeof SLALOM_BARRIERS[number]) {
 }
 
 // Main Arena Floors & Dedicated Path-Based Racing Circuit
-box(course, mats.floor, V(0, ARENA_FLOOR_HEIGHT - 0.225, 0), V(40, 0.45, 36), 0, false);
+box(course, mats.floor, V(0, ARENA_FLOOR_HEIGHT - 0.225, 0), V(50, 0.45, 36), 0, false);
 
 // Build one continuous road first. Obstacles are layered onto this measured
 // corridor below; there are no detached rectangular road pads or oversized
@@ -433,18 +433,44 @@ for (const link of [HILL_ENTRY_LINK, HILL_EXIT_LINK]) {
   createRouteRibbon(3.4 / 2 - 0.09, 0.055, mats.laneStripeWhite, 0.020, link);
 }
 
+// Steel legs visibly carry the high outer return deck down to the arena floor.
+// They sit just inside each road edge so they do not narrow the drive corridor.
+for (let i = 0; i < HILL_EXIT_LINK.length - 1; i++) {
+  const a = HILL_EXIT_LINK[i];
+  const b = HILL_EXIT_LINK[i + 1];
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  const nx = -dz / length;
+  const nz = dx / length;
+  const samples = Math.max(1, Math.ceil(length / 1.8));
+  for (let j = 0; j <= samples; j++) {
+    const t = j / samples;
+    const x = a.x + dx * t;
+    const z = a.z + dz * t;
+    const deckHeight = evaluateCourseHeight(x, z) - 0.16;
+    const legHeight = deckHeight - ARENA_FLOOR_HEIGHT;
+    if (legHeight < 0.38) continue;
+    for (const side of [-1, 1]) {
+      cyl(course, mats.metal,
+        V(x + nx * side * 1.42, ARENA_FLOOR_HEIGHT + legHeight / 2, z + nz * side * 1.42),
+        0.055, legHeight, 'y', 10);
+    }
+  }
+}
+
 // Perimeter Barriers
 for (const [id, x, z, w, d] of [
-  ['wall_north', 0, -17.82, 36, 0.32],
-  ['wall_south', 0, 17.82, 36, 0.32],
-  ['wall_west', -18.02, 0, 0.32, 36],
-  ['wall_east', 18.02, 0, 0.32, 36],
+  ['wall_north', 0, -17.82, 46, 0.32],
+  ['wall_south', 0, 17.82, 46, 0.32],
+  ['wall_west', -24.02, 0, 0.32, 36],
+  ['wall_east', 24.02, 0, 0.32, 36],
 ] as [string, number, number, number, number][]) {
   solidBox(id, x, z, w, d, 0.78, mats.barrier, 0, ARENA_FLOOR_HEIGHT + 0.39);
 }
 
 // Yellow hazard stripes along perimeter
-for (let x = -17; x <= 17; x += 2) {
+for (let x = -22; x <= 22; x += 2) {
   box(course, mats.yellow, V(x, 0.4, -13.6), V(1.55, 0.16, 0.055));
   box(course, mats.yellow, V(x, 0.4, 13.6), V(1.55, 0.16, 0.055));
 }

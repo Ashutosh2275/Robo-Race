@@ -85,9 +85,10 @@ export const HILL_ENTRY_LINK: CoursePoint[] = [
   { x: 10.65, z: 0.1 }, { x: 9.8, z: -0.55 }, { x: 8.9, z: -1.35 }, { x: 8.0, z: -2.0 },
 ];
 export const HILL_EXIT_LINK: CoursePoint[] = [
-  // Leave the summit landing beyond its edge before descending, so this
-  // connector cannot overlap the climbing deck at a conflicting elevation.
-  { x: 8.0, z: -13.4 }, { x: 5.8, z: -13.4 }, { x: 3.2, z: -11.5 }, { x: 1.0, z: -10.0 }, { x: -0.4, z: -8.8 }, { x: -0.2, z: -8.0 },
+  // Return around the outside perimeter, then descend north of the hill and
+  // merge with the main bridge approach. This avoids crossing the hill legs or
+  // the low final hairpin.
+  { x: 14.5, z: -13.4 }, { x: 19.5, z: -13.4 }, { x: 19.5, z: 5.5 }, { x: 13.2, z: 4.7 },
 ];
 
 function rampedLinkHeightAt(x: number, z: number, points: CoursePoint[], width: number, startY: number, endY: number, startFlatDistance = 0): number | null {
@@ -243,7 +244,6 @@ export const HILL_NODES: HillNode[] = [
   { x: 8.0, z: -9.6, y: 3.00 },    // Landing 2
   { x: 14.5, z: -9.6, y: 4.50 },   // Leg 3 crest
   { x: 14.5, z: -13.4, y: 4.50 },  // Summit landing
-  { x: 8.0, z: -13.4, y: 3.00 },   // Descending switchback leg
 ];
 
 export const HILL_SEGMENTS: HillSegment[] = [];
@@ -369,7 +369,7 @@ export function evaluateCourseHeight(x: number, z: number): number {
   // The summit return is a real descending road deck. Interpolate its
   // elevation over the connector length so the visuals and ground contact
   // share one continuous ramp rather than snapping to the arena floor.
-  const hillExitHeight = rampedLinkHeightAt(x, z, HILL_EXIT_LINK, 3.4, 3.0, ROUTE_DECK_HEIGHT, 1.9);
+  const hillExitHeight = rampedLinkHeightAt(x, z, HILL_EXIT_LINK, 3.4, 4.5, ROUTE_DECK_HEIGHT, 11.0);
   if (hillExitHeight !== null) return hillExitHeight;
 
   // Rotating disc platform at x = 10.65, z = 0.1

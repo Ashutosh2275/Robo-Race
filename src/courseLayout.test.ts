@@ -81,7 +81,7 @@ test('hill height support ends at the visible platform edge and joins every segm
 test('elevated hill return is a continuous supported descent to the course road', () => {
   const start = HILL_EXIT_LINK[0];
   const end = HILL_EXIT_LINK.at(-1)!;
-  assert.ok(Math.abs(evaluateCourseHeight(start.x, start.z) - 3.0) < 1e-6, 'return begins at the summit elevation');
+  assert.ok(Math.abs(evaluateCourseHeight(start.x, start.z) - 4.5) < 1e-6, 'return begins at the summit elevation');
   assert.ok(Math.abs(evaluateCourseHeight(end.x, end.z) - ROUTE_DECK_HEIGHT) < 1e-6, 'return joins the lower road deck');
   let maximumGrade = 0;
   for (let segment = 0; segment < HILL_EXIT_LINK.length - 1; segment++) {
@@ -97,6 +97,8 @@ test('elevated hill return is a continuous supported descent to the course road'
     }
   }
   assert.ok(maximumGrade < 0.65, `return descent grade should stay traversable, got ${maximumGrade.toFixed(2)}`);
+  assert.ok(Math.abs(evaluateCourseHeight(0.8, -9.6) - ROUTE_DECK_HEIGHT) < 1e-6,
+    'the final hairpin must stay on the low road with no raised hill collider crossing it');
 });
 
 test('evaluateCourseSurface implements mandatory sequence: fire -> water -> oil', () => {
