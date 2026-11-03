@@ -779,9 +779,9 @@ function createRouteRibbon(
 // By segmenting the visual circuit into continuous linear corridors and terminating
 // each leg before the 180° hairpin turn plazas, we eliminate inverted miter normals,
 // self-intersecting polygon fans, and folded origami pleats completely.
-// Corridor 1: Start gate along Lane 1 through Slalom, Breakers, Curved Ramp, Bridge, Marble Pit, Turntable, and Rock Field to the rock field exit (1.4, 0.0)
+// Corridor 1: Start gate along Lane 1 through Slalom, Breakers, Curved Ramp, Bridge, Marble Pit, Turntable, and continuous approach road to the rock field entrance (4.8, 0.0)
 const corridor1: CoursePoint[] = [
-  ...DRIVE_ROUTE.slice(0, 15),
+  ...DRIVE_ROUTE.slice(0, 18),
 ];
 // Corridor 2b: From the top of the water basket exit climb ramp through oil hazard to Hairpin 1
 const corridor2b: CoursePoint[] = [
@@ -807,6 +807,38 @@ for (const corr of [corridor1, corridor2b, corridor3, corridor4]) {
   createRouteRibbon(0, 0.08, mats.yellow, 0.016, corr, false);
 }
 
+// Monolithic Approach Road Foundation Deck & Safety Parapets: Turntable Exit to Rock Field (x in [4.7, 8.2], z in [-3.0, 3.0])
+// Seals all gaps between the rotating turntable apron and the rock field entrance completely
+box(course, mats.concretePier, V(6.45, ROUTE_DECK_HEIGHT - 0.11, 0.0), V(3.50, 0.22, DRIVE_ROUTE_WIDTH));
+colliders.push({
+  id: 'approach_road_deck',
+  x: 6.45,
+  z: 0.0,
+  hx: 1.75,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: ROUTE_DECK_HEIGHT,
+  height: 0.22,
+  rot: 0,
+  walkable: true,
+});
+
+for (const side of [-1, 1]) {
+  const zCurb = side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
+  box(course, mats.concretePier, V(6.45, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(3.50, 0.36, 0.28));
+  box(course, mats.yellow, V(6.45, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(3.50, 0.04, 0.30), 0, false);
+  colliders.push({
+    id: `approach_road_barrier_${side}`,
+    x: 6.45,
+    z: zCurb,
+    hx: 1.75,
+    hz: 0.14,
+    y: ROUTE_DECK_HEIGHT + 0.18,
+    height: 0.36,
+    rot: 0,
+    walkable: false,
+  });
+}
+
 // Monolithic West Wing Continuous Viaduct Deck Slab (seals all gaps between Lanes 2 and 3 completely)
 // Covers Lanes 2 and 3 (z in [-14.0, -5.8]), leaving Lane 1 open to the ground-level fire and water basket
 box(course, mats.concretePier, V(-8.5, ROUTE_DECK_HEIGHT - 0.12, -9.9), V(18.0, 0.22, 8.0));
@@ -819,7 +851,8 @@ const pierBentPositions: CoursePoint[] = [
   { x: -5.5, z: 8.0 },
   { x: 1.5, z: 8.0 },
   { x: 13.5, z: 2.2 },   // Checkpoint 6 turn shelf support
-  { x: 7.0, z: 0.0 },    // approaching mixed terrain
+  { x: 7.2, z: 0.0 },    // approach road outer support pier
+  { x: 5.6, z: 0.0 },    // approach road inner support pier
   { x: -11.5, z: -4.0 }, // after oil
   { x: -15.5, z: -6.0 }, // Hairpin 1 plaza outer pier
   { x: -13.2, z: -6.0 }, // Hairpin 1 plaza center pier
@@ -1417,25 +1450,53 @@ const rockGeos = [graniteGeo, basaltGeo, riverStoneGeo, limestoneGeo, screeGeo];
 const rockMats = [mats.granite, mats.basalt, mats.riverStone, mats.limestone, mats.gravel];
 
 // Natural Boulder Quarry Bed & Substrate Base along z ~ 0 (x in [1.35, 4.65])
+// Monolithic reinforced concrete foundation deck carrying the rock platform above arena floor
+box(course, mats.concretePier, V(3.05, ROUTE_DECK_HEIGHT - 0.11, 0), V(3.50, 0.22, DRIVE_ROUTE_WIDTH));
+colliders.push({
+  id: 'rock_platform_deck',
+  x: 3.05,
+  z: 0.0,
+  hx: 1.75,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: ROUTE_DECK_HEIGHT,
+  height: 0.22,
+  rot: 0,
+  walkable: true,
+});
+
 // Monolithic dark crushed aggregate bed eliminating harsh seam cuts and covering asphalt completely
 box(course, mats.gravelBed, V(3.0, ROUTE_DECK_HEIGHT + 0.025, 0), V(3.4, 0.045, DRIVE_ROUTE_WIDTH - 0.15));
 
 // Smooth bevelled crushed stone lead-in and exit ramps (eliminates harsh box-cut seams)
-slopedDeck('rock_bed_entry_ramp', 1.20, 1.40, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT + 0.035, 0.03, mats.gravelBed);
-slopedDeck('rock_bed_exit_ramp', 4.60, 4.80, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT + 0.035, ROUTE_DECK_HEIGHT, 0.03, mats.gravelBed);
+slopedDeck('rock_bed_entrance_ramp', 4.80, 4.60, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT + 0.035, 0.03, mats.gravelBed);
+slopedDeck('rock_bed_exit_ramp', 1.40, 1.20, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT + 0.035, ROUTE_DECK_HEIGHT, 0.03, mats.gravelBed);
 
 // Natural weathered granite retaining rock kerbs along both shoulders
 for (const side of [-1, 1]) {
   const zCurb = side * (DRIVE_ROUTE_WIDTH / 2 - 0.18);
   box(course, mats.granite, V(3.0, ROUTE_DECK_HEIGHT + 0.08, zCurb), V(3.4, 0.16, 0.28));
   box(course, mats.yellow, V(3.0, ROUTE_DECK_HEIGHT + 0.17, zCurb), V(3.4, 0.02, 0.24), 0, false);
+  colliders.push({
+    id: `rock_platform_kerb_${side}`,
+    x: 3.0,
+    z: zCurb,
+    hx: 1.7,
+    hz: 0.14,
+    y: ROUTE_DECK_HEIGHT + 0.08,
+    height: 0.16,
+    rot: 0,
+    walkable: false,
+  });
 }
 
 // Concrete pier bents supporting the rock field viaduct platform above arena floor
-const rockPierH = ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT;
-for (const px of [1.6, 3.0, 4.4]) {
+const rockPierH = (ROUTE_DECK_HEIGHT - 0.22) - ARENA_FLOOR_HEIGHT;
+for (const px of [1.8, 3.0, 4.2]) {
+  box(course, mats.concretePier, V(px, ROUTE_DECK_HEIGHT - 0.22 - 0.12, 0), V(0.44, 0.24, DRIVE_ROUTE_WIDTH - 0.4));
   for (const side of [-1, 1]) {
-    cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + rockPierH / 2, side * 2.6), 0.22, rockPierH, 'y', 20);
+    const colZ = side * (DRIVE_ROUTE_WIDTH / 2 - 0.85);
+    cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + rockPierH / 2, colZ), 0.22, rockPierH, 'y', 20);
+    box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.72, 0.36, 0.72));
   }
 }
 
@@ -1469,64 +1530,284 @@ for (let i = 0; i < 120; i++) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. ELEVATED SLOPED CONNECTING VIADUCT: Direct Connection Rock Field -> Fire Obstacle
+// 2. MONOLITHIC WATERTIGHT S-CURVE VIADUCT: Rock Field Exit (1.40, 0.00) -> Fire Platform (-1.20, -4.00)
 // ---------------------------------------------------------------------------
-// Directly connects rock field exit (1.4, 0.0) to elevated fire platform entrance (-1.2, -4.0)
-// Smooth continuous multi-segment viaduct with heavy concrete piers and zero disconnected gaps.
-const viaductNodes = [
-  { pt: { x: 1.40, z: 0.00 }, y: ROUTE_DECK_HEIGHT },
-  { pt: { x: 0.60, z: -0.90 }, y: ROUTE_DECK_HEIGHT },
-  { pt: { x: -0.30, z: -2.45 }, y: 0.52 },
-  { pt: { x: -1.20, z: -4.00 }, y: 0.38 },
-];
+// Monolithic watertight extruded viaduct connecting the rock field exit smoothly to the
+// elevated refractory fire platform entrance. Zero disconnected gaps, zero overlapping
+// miter spikes, zero protruding yellow beams, and structurally seated piers.
+{
+  const viaductSlices = 32;
+  const halfW = DRIVE_ROUTE_WIDTH / 2;
+  const deckThickness = 0.22;
+  const parapetW = 0.24;
+  const parapetH = 0.36;
+  const copingW = 0.28;
+  const copingH = 0.04;
 
-for (let i = 0; i < viaductNodes.length - 1; i++) {
-  const n0 = viaductNodes[i];
-  const n1 = viaductNodes[i + 1];
-  const segId = `rock_fire_viaduct_seg_${i}`;
+  type CrossSection = {
+    x: number;
+    y: number;
+    zc: number;
+    zL: number;
+    zR: number;
+  };
 
-  // Continuous viaduct deck
-  slopedDeckSegment(segId, n0.pt, n1.pt, DRIVE_ROUTE_WIDTH, n0.y, n1.y, 0.18, mats.asphalt);
-
-  const dx = n1.pt.x - n0.pt.x;
-  const dz = n1.pt.z - n0.pt.z;
-  const len = Math.hypot(dx, dz);
-  const midX = (n0.pt.x + n1.pt.x) / 2;
-  const midZ = (n0.pt.z + n1.pt.z) / 2;
-  const midY = (n0.y + n1.y) / 2;
-  const rot = Math.atan2(dz, dx) + Math.PI / 2;
-
-  colliders.push({
-    id: segId,
-    x: midX,
-    z: midZ,
-    hx: len / 2,
-    hz: DRIVE_ROUTE_WIDTH / 2,
-    y: midY,
-    height: Math.abs(n0.y - n1.y) + 0.18,
-    rot,
-    walkable: true,
-  });
-
-  // Supporting reinforced concrete pier bents beneath each segment midpoint
-  // Deck slab has thickness 0.18m; piers seat cleanly against the underside without poking through deck
-  const deckUnderY = midY - 0.18;
-  const segPierH = Math.max(0.12, deckUnderY - ARENA_FLOOR_HEIGHT);
-  const normX = -dz / len;
-  const normZ = dx / len;
-  for (const side of [-1, 1]) {
-    const px = midX + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55) * normX;
-    const pz = midZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55) * normZ;
-    cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + segPierH / 2, pz), 0.22, segPierH, 'y', 20);
+  const sections: CrossSection[] = [];
+  for (let s = 0; s <= viaductSlices; s++) {
+    const t = s / viaductSlices;
+    const x = 1.40 - 2.60 * t;
+    const u = t * t * (3 - 2 * t);
+    const zc = -4.00 * u;
+    const y = ROUTE_DECK_HEIGHT + (0.38 - ROUTE_DECK_HEIGHT) * u;
+    sections.push({
+      x,
+      y,
+      zc,
+      zL: zc + halfW,
+      zR: zc - halfW,
+    });
   }
 
-  // Parapet safety barriers along both outer shoulders with yellow hazard coping
-  for (const side of [-1, 1]) {
-    const wSide = side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
-    const wp0: CoursePoint = { x: n0.pt.x + wSide * normX, z: n0.pt.z + wSide * normZ };
-    const wp1: CoursePoint = { x: n1.pt.x + wSide * normX, z: n1.pt.z + wSide * normZ };
-    slopedDeckSegment(`${segId}_parapet_${side}`, wp0, wp1, 0.24, n0.y + 0.36, n1.y + 0.36, 0.36, mats.concretePier);
-    slopedDeckSegment(`${segId}_coping_${side}`, wp0, wp1, 0.28, n0.y + 0.38, n1.y + 0.38, 0.04, mats.yellow);
+  // A. Extruded Deck Slab (Top Asphalt + Concrete Soffit & Fascia Skirts)
+  const deckPos: number[] = [];
+  const deckUvs: number[] = [];
+  const deckIdx: number[] = [];
+
+  // 4 vertices per section: 0: Top Left, 1: Top Right, 2: Bottom Right, 3: Bottom Left
+  for (let s = 0; s <= viaductSlices; s++) {
+    const sec = sections[s];
+    const yTop = sec.y;
+    const yBot = sec.y - deckThickness;
+
+    deckPos.push(sec.x, yTop, sec.zL); // 0: Top Left
+    deckPos.push(sec.x, yTop, sec.zR); // 1: Top Right
+    deckPos.push(sec.x, yBot, sec.zR); // 2: Bottom Right
+    deckPos.push(sec.x, yBot, sec.zL); // 3: Bottom Left
+
+    const v = s / viaductSlices;
+    deckUvs.push(0, v, 1, v, 1, v, 0, v);
+
+    if (s < viaductSlices) {
+      const b = s * 4;
+      const n = (s + 1) * 4;
+      // Top driving surface (+Y normal)
+      deckIdx.push(b, b + 1, n);
+      deckIdx.push(b + 1, n + 1, n);
+      // Right vertical fascia skirt (-Z normal)
+      deckIdx.push(b + 1, n + 1, b + 2);
+      deckIdx.push(n + 1, n + 2, b + 2);
+      // Bottom soffit (-Y normal)
+      deckIdx.push(b + 3, n + 3, b + 2);
+      deckIdx.push(b + 2, n + 3, n + 2);
+      // Left vertical fascia skirt (+Z normal)
+      deckIdx.push(b, b + 3, n);
+      deckIdx.push(n, b + 3, n + 3);
+    }
+  }
+
+  const deckGeo = new THREE.BufferGeometry();
+  deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPos, 3));
+  deckGeo.setAttribute('uv', new THREE.Float32BufferAttribute(deckUvs, 2));
+  deckGeo.setIndex(deckIdx);
+  deckGeo.computeVertexNormals();
+  const deckMesh = new THREE.Mesh(deckGeo, mats.asphalt);
+  deckMesh.receiveShadow = true;
+  course.add(deckMesh);
+
+  // B. Continuous Parapet Safety Walls & Yellow Coping Beams along Both Shoulders
+  for (const side of ['left', 'right'] as const) {
+    const isLeft = side === 'left';
+    const parapetPos: number[] = [];
+    const parapetIdx: number[] = [];
+    const copingPos: number[] = [];
+    const copingIdx: number[] = [];
+
+    for (let s = 0; s <= viaductSlices; s++) {
+      const sec = sections[s];
+      const outerZ = isLeft ? sec.zL : sec.zR;
+      const innerZ = isLeft ? sec.zL - parapetW : sec.zR + parapetW;
+      const copInnerZ = isLeft ? sec.zL - copingW : sec.zR + copingW;
+      const yDeck = sec.y;
+      const yWallTop = sec.y + parapetH;
+      const yCopTop = sec.y + parapetH + copingH;
+
+      // Parapet cross-section: 0: Inner Bot, 1: Outer Bot, 2: Outer Top, 3: Inner Top
+      parapetPos.push(sec.x, yDeck, innerZ);     // 0
+      parapetPos.push(sec.x, yDeck, outerZ);     // 1
+      parapetPos.push(sec.x, yWallTop, outerZ);  // 2
+      parapetPos.push(sec.x, yWallTop, innerZ);  // 3
+
+      // Coping cross-section: 0: Inner Bot, 1: Outer Bot, 2: Outer Top, 3: Inner Top
+      copingPos.push(sec.x, yWallTop, copInnerZ); // 0
+      copingPos.push(sec.x, yWallTop, outerZ);    // 1
+      copingPos.push(sec.x, yCopTop, outerZ);     // 2
+      copingPos.push(sec.x, yCopTop, copInnerZ);  // 3
+
+      if (s < viaductSlices) {
+        const b = s * 4;
+        const n = (s + 1) * 4;
+        if (isLeft) {
+          // Facing track (-Z)
+          parapetIdx.push(b, b + 3, n);
+          parapetIdx.push(n, b + 3, n + 3);
+          // Wall top (+Y)
+          parapetIdx.push(b + 3, b + 2, n + 3);
+          parapetIdx.push(n + 3, b + 2, n + 2);
+          // Coping top (+Y)
+          copingIdx.push(b + 3, b + 2, n + 3);
+          copingIdx.push(n + 3, b + 2, n + 2);
+          // Coping inner face (-Z)
+          copingIdx.push(b, b + 3, n);
+          copingIdx.push(n, b + 3, n + 3);
+          // Coping outer face (+Z)
+          copingIdx.push(b + 1, n + 1, b + 2);
+          copingIdx.push(n + 1, n + 2, b + 2);
+        } else {
+          // Facing track (+Z)
+          parapetIdx.push(b, n, b + 3);
+          parapetIdx.push(n, n + 3, b + 3);
+          // Wall top (+Y)
+          parapetIdx.push(b + 3, b + 2, n + 3);
+          parapetIdx.push(n + 3, b + 2, n + 2);
+          // Coping top (+Y)
+          copingIdx.push(b + 3, b + 2, n + 3);
+          copingIdx.push(n + 3, b + 2, n + 2);
+          // Coping inner face (+Z)
+          copingIdx.push(b, n, b + 3);
+          copingIdx.push(n, n + 3, b + 3);
+          // Coping outer face (-Z)
+          copingIdx.push(b + 1, b + 2, n + 1);
+          copingIdx.push(n + 1, b + 2, n + 2);
+        }
+      }
+    }
+
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.Float32BufferAttribute(parapetPos, 3));
+    pGeo.setIndex(parapetIdx);
+    pGeo.computeVertexNormals();
+    const pMesh = new THREE.Mesh(pGeo, new THREE.MeshStandardMaterial({
+      color: '#4e5458',
+      roughness: 0.85,
+      metalness: 0.15,
+      side: THREE.DoubleSide,
+    }));
+    pMesh.castShadow = true;
+    pMesh.receiveShadow = true;
+    course.add(pMesh);
+
+    const cGeo = new THREE.BufferGeometry();
+    cGeo.setAttribute('position', new THREE.Float32BufferAttribute(copingPos, 3));
+    cGeo.setIndex(copingIdx);
+    cGeo.computeVertexNormals();
+    const cMesh = new THREE.Mesh(cGeo, new THREE.MeshStandardMaterial({
+      color: '#f5c842',
+      roughness: 0.40,
+      metalness: 0.20,
+      side: THREE.DoubleSide,
+    }));
+    cMesh.castShadow = true;
+    course.add(cMesh);
+  }
+
+  // C. High-Visibility Road Surface Markings (White Shoulder Stripes & Yellow Centerline)
+  for (const markType of ['leftStripe', 'rightStripe', 'centerYellow'] as const) {
+    const markPos: number[] = [];
+    const markIdx: number[] = [];
+    const stripeW = markType === 'centerYellow' ? 0.08 : 0.065;
+
+    for (let s = 0; s <= viaductSlices; s++) {
+      const sec = sections[s];
+      let centerZ = sec.zc;
+      if (markType === 'leftStripe') centerZ = sec.zL - 0.14 - stripeW / 2;
+      if (markType === 'rightStripe') centerZ = sec.zR + 0.14 + stripeW / 2;
+
+      const z1 = centerZ + stripeW / 2;
+      const z2 = centerZ - stripeW / 2;
+      const yMark = sec.y + 0.006;
+
+      markPos.push(sec.x, yMark, z1);
+      markPos.push(sec.x, yMark, z2);
+
+      if (s < viaductSlices) {
+        const b = s * 2;
+        const n = (s + 1) * 2;
+        markIdx.push(b, b + 1, n);
+        markIdx.push(b + 1, n + 1, n);
+      }
+    }
+
+    const mGeo = new THREE.BufferGeometry();
+    mGeo.setAttribute('position', new THREE.Float32BufferAttribute(markPos, 3));
+    mGeo.setIndex(markIdx);
+    mGeo.computeVertexNormals();
+    const mMesh = new THREE.Mesh(mGeo, markType === 'centerYellow' ? mats.yellow : mats.laneStripeWhite);
+    course.add(mMesh);
+  }
+
+  // D. Structural Reinforced Concrete Pier Bents Supporting the Viaduct
+  // Placed strictly beneath the deck soffit so columns never poke through or penetrate the deck surface
+  for (const tBent of [0.25, 0.50, 0.75]) {
+    const sIdx = Math.round(tBent * viaductSlices);
+    const sec = sections[sIdx];
+    const soffitY = sec.y - deckThickness;
+    const capH = 0.24;
+    const capSpan = DRIVE_ROUTE_WIDTH - 0.50;
+    const capBottomY = soffitY - capH;
+    const pierColH = Math.max(0.18, capBottomY - ARENA_FLOOR_HEIGHT);
+
+    // Transverse reinforced cap beam seated flush under the soffit
+    box(course, mats.concretePier, V(sec.x, soffitY - capH / 2, sec.zc), V(0.44, capH, capSpan));
+
+    // Cylindrical concrete support columns on arena floor
+    for (const side of [-1, 1]) {
+      const colZ = sec.zc + side * (halfW - 0.75);
+      cyl(course, mats.concretePier, V(sec.x, ARENA_FLOOR_HEIGHT + pierColH / 2, colZ), 0.22, pierColH, 'y', 20);
+      box(course, mats.concretePier, V(sec.x, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.72, 0.36, 0.72));
+    }
+  }
+
+  // E. Physics & Walkable / Barrier Colliders
+  const chordSegments = 6;
+  for (let c = 0; c < chordSegments; c++) {
+    const s0 = Math.round((c / chordSegments) * viaductSlices);
+    const s1 = Math.round(((c + 1) / chordSegments) * viaductSlices);
+    const sec0 = sections[s0];
+    const sec1 = sections[s1];
+    const midX = (sec0.x + sec1.x) / 2;
+    const midZ = (sec0.zc + sec1.zc) / 2;
+    const midY = (sec0.y + sec1.y) / 2;
+    const chordDx = sec1.x - sec0.x;
+    const chordDz = sec1.zc - sec0.zc;
+    const chordLen = Math.hypot(chordDx, chordDz);
+    const rotY = Math.atan2(chordDz, chordDx) + Math.PI / 2;
+
+    colliders.push({
+      id: `viaduct_chord_${c}`,
+      x: midX,
+      z: midZ,
+      hx: chordLen / 2 + 0.05,
+      hz: halfW,
+      y: midY,
+      height: Math.abs(sec0.y - sec1.y) + deckThickness,
+      rot: rotY,
+      walkable: true,
+    });
+
+    for (const side of [-1, 1]) {
+      const bZ = midZ + side * (halfW - parapetW / 2);
+      colliders.push({
+        id: `viaduct_barrier_${c}_${side}`,
+        x: midX,
+        z: bZ,
+        hx: chordLen / 2 + 0.05,
+        hz: parapetW / 2,
+        y: midY + parapetH / 2,
+        height: parapetH,
+        rot: rotY,
+        walkable: false,
+      });
+    }
   }
 }
 

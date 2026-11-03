@@ -75,12 +75,16 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: 13.8, z: 2.2 },
   { x: 13.2, z: 0.9 },
   { x: 12.1, z: 0.1 },
-  { x: 10.65, z: 0.1 }, // rotating disc
-  { x: 4.0, z: 0.0 },   // rock field approach
-  { x: 1.4, z: 0.0 },   // rock field exit
-  { x: 0.4, z: -1.33 }, // sloped connecting platform
-  { x: -0.4, z: -2.67 }, // sloped connecting platform
-  { x: -1.2, z: -4.0 }, // fire entrance
+  { x: 10.65, z: 0.1 }, // Gate 07 - Rotating Platform
+  { x: 8.2, z: 0.0 },   // Turntable exit apron
+  { x: 6.4, z: 0.0 },   // Approach road pier bent
+  { x: 4.8, z: 0.0 },   // Rock field approach & entrance ramp
+  { x: 3.0, z: 0.0 },   // Rock field center
+  { x: 1.4, z: 0.0 },   // Gate 08 - Mixed Terrain exit
+  { x: 0.60, z: -0.60 }, // Continuous S-curve viaduct node 1
+  { x: 0.07, z: -2.00 }, // Continuous S-curve viaduct inflection
+  { x: -0.60, z: -3.40 }, // Continuous S-curve viaduct node 3
+  { x: -1.2, z: -4.0 }, // Fire platform entrance
   { x: -3.1, z: -4.0 }, // fire
   { x: -4.4, z: -4.0 }, // short fire-to-water cooling crossing
   { x: -7.4, z: -4.0 }, // deep water pool
@@ -551,11 +555,24 @@ export function evaluateCourseHeight(x: number, z: number): number {
   }
 
   // ---------------------------------------------------------------------------
-  // ELEVATED SLOPED CONNECTING VIADUCT: Direct connection Rock Field -> Fire Obstacle
+  // ELEVATED MONOLITHIC APPROACH ROAD: Turntable to Rock Field Entrance (x in [4.6, 8.2])
   // ---------------------------------------------------------------------------
-  // Connects rock field exit (via level transition deck) directly to elevated fire obstacle
-  // entrance (-1.2, -4.0) at fire platform height (0.38m).
-  // Zero disconnected gaps, zero floating meshes, and traversable engineered grade (~4.6 deg).
+  if (x >= 4.6 && x <= 8.2 && Math.abs(z) <= DRIVE_ROUTE_WIDTH / 2) {
+    return ROUTE_DECK_HEIGHT;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ELEVATED ROCK FIELD FOUNDATION DECK & TRANSITION: x in [0.60, 4.65], z in [-3.0, 3.0]
+  // ---------------------------------------------------------------------------
+  if (x >= 0.60 && x <= 4.65 && Math.abs(z) <= DRIVE_ROUTE_WIDTH / 2) {
+    return ROUTE_DECK_HEIGHT;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CONTINUOUS ELEVATED SLOPED VIADUCT: Direct Connection Rock Field -> Fire Obstacle
+  // ---------------------------------------------------------------------------
+  // Connects rock field transition deck (0.60, -0.90, 0.67m) smoothly to elevated fire
+  // obstacle entrance (-1.20, -4.00, 0.38m) with engineered grade and zero gaps.
   {
     const ax = 0.60, az = -0.90;
     const bx = -1.20, bz = -4.00;

@@ -178,29 +178,29 @@ async function main() {
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
 
-  // 8. Reverse keeps steering nose-relative: S+A still turns the nose anticlockwise.
-  console.log('Testing S+A (reverse, nose-left anticlockwise curve)...');
+  // 8. User specification: S+A rotates clockwise, S+D rotates anticlockwise.
+  console.log('Testing S+A (reverse diagonal: clockwise)...');
   await resetProbePose();
   const yawBeforeSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
   const yawDuringSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Nose Anticlockwise)`);
-  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) > 0.03, 'S+A must turn the robot nose anticlockwise while reversing');
+  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Clockwise)`);
+  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) < -0.03, 'S+A must turn the robot clockwise while reversing per user spec');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
 
-  console.log('Testing S+D (reverse, nose-right clockwise curve)...');
+  console.log('Testing S+D (reverse diagonal: anticlockwise)...');
   await resetProbePose();
   const yawBeforeSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(1000);
   const yawDuringSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Nose Clockwise)`);
-  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) < -0.03, 'S+D must turn the robot nose clockwise while reversing');
+  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Anticlockwise)`);
+  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) > 0.03, 'S+D must turn the robot anticlockwise while reversing per user spec');
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
