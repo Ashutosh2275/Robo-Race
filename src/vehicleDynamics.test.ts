@@ -185,7 +185,7 @@ test('applyRecovery restores upright orientation and clears velocities', () => {
 test('recovery chooses the latest safe anchor and falls back from a blocked one', () => {
   const anchors = createDefaultRecoveryAnchors();
   const latestSafe = getSafeRecoveryAnchor(8, anchors, anchor => anchor.id !== 'mixed_terrain');
-  assert.equal(latestSafe.id, 'hazard_entry');
+  assert.equal(latestSafe.id, 'turntable');
   assert.equal(getSafeRecoveryAnchor(0, anchors, () => false), null, 'no blocked location may be selected as a fallback');
 });
 
@@ -321,9 +321,9 @@ test('turntable road envelope provides >= 2.5x robot width clearance', () => {
 
 test('evaluateWaterBuoyancy computes authentic Archimedes buoyancy, floating equilibrium, and paddle thrust', () => {
   const scale = 1.3;
-  // Deep water pool center: x = -7.4, z = -4.0
-  const poolWorldX = -7.4 * scale;
-  const poolWorldZ = -4.0 * scale;
+  // Deep water pool center on Lane 2: x = -4.0, z = 6.75
+  const poolWorldX = -4.0 * scale;
+  const poolWorldZ = 6.75 * scale;
 
   // 1. Outside water bounds (e.g. at start line)
   const outside = evaluateWaterBuoyancy(0, 0, 0.67, 0, 1.0, 0, 1.0, 1.0, 1.0, scale);

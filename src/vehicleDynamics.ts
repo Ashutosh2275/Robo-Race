@@ -277,21 +277,22 @@ export function stepVehicle3D(
  */
 export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
-    // Stage on the lower approach, before the steep entry ramp. This keeps
-    // the complete track footprint on one level surface at race start.
-    { id: 'start', label: 'Starting Bay', x: -22.3 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
-    // Rewind recovery to the next still-required obstacle section, so a reset
-    // cannot teleport past the slalom or its speed breakers.
-    { id: 'slalom', label: 'Slalom Entry', x: -17.8 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
-    { id: 'speedbreaker_entry', label: 'Speed Breaker Entry', x: -0.5 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
-    { id: 'ramp_entry', label: 'Ramp Approach', x: 3.4 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
-    { id: 'bridge_entry', label: 'Bridge Approach', x: 7.2 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 4 },
-    { id: 'bridge_exit', label: 'Bridge Landing', x: 13.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(3.6, -3.3), checkpointIndex: 5 },
-    { id: 'disc_exit', label: 'Platform Transition', x: 11.8 * scale, z: 3.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-2.55, -4.6), checkpointIndex: 6 },
-    { id: 'mixed_terrain', label: 'Mixed Terrain Run', x: 2.0 * scale, z: 0.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 7 },
-    { id: 'hazard_entry', label: 'Technical Hazard Approach', x: -1.6 * scale, z: -2.4 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.atan2(-4.5, -4.0), checkpointIndex: 8 },
-    { id: 'hairpins', label: 'Parallel Plank Entry', x: -12.6 * scale, z: -8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 9 },
-    { id: 'finish_straight', label: 'Final Straight', x: -8.0 * scale, z: -11.9 * scale, y: -TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 10 },
+    // Lane 1: Starting bay before the climb ramp (ground at ARENA_FLOOR_HEIGHT = -0.33)
+    { id: 'start', label: 'Starting Bay', x: -22.0 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
+    { id: 'slalom', label: 'Slalom Entry', x: -16.0 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
+    { id: 'speedbreaker_entry', label: 'Speed Breakers', x: 3.5 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
+    { id: 'rockfield_entry', label: 'Rock Field', x: 5.5 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
+    // Lane 2: Hill, Fire, and Water
+    { id: 'climb_summit', label: 'Climbing Hill Summit', x: 12.0 * scale, z: 6.75 * scale, y: 1.85 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
+    { id: 'fire_platform', label: 'Fire Platform', x: 5.0 * scale, z: 6.75 * scale, y: 0.38 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 5 },
+    { id: 'water_basin', label: 'Water Basin', x: -3.0 * scale, z: 6.75 * scale, y: -0.30 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 6 },
+    // Lane 3: Rotating Disc and Mixed Terrain
+    { id: 'turntable', label: 'Rotating Platform', x: -4.0 * scale, z: 0.00 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
+    { id: 'mixed_terrain', label: 'Mixed Terrain', x: 5.0 * scale, z: 0.00 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
+    // Lane 4: Parallel Planks
+    { id: 'parallel_planks', label: 'Parallel Planks', x: -3.0 * scale, z: -6.75 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
+    // Lane 5: Final Straight
+    { id: 'finish_straight', label: 'Final Straight', x: 6.0 * scale, z: -13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
   ];
 }
 
@@ -458,10 +459,10 @@ export interface WaterPoolConfig {
 }
 
 export const WATER_POOL_CONFIG: WaterPoolConfig = {
-  xMin: -10.4,
-  xMax: -4.4,
-  zCenter: -4.0,
-  width: 6.0,
+  xMin: -9.5,
+  xMax: 1.5,
+  zCenter: 6.75,
+  width: 4.40,
   waterLevelY: 0.16,
   bedLevelY: -0.30,
 };
