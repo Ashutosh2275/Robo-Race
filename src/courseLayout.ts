@@ -31,7 +31,7 @@ export type CheckpointGate = {
 
 export type CoursePoint = { x: number; z: number };
 export const MAP_SCALE = 1.3;
-export const PARALLEL_PLANK_CENTER_Z = -8.0;
+export const PARALLEL_PLANK_CENTER_Z = -9.2;
 export const PARALLEL_PLANK_SPACING_LOCAL = TRACK_WIDTH / MAP_SCALE;
 export const PARALLEL_PLANK_CENTERS = [
   { x: -7.35, z: PARALLEL_PLANK_CENTER_Z - PARALLEL_PLANK_SPACING_LOCAL / 2 },
@@ -91,14 +91,14 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -10.4, z: -4.0 }, // water exit ramp
   { x: -11.8, z: -4.0 }, // oil skid pad
   { x: -13.2, z: -4.0 },
-  // Smooth U-turn shelf at radius 2m connects the oil lane to the twin planks.
-  ...circularArc(-13.2, -6.0, 2.0, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
-  { x: -7.5, z: -8.0 }, // checkpoint 10, crossed eastbound over parallel planks
-  { x: -0.2, z: -8.0 },
-  // Broad final hairpin, radius 1.9m, followed by a straight finish approach.
-  ...circularArc(-0.2, -9.9, 1.9, 0, Math.PI, 12, 'sin').slice(1),
-  { x: -13.2, z: -12.0 }, // final checkpoint and straight
-  { x: -15.0, z: -12.0 },
+  // Semicircular Hairpin 1 viaduct arc connecting Lane 1 (z = -4.0) to Lane 2 (z = -9.2)
+  ...circularArc(-13.2, -6.60, 2.60, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
+  { x: -7.5, z: -9.2 }, // checkpoint 10, crossed eastbound over parallel planks
+  { x: -0.2, z: -9.2 },
+  // Semicircular Hairpin 2 viaduct arc connecting Lane 2 (z = -9.2) to Lane 3 (z = -14.4)
+  ...circularArc(-0.2, -11.80, 2.60, Math.PI / 2, -Math.PI / 2, 12).slice(1),
+  { x: -13.2, z: -14.4 }, // final checkpoint and straight
+  { x: -15.5, z: -14.4 }, // finish line
 ];
 
 /** Physical connectors for the optional elevated switchback training branch. */
@@ -642,21 +642,35 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return ROUTE_DECK_HEIGHT;
   }
 
-  // West Hairpin Plaza (connecting oil hazard lane to parallel planks)
-  // Seamless solid turning deck preventing wheel drops and rollover.
-  if (x >= -18.0 && x <= -10.5 && z >= -10.5 && z <= -1.5) {
+  // Elevated multi-lane viaduct circuit:
+  // For z < -2.0, each road is an independent elevated ribbon of width 4.2m with 1.0m open-air chasms.
+  // Hairpin 1 curved elevated viaduct deck (connecting Lane 1 z=-4.0 to Lane 2 z=-9.2 around cx=-13.2, cz=-6.60)
+  if (x <= -13.0 && z <= -3.8 && z >= -9.4) {
+    const r = Math.hypot(x - (-13.2), z - (-6.60));
+    if (r >= 0.50 && r <= 4.70) return ROUTE_DECK_HEIGHT;
+  }
+
+  // Hairpin 2 curved elevated viaduct deck (connecting Lane 2 z=-9.2 to Lane 3 z=-14.4 around cx=-0.2, cz=-11.80)
+  if (x >= -0.4 && z <= -9.0 && z >= -14.6) {
+    const r = Math.hypot(x - (-0.2), z - (-11.80));
+    if (r >= 0.50 && r <= 4.70) return ROUTE_DECK_HEIGHT;
+  }
+
+  // Lane 2 (parallel planks straightaway viaduct deck at z = -9.2, width 4.2m)
+  if (x >= -13.2 && x <= -0.2 && Math.abs(z - (-9.2)) <= 2.10) {
     return ROUTE_DECK_HEIGHT;
   }
 
-  // East Hairpin Plaza (connecting parallel planks to finish straight)
-  // Seamless solid turning deck preventing wheel drops and rollover.
-  if (x >= -2.5 && x <= 4.5 && z >= -14.5 && z <= -5.5) {
+  // Lane 3 (finish straight viaduct deck at z = -14.4, width 4.2m)
+  if (x >= -16.0 && x <= -0.2 && Math.abs(z - (-14.4)) <= 2.10) {
     return ROUTE_DECK_HEIGHT;
   }
 
   // The road is an elevated supported deck; leaving its boundaries drops the
   // robot to the lower arena floor instead of keeping it on an invisible plane.
-  if (supportsRoadAt(x, z, DRIVE_ROUTE, DRIVE_ROUTE_WIDTH)
+  // For the viaduct region (z < -2.0), each ribbon is 4.2m wide, creating genuine 1.0m open gaps.
+  const routeWidthAtZ = z < -2.0 ? 4.2 : DRIVE_ROUTE_WIDTH;
+  if (supportsRoadAt(x, z, DRIVE_ROUTE, routeWidthAtZ)
     || supportsRoadAt(x, z, HILL_ENTRY_LINK, HILL_DECK_WIDTH)
     || supportsRoadAt(x, z, HILL_EXIT_LINK, HILL_DECK_WIDTH)) return ROUTE_DECK_HEIGHT;
 
@@ -742,8 +756,8 @@ export const CHECKPOINTS: CheckpointGate[] = [
   { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: -Math.PI / 2, width: 7.2 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 6.4 },
   { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: -Math.PI / 2, width: 6.4 },
-  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -8.0, yaw: Math.PI / 2, width: 6.4 },
-  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -12.0, yaw: -Math.PI / 2, width: 6.4 },
+  { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -9.2, yaw: Math.PI / 2, width: 6.4 },
+  { id: 11, label: 'Gate 11 - Final Straight', x: -13.2, z: -14.4, yaw: -Math.PI / 2, width: 6.4 },
 ];
 
 /**

@@ -789,21 +789,45 @@ const corridor2b: CoursePoint[] = [
   { x: -10.0, z: -4.0 },
   { x: -13.2, z: -4.0 },
 ];
+// Corridor 3: Middle Track straightaway across parallel planks, centrally balanced at z = -9.2
 const corridor3: CoursePoint[] = [
-  { x: -13.2, z: -8.0 },
-  { x: -7.5, z: -8.0 },
-  { x: -0.2, z: -8.0 },
+  { x: -13.2, z: -9.2 },
+  { x: -7.5, z: -9.2 },
+  { x: -0.2, z: -9.2 },
 ];
+// Corridor 4: Final finish straightaway viaduct at z = -14.4
 const corridor4: CoursePoint[] = [
-  { x: -0.2, z: -12.0 },
-  { x: -13.2, z: -12.0 },
-  { x: -15.5, z: -12.0 },
+  { x: -0.2, z: -14.4 },
+  { x: -13.2, z: -14.4 },
+  { x: -15.5, z: -14.4 },
 ];
 
-for (const corr of [corridor1, corridor2b, corridor3, corridor4]) {
-  createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006, corr, true, 0.22);
-  createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.12), 0.065, mats.laneStripeWhite, 0.016, corr, false);
-  createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.12, 0.065, mats.laneStripeWhite, 0.016, corr, false);
+function circularArcPoints(cx: number, cz: number, radius: number, start: number, end: number, count: number): CoursePoint[] {
+  return Array.from({ length: count + 1 }, (_, i) => {
+    const a = start + (end - start) * i / count;
+    return { x: cx + radius * Math.cos(a), z: cz + radius * Math.sin(a) };
+  });
+}
+
+// Semicircular Hairpin 1 viaduct arc connecting Lane 1 (z = -4.0) to Lane 2 (z = -9.2)
+const hairpin1Arc = circularArcPoints(-13.2, -6.60, 2.60, Math.PI / 2, Math.PI * 1.5, 24);
+
+// Semicircular Hairpin 2 viaduct arc connecting Lane 2 (z = -9.2) to Lane 3 (z = -14.4)
+const hairpin2Arc = circularArcPoints(-0.2, -11.80, 2.60, Math.PI / 2, -Math.PI / 2, 24);
+
+// Corridor 1 retains the full 6.0m width for slalom weave and obstacle clearance
+createRouteRibbon(0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006, corridor1, true, 0.22);
+createRouteRibbon(-(DRIVE_ROUTE_WIDTH / 2 - 0.12), 0.065, mats.laneStripeWhite, 0.016, corridor1, false);
+createRouteRibbon(DRIVE_ROUTE_WIDTH / 2 - 0.12, 0.065, mats.laneStripeWhite, 0.016, corridor1, false);
+createRouteRibbon(0, 0.08, mats.yellow, 0.016, corridor1, false);
+
+// Elevated multi-lane viaduct bridges: each corridor is an independent 4.2m elevated ribbon
+// with dedicated concrete parapet barriers on both sides and real open air chasms between them
+export const VIADUCT_LANE_WIDTH = 4.20;
+for (const corr of [corridor2b, hairpin1Arc, corridor3, hairpin2Arc, corridor4]) {
+  createRouteRibbon(0, VIADUCT_LANE_WIDTH, mats.asphalt, 0.006, corr, true, 0.22);
+  createRouteRibbon(-(VIADUCT_LANE_WIDTH / 2 - 0.12), 0.065, mats.laneStripeWhite, 0.016, corr, false);
+  createRouteRibbon(VIADUCT_LANE_WIDTH / 2 - 0.12, 0.065, mats.laneStripeWhite, 0.016, corr, false);
   createRouteRibbon(0, 0.08, mats.yellow, 0.016, corr, false);
 }
 
@@ -839,11 +863,6 @@ for (const side of [-1, 1]) {
   });
 }
 
-// Monolithic West Wing Continuous Viaduct Deck Slab (seals all gaps between Lanes 2 and 3 completely)
-// Covers Lanes 2 and 3 (z in [-14.0, -5.8]), leaving Lane 1 open to the ground-level fire and water basket
-box(course, mats.concretePier, V(-8.5, ROUTE_DECK_HEIGHT - 0.12, -9.9), V(18.0, 0.22, 8.0));
-box(course, mats.asphalt, V(-8.5, ROUTE_DECK_HEIGHT - 0.005, -9.9), V(17.8, 0.01, 7.8));
-
 // Structural Heavy Pier Bents carrying the elevated circuit above the arena floor
 const pierBentPositions: CoursePoint[] = [
   { x: -16.0, z: 8.0 },
@@ -854,25 +873,26 @@ const pierBentPositions: CoursePoint[] = [
   { x: 7.2, z: 0.0 },    // approach road outer support pier
   { x: 5.6, z: 0.0 },    // approach road inner support pier
   { x: -11.5, z: -4.0 }, // after oil
-  { x: -15.5, z: -6.0 }, // Hairpin 1 plaza outer pier
-  { x: -13.2, z: -6.0 }, // Hairpin 1 plaza center pier
-  { x: -10.0, z: -8.0 }, // parallel planks approach
-  { x: -4.0, z: -8.0 },  // parallel planks exit
-  { x: 1.8, z: -10.0 },  // Hairpin 2 plaza outer pier
-  { x: -0.2, z: -10.0 }, // Hairpin 2 plaza center pier
-  { x: -6.0, z: -12.0 }, // finish straight
-  { x: -11.0, z: -12.0 },
-  { x: -15.0, z: -12.0 }, // finish line gantry
+  { x: -15.5, z: -6.60 }, // Hairpin 1 outer pier
+  { x: -13.2, z: -6.60 }, // Hairpin 1 apex pier
+  { x: -10.0, z: -9.2 }, // Lane 2 parallel planks approach
+  { x: -4.0, z: -9.2 },  // Lane 2 parallel planks exit
+  { x: 1.8, z: -11.80 },  // Hairpin 2 outer pier
+  { x: -0.2, z: -11.80 }, // Hairpin 2 apex pier
+  { x: -6.0, z: -14.4 }, // Lane 3 finish straight
+  { x: -11.0, z: -14.4 },
+  { x: -15.0, z: -14.4 }, // finish line gantry
 ];
 for (const pb of pierBentPositions) {
   const deckY = evaluateCourseHeight(pb.x, pb.z);
   if (deckY < ROUTE_DECK_HEIGHT - 0.1) continue;
   const legHeight = (deckY - 0.22) - ARENA_FLOOR_HEIGHT;
   if (legHeight < 0.25) continue;
+  const bentW = pb.z < -2.0 ? (VIADUCT_LANE_WIDTH - 0.40) : (DRIVE_ROUTE_WIDTH - 0.40);
   // Transverse cap beam seated right under the viaduct slab
-  box(course, mats.concretePier, V(pb.x, deckY - 0.15, pb.z), V(0.44, 0.26, DRIVE_ROUTE_WIDTH - 0.4));
+  box(course, mats.concretePier, V(pb.x, deckY - 0.15, pb.z), V(0.44, 0.26, bentW));
   for (const side of [-1, 1]) {
-    const colZ = pb.z + side * (DRIVE_ROUTE_WIDTH / 2 - 0.85);
+    const colZ = pb.z + side * (bentW / 2 - 0.35);
     cyl(course, mats.concretePier, V(pb.x, ARENA_FLOOR_HEIGHT + legHeight / 2, colZ), 0.22, legHeight, 'y', 20);
     box(course, mats.concretePier, V(pb.x, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.72, 0.36, 0.72));
   }
@@ -2166,47 +2186,50 @@ for (const side of [-1, 1]) {
 }
 
 // ---------------------------------------------------------------------------
-// CONTINUOUS CENTRAL SAFETY DIVIDER WALLS & DIRECTIONAL CHEVRONS (ONE SINGLE PATH)
+// INDEPENDENT VIADUCT PARAPET BARRIERS & DIRECTIONAL ROAD CHEVRONS
 // ---------------------------------------------------------------------------
-// Eliminates mixed paths and channelizes the 3 parallel straightaways:
-// Lane 1 (z = -4.0, Westbound) | Lane 2 (z = -8.0, Eastbound) | Lane 3 (z = -12.0, Westbound)
+// Each elevated bridge ribbon has its own left and right concrete parapet walls
+// with yellow coping, leaving 1.0m visible open-air chasms between parallel bridges.
+// Lane 1: z = -4.0 (Westbound) | Lane 2: z = -9.2 (Eastbound) | Lane 3: z = -14.4 (Westbound)
 
-// Central Barrier Wall 1 (separates Lane 1 and Lane 2 at z = -6.0 from x = -12.2 to -0.2)
-const divWall1Len = 12.0;
-const divWall1MidX = -6.2;
-box(course, mats.concretePier, V(divWall1MidX, ROUTE_DECK_HEIGHT + 0.30, -6.0), V(divWall1Len, 0.60, 0.44));
-box(course, mats.yellow, V(divWall1MidX, ROUTE_DECK_HEIGHT + 0.62, -6.0), V(divWall1Len, 0.06, 0.48), 0, false);
-colliders.push({ id: 'central_divider_wall_1', x: divWall1MidX, z: -6.0, hx: divWall1Len / 2, hz: 0.24, y: ROUTE_DECK_HEIGHT + 0.30, height: 0.60, rot: 0, walkable: false });
-
-// Reflective Cat-Eyes and Luminaires along Wall 1
-for (let wx = -11.8; wx <= -0.8; wx += 1.4) {
-  // North face (facing Lane 1)
-  box(course, mats.laneStripeWhite, V(wx, ROUTE_DECK_HEIGHT + 0.45, -5.76), V(0.08, 0.08, 0.02), 0, false);
-  // South face (facing Lane 2)
-  box(course, mats.red, V(wx, ROUTE_DECK_HEIGHT + 0.45, -6.24), V(0.08, 0.08, 0.02), 0, false);
-}
-// Floodlight stanchions on Wall 1
-for (const fx of [-10.2, -6.2, -2.2]) {
-  cyl(course, mats.metal, V(fx, ROUTE_DECK_HEIGHT + 1.2, -6.0), 0.04, 1.2, 'y');
-  box(course, mats.yellow, V(fx, ROUTE_DECK_HEIGHT + 1.8, -6.0), V(0.24, 0.12, 0.36), 0, false);
+// 1. Lane 1 Exit Barriers (from oil pad exit x = -10.4 to Hairpin 1 entrance x = -13.2)
+for (const side of [-1, 1]) {
+  const zCurb = -4.0 + side * (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  box(course, mats.concretePier, V(-11.8, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(2.80, 0.36, 0.28));
+  box(course, mats.yellow, V(-11.8, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(2.80, 0.04, 0.30), 0, false);
+  colliders.push({ id: `lane1_exit_barrier_${side > 0 ? 'south' : 'north'}`, x: -11.8, z: zCurb, hx: 1.40, hz: 0.14, y: ROUTE_DECK_HEIGHT + 0.18, height: 0.36, rot: 0, walkable: false });
 }
 
-// Central Barrier Wall 2 (separates Lane 2 and Lane 3 at z = -10.0 from x = -13.2 to -1.2)
-const divWall2Len = 12.0;
-const divWall2MidX = -7.2;
-box(course, mats.concretePier, V(divWall2MidX, ROUTE_DECK_HEIGHT + 0.30, -10.0), V(divWall2Len, 0.60, 0.44));
-box(course, mats.yellow, V(divWall2MidX, ROUTE_DECK_HEIGHT + 0.62, -10.0), V(divWall2Len, 0.06, 0.48), 0, false);
-colliders.push({ id: 'central_divider_wall_2', x: divWall2MidX, z: -10.0, hx: divWall2Len / 2, hz: 0.24, y: ROUTE_DECK_HEIGHT + 0.30, height: 0.60, rot: 0, walkable: false });
-
-for (let wx = -12.8; wx <= -1.8; wx += 1.4) {
-  // North face (facing Lane 2)
-  box(course, mats.laneStripeWhite, V(wx, ROUTE_DECK_HEIGHT + 0.45, -9.76), V(0.08, 0.08, 0.02), 0, false);
-  // South face (facing Lane 3)
-  box(course, mats.red, V(wx, ROUTE_DECK_HEIGHT + 0.45, -10.24), V(0.08, 0.08, 0.02), 0, false);
+// 2. Lane 2 (Middle Track at z = -9.2 from x = -13.2 to -0.2, length 13.0m)
+for (const side of [-1, 1]) {
+  const zCurb = -9.2 + side * (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  box(course, mats.concretePier, V(-6.7, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(13.0, 0.36, 0.28));
+  box(course, mats.yellow, V(-6.7, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(13.0, 0.04, 0.30), 0, false);
+  colliders.push({ id: `lane2_barrier_${side > 0 ? 'south' : 'north'}`, x: -6.7, z: zCurb, hx: 6.5, hz: 0.14, y: ROUTE_DECK_HEIGHT + 0.18, height: 0.36, rot: 0, walkable: false });
+  // Reflective cat-eyes along Lane 2 parapets
+  for (let wx = -12.5; wx <= -0.9; wx += 2.0) {
+    box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, ROUTE_DECK_HEIGHT + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
+  }
 }
-for (const fx of [-11.2, -7.2, -3.2]) {
-  cyl(course, mats.metal, V(fx, ROUTE_DECK_HEIGHT + 1.2, -10.0), 0.04, 1.2, 'y');
-  box(course, mats.yellow, V(fx, ROUTE_DECK_HEIGHT + 1.8, -10.0), V(0.24, 0.12, 0.36), 0, false);
+
+// 3. Lane 3 (Finish Straight at z = -14.4 from x = -15.5 to -0.2, length 15.3m)
+for (const side of [-1, 1]) {
+  const zCurb = -14.4 + side * (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  box(course, mats.concretePier, V(-7.85, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(15.3, 0.36, 0.28));
+  box(course, mats.yellow, V(-7.85, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(15.3, 0.04, 0.30), 0, false);
+  colliders.push({ id: `lane3_barrier_${side > 0 ? 'south' : 'north'}`, x: -7.85, z: zCurb, hx: 7.65, hz: 0.14, y: ROUTE_DECK_HEIGHT + 0.18, height: 0.36, rot: 0, walkable: false });
+  // Reflective cat-eyes along Lane 3 parapets
+  for (let wx = -14.8; wx <= -0.9; wx += 2.0) {
+    box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, ROUTE_DECK_HEIGHT + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
+  }
+}
+
+// Stanchion Luminaires in the open chasms between bridges
+for (const fx of [-11.0, -7.0, -3.0]) {
+  cyl(course, mats.metal, V(fx, ROUTE_DECK_HEIGHT + 1.2, -6.60), 0.04, 1.2, 'y');
+  box(course, mats.yellow, V(fx, ROUTE_DECK_HEIGHT + 1.8, -6.60), V(0.24, 0.12, 0.36), 0, false);
+  cyl(course, mats.metal, V(fx, ROUTE_DECK_HEIGHT + 1.2, -11.80), 0.04, 1.2, 'y');
+  box(course, mats.yellow, V(fx, ROUTE_DECK_HEIGHT + 1.8, -11.80), V(0.24, 0.12, 0.36), 0, false);
 }
 
 // Prominent Directional Road Surface Chevron Markings
@@ -2226,77 +2249,67 @@ for (const cx of [-7.8, -9.5, -11.5]) {
 }
 // Lane 2 Eastbound Chevrons (>>>)
 for (const cx of [-11.5, -9.0, -5.5, -1.5]) {
-  paintDirectionChevron(cx, -8.0, 1);
+  paintDirectionChevron(cx, -9.2, 1);
 }
 // Lane 3 Westbound Chevrons (<<<)
 for (const cx of [-1.5, -5.5, -9.0, -13.0]) {
-  paintDirectionChevron(cx, -12.0, -1);
+  paintDirectionChevron(cx, -14.4, -1);
 }
 
 // ---------------------------------------------------------------------------
-// HAIRPIN 1: West U-Turn Plaza & Retaining Barrier Wall (Between CP09 and CP10)
+// HAIRPIN 1: Semicircular Curved Viaduct Bridge (Connecting Lane 1 to Lane 2)
 // ---------------------------------------------------------------------------
-// 1. Monolithic Turning Plaza Deck Slab
-const hp1X0 = -17.2, hp1X1 = -11.5;
-const hp1Z0 = -10.0, hp1Z1 = -2.0;
-const hp1W = hp1X1 - hp1X0;
-const hp1D = hp1Z1 - hp1Z0;
-const hp1MidX = (hp1X0 + hp1X1) / 2;
-const hp1MidZ = (hp1Z0 + hp1Z1) / 2;
-box(course, mats.concretePier, V(hp1MidX, ROUTE_DECK_HEIGHT - 0.11, hp1MidZ), V(hp1W, 0.22, hp1D));
-box(course, mats.black, V(hp1X0 - 0.05, ROUTE_DECK_HEIGHT - 0.11, hp1MidZ), V(0.10, 0.24, hp1D));
-box(course, mats.asphalt, V(hp1MidX, ROUTE_DECK_HEIGHT + 0.005, hp1MidZ), V(hp1W - 0.1, 0.01, hp1D - 0.1), 0, false);
+// Center: (-13.2, -6.60), Radius: 2.60m, Width: 4.20m (R_in: 0.50m, R_out: 4.70m)
+const hp1Center = { x: -13.2, z: -6.60 };
+const hp1Radius = 2.60;
+const hp1Steps = 16;
+const hp1ArcAngle = Math.PI;
 
-// 2. Semicircular Outer Curved Retaining Barrier Wall (Facing West, -X)
-const hp1ArcSteps = 16;
-for (let s = 0; s < hp1ArcSteps; s++) {
-  const theta0 = Math.PI / 2 + (Math.PI * s) / hp1ArcSteps;
-  const theta1 = Math.PI / 2 + (Math.PI * (s + 1)) / hp1ArcSteps;
+for (let s = 0; s < hp1Steps; s++) {
+  const theta0 = Math.PI / 2 + (hp1ArcAngle * s) / hp1Steps;
+  const theta1 = Math.PI / 2 + (hp1ArcAngle * (s + 1)) / hp1Steps;
   const midTheta = (theta0 + theta1) / 2;
-  const bx = -13.2 + 4.0 * Math.cos(midTheta);
-  const bz = -6.0 + 4.0 * Math.sin(midTheta);
-  const segLen = 4.0 * (Math.PI / hp1ArcSteps);
-  box(course, mats.concretePier, V(bx, ROUTE_DECK_HEIGHT + 0.38, bz), V(0.32, 0.76, segLen + 0.06), midTheta);
-  box(course, s % 2 === 0 ? mats.yellow : mats.black, V(bx, ROUTE_DECK_HEIGHT + 0.78, bz), V(0.36, 0.08, segLen + 0.06), midTheta, false);
-  box(course, s % 2 === 0 ? mats.red : mats.laneStripeWhite, V(bx - 0.18 * Math.cos(midTheta), ROUTE_DECK_HEIGHT + 0.45, bz - 0.18 * Math.sin(midTheta)), V(0.06, 0.08, 0.08), midTheta, false);
-}
+  const dTheta = (theta1 - theta0);
+  const tangRot = Math.PI / 2 - midTheta;
 
-// 3. Central Inner Apex Dividing Island
-const hp1IslandSteps = 10;
-for (let s = 0; s < hp1IslandSteps; s++) {
-  const theta0 = Math.PI / 2 + (Math.PI * s) / hp1IslandSteps;
-  const theta1 = Math.PI / 2 + (Math.PI * (s + 1)) / hp1IslandSteps;
-  const midTheta = (theta0 + theta1) / 2;
-  const ix = -13.2 + 1.0 * Math.cos(midTheta);
-  const iz = -6.0 + 1.0 * Math.sin(midTheta);
-  const segLen = 1.0 * (Math.PI / hp1IslandSteps);
+  // 1. Outer curved safety parapet barrier wall (facing west, R = 4.70m)
+  const rOut = hp1Radius + (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  const ox = hp1Center.x + rOut * Math.cos(midTheta);
+  const oz = hp1Center.z + rOut * Math.sin(midTheta);
+  const outChord = rOut * dTheta;
+  const outWall = box(course, mats.concretePier, V(ox, ROUTE_DECK_HEIGHT + 0.18, oz), V(outChord + 0.08, 0.36, 0.28), tangRot);
+  outWall.rotation.y = tangRot;
+  const outCap = box(course, s % 2 === 0 ? mats.yellow : mats.black, V(ox, ROUTE_DECK_HEIGHT + 0.38, oz), V(outChord + 0.08, 0.04, 0.30), tangRot, false);
+  outCap.rotation.y = tangRot;
+  colliders.push({
+    id: `hp1_outer_barrier_${s}`,
+    x: ox,
+    z: oz,
+    hx: outChord / 2 + 0.04,
+    hz: 0.14,
+    y: ROUTE_DECK_HEIGHT + 0.18,
+    height: 0.36,
+    rot: tangRot,
+    walkable: false,
+  });
+
+  // 2. Inner apex curved curb (R = 0.50m)
+  const rIn = hp1Radius - (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  const ix = hp1Center.x + rIn * Math.cos(midTheta);
+  const iz = hp1Center.z + rIn * Math.sin(midTheta);
+  const inChord = rIn * dTheta;
   const kMat = s % 2 === 0 ? mats.fiaRed : mats.fiaWhite;
-  box(course, kMat, V(ix, ROUTE_DECK_HEIGHT + 0.06, iz), V(0.24, 0.10, segLen + 0.04), midTheta, false);
-}
-cyl(course, mats.concretePier, V(-13.2, ROUTE_DECK_HEIGHT + 0.05, -6.0), 0.95, 0.10, 'y', 20);
-cyl(course, mats.yellow, V(-13.0, ROUTE_DECK_HEIGHT + 0.32, -5.9), 0.22, 0.60, 'y');
-cyl(course, mats.black, V(-13.0, ROUTE_DECK_HEIGHT + 0.64, -5.9), 0.23, 0.06, 'y');
-cyl(course, mats.yellow, V(-13.0, ROUTE_DECK_HEIGHT + 0.32, -6.1), 0.22, 0.60, 'y');
-cyl(course, mats.black, V(-13.0, ROUTE_DECK_HEIGHT + 0.64, -6.1), 0.23, 0.06, 'y');
-
-// 4. Yellow Racing Guidance Arc around Hairpin 1
-const hp1GuideSteps = 16;
-for (let s = 0; s < hp1GuideSteps; s++) {
-  const theta0 = Math.PI / 2 + (Math.PI * s) / hp1GuideSteps;
-  const theta1 = Math.PI / 2 + (Math.PI * (s + 1)) / hp1GuideSteps;
-  const midTheta = (theta0 + theta1) / 2;
-  const gx = -13.2 + 2.4 * Math.cos(midTheta);
-  const gz = -6.0 + 2.4 * Math.sin(midTheta);
-  const segLen = 2.4 * (Math.PI / hp1GuideSteps);
-  if (s % 2 === 0) {
-    box(course, mats.yellow, V(gx, ROUTE_DECK_HEIGHT + 0.016, gz), V(0.08, 0.008, segLen), midTheta, false);
-  }
+  const innerCurb = box(course, kMat, V(ix, ROUTE_DECK_HEIGHT + 0.06, iz), V(inChord + 0.04, 0.10, 0.24), tangRot, false);
+  innerCurb.rotation.y = tangRot;
 }
 
-// 5. 4D Motorized Revolving Amber Warning Beacon at apex
+// 5. Central Apex Warning Pylon & Revolving Beacon
+cyl(course, mats.concretePier, V(hp1Center.x, ROUTE_DECK_HEIGHT + 0.05, hp1Center.z), 0.45, 0.10, 'y', 20);
+cyl(course, mats.yellow, V(hp1Center.x, ROUTE_DECK_HEIGHT + 0.32, hp1Center.z), 0.18, 0.60, 'y');
+cyl(course, mats.black, V(hp1Center.x, ROUTE_DECK_HEIGHT + 0.64, hp1Center.z), 0.19, 0.06, 'y');
 const hp1BeaconGroup = new THREE.Group();
-hp1BeaconGroup.position.set(-13.2, ROUTE_DECK_HEIGHT + 1.15, -6.0);
-cyl(course, mats.metal, V(-13.2, ROUTE_DECK_HEIGHT + 0.55, -6.0), 0.05, 1.10, 'y');
+hp1BeaconGroup.position.set(hp1Center.x, ROUTE_DECK_HEIGHT + 1.15, hp1Center.z);
+cyl(course, mats.metal, V(hp1Center.x, ROUTE_DECK_HEIGHT + 0.55, hp1Center.z), 0.05, 1.10, 'y');
 const hp1Dome = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.18, 12), mats.beaconAmber);
 hp1BeaconGroup.add(hp1Dome);
 const hp1Reflector = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.12, 0.08), mats.yellow);
@@ -2307,8 +2320,8 @@ hazardRevolvingBeacons.push(hp1BeaconGroup);
 // 6. 4D Electronic Chasing LED Chevron Signs (pointing south through the U-turn)
 for (let c = 0; c < 4; c++) {
   const theta = Math.PI * 0.65 + (Math.PI * 0.70 * c) / 3;
-  const cx = -13.2 + 3.82 * Math.cos(theta);
-  const cz = -6.0 + 3.82 * Math.sin(theta);
+  const cx = hp1Center.x + (hp1Radius + VIADUCT_LANE_WIDTH / 2 - 0.08) * Math.cos(theta);
+  const cz = hp1Center.z + (hp1Radius + VIADUCT_LANE_WIDTH / 2 - 0.08) * Math.sin(theta);
   box(course, mats.black, V(cx, ROUTE_DECK_HEIGHT + 0.55, cz), V(0.08, 0.28, 0.45), theta);
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.20, 3), mats.yellow);
   arrow.rotation.z = Math.PI / 2;
@@ -2368,69 +2381,58 @@ for (const cx of [-1.4, 0, 1.4]) {
 }
 
 // ---------------------------------------------------------------------------
-// HAIRPIN 2: East U-Turn Plaza & Retaining Barrier Wall (Between CP10 and CP11)
+// HAIRPIN 2: Semicircular Curved Viaduct Bridge (Connecting Lane 2 to Lane 3)
 // ---------------------------------------------------------------------------
-// 1. Monolithic Turning Plaza Deck Slab
-const hp2X0 = -2.2, hp2X1 = 3.8;
-const hp2Z0 = -14.0, hp2Z1 = -6.0;
-const hp2W = hp2X1 - hp2X0;
-const hp2D = hp2Z1 - hp2Z0;
-const hp2MidX = (hp2X0 + hp2X1) / 2;
-const hp2MidZ = (hp2Z0 + hp2Z1) / 2;
-box(course, mats.concretePier, V(hp2MidX, ROUTE_DECK_HEIGHT - 0.11, hp2MidZ), V(hp2W, 0.22, hp2D));
-box(course, mats.black, V(hp2X1 + 0.05, ROUTE_DECK_HEIGHT - 0.11, hp2MidZ), V(0.10, 0.24, hp2D));
-box(course, mats.asphalt, V(hp2MidX, ROUTE_DECK_HEIGHT + 0.005, hp2MidZ), V(hp2W - 0.1, 0.01, hp2D - 0.1), 0, false);
+// Center: (-0.2, -11.80), Radius: 2.60m, Width: 4.20m (R_in: 0.50m, R_out: 4.70m)
+const hp2Center = { x: -0.2, z: -11.80 };
+const hp2Radius = 2.60;
+const hp2Steps = 16;
 
-// 2. Semicircular Outer Curved Retaining Barrier Wall (Facing East, +X)
-const hp2ArcSteps = 16;
-for (let s = 0; s < hp2ArcSteps; s++) {
-  const theta0 = -Math.PI / 2 + (Math.PI * s) / hp2ArcSteps;
-  const theta1 = -Math.PI / 2 + (Math.PI * (s + 1)) / hp2ArcSteps;
+for (let s = 0; s < hp2Steps; s++) {
+  const theta0 = Math.PI / 2 - (Math.PI * s) / hp2Steps;
+  const theta1 = Math.PI / 2 - (Math.PI * (s + 1)) / hp2Steps;
   const midTheta = (theta0 + theta1) / 2;
-  const bx = -0.2 + 4.0 * Math.cos(midTheta);
-  const bz = -10.0 + 4.0 * Math.sin(midTheta);
-  const segLen = 4.0 * (Math.PI / hp2ArcSteps);
-  box(course, mats.concretePier, V(bx, ROUTE_DECK_HEIGHT + 0.38, bz), V(0.32, 0.76, segLen + 0.06), midTheta);
-  box(course, s % 2 === 0 ? mats.yellow : mats.black, V(bx, ROUTE_DECK_HEIGHT + 0.78, bz), V(0.36, 0.08, segLen + 0.06), midTheta, false);
-  box(course, s % 2 === 0 ? mats.laneStripeWhite : mats.red, V(bx - 0.18 * Math.cos(midTheta), ROUTE_DECK_HEIGHT + 0.45, bz - 0.18 * Math.sin(midTheta)), V(0.06, 0.08, 0.08), midTheta, false);
-}
+  const dTheta = Math.abs(theta1 - theta0);
+  const tangRot = Math.PI / 2 - midTheta;
 
-// 3. Central Inner Apex Dividing Island
-const hp2IslandSteps = 10;
-for (let s = 0; s < hp2IslandSteps; s++) {
-  const theta0 = -Math.PI / 2 + (Math.PI * s) / hp2IslandSteps;
-  const theta1 = -Math.PI / 2 + (Math.PI * (s + 1)) / hp2IslandSteps;
-  const midTheta = (theta0 + theta1) / 2;
-  const ix = -0.2 + 1.0 * Math.cos(midTheta);
-  const iz = -10.0 + 1.0 * Math.sin(midTheta);
-  const segLen = 1.0 * (Math.PI / hp2IslandSteps);
+  // 1. Outer curved safety parapet barrier wall (facing east, R = 4.70m)
+  const rOut = hp2Radius + (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  const ox = hp2Center.x + rOut * Math.cos(midTheta);
+  const oz = hp2Center.z + rOut * Math.sin(midTheta);
+  const outChord = rOut * dTheta;
+  const outWall = box(course, mats.concretePier, V(ox, ROUTE_DECK_HEIGHT + 0.18, oz), V(outChord + 0.08, 0.36, 0.28), tangRot);
+  outWall.rotation.y = tangRot;
+  const outCap = box(course, s % 2 === 0 ? mats.yellow : mats.black, V(ox, ROUTE_DECK_HEIGHT + 0.38, oz), V(outChord + 0.08, 0.04, 0.30), tangRot, false);
+  outCap.rotation.y = tangRot;
+  colliders.push({
+    id: `hp2_outer_barrier_${s}`,
+    x: ox,
+    z: oz,
+    hx: outChord / 2 + 0.04,
+    hz: 0.14,
+    y: ROUTE_DECK_HEIGHT + 0.18,
+    height: 0.36,
+    rot: tangRot,
+    walkable: false,
+  });
+
+  // 2. Inner apex curved curb (R = 0.50m)
+  const rIn = hp2Radius - (VIADUCT_LANE_WIDTH / 2 - 0.14);
+  const ix = hp2Center.x + rIn * Math.cos(midTheta);
+  const iz = hp2Center.z + rIn * Math.sin(midTheta);
+  const inChord = rIn * dTheta;
   const kMat = s % 2 === 0 ? mats.fiaRed : mats.fiaWhite;
-  box(course, kMat, V(ix, ROUTE_DECK_HEIGHT + 0.06, iz), V(0.24, 0.10, segLen + 0.04), midTheta, false);
-}
-cyl(course, mats.concretePier, V(-0.2, ROUTE_DECK_HEIGHT + 0.05, -10.0), 0.95, 0.10, 'y', 20);
-cyl(course, mats.yellow, V(-0.4, ROUTE_DECK_HEIGHT + 0.32, -9.9), 0.22, 0.60, 'y');
-cyl(course, mats.black, V(-0.4, ROUTE_DECK_HEIGHT + 0.64, -9.9), 0.23, 0.06, 'y');
-cyl(course, mats.yellow, V(-0.4, ROUTE_DECK_HEIGHT + 0.32, -10.1), 0.22, 0.60, 'y');
-cyl(course, mats.black, V(-0.4, ROUTE_DECK_HEIGHT + 0.64, -10.1), 0.23, 0.06, 'y');
-
-// 4. Yellow Racing Guidance Arc around Hairpin 2
-const hp2GuideSteps = 16;
-for (let s = 0; s < hp2GuideSteps; s++) {
-  const theta0 = -Math.PI / 2 + (Math.PI * s) / hp2GuideSteps;
-  const theta1 = -Math.PI / 2 + (Math.PI * (s + 1)) / hp2GuideSteps;
-  const midTheta = (theta0 + theta1) / 2;
-  const gx = -0.2 + 2.4 * Math.cos(midTheta);
-  const gz = -10.0 + 2.4 * Math.sin(midTheta);
-  const segLen = 2.4 * (Math.PI / hp2GuideSteps);
-  if (s % 2 === 0) {
-    box(course, mats.yellow, V(gx, ROUTE_DECK_HEIGHT + 0.016, gz), V(0.08, 0.008, segLen), midTheta, false);
-  }
+  const innerCurb = box(course, kMat, V(ix, ROUTE_DECK_HEIGHT + 0.06, iz), V(inChord + 0.04, 0.10, 0.24), tangRot, false);
+  innerCurb.rotation.y = tangRot;
 }
 
-// 5. 4D Motorized Revolving Amber Warning Beacon at apex
+// 5. Central Apex Warning Pylon & Revolving Beacon
+cyl(course, mats.concretePier, V(hp2Center.x, ROUTE_DECK_HEIGHT + 0.05, hp2Center.z), 0.45, 0.10, 'y', 20);
+cyl(course, mats.yellow, V(hp2Center.x, ROUTE_DECK_HEIGHT + 0.32, hp2Center.z), 0.18, 0.60, 'y');
+cyl(course, mats.black, V(hp2Center.x, ROUTE_DECK_HEIGHT + 0.64, hp2Center.z), 0.19, 0.06, 'y');
 const hp2BeaconGroup = new THREE.Group();
-hp2BeaconGroup.position.set(-0.2, ROUTE_DECK_HEIGHT + 1.15, -10.0);
-cyl(course, mats.metal, V(-0.2, ROUTE_DECK_HEIGHT + 0.55, -10.0), 0.05, 1.10, 'y');
+hp2BeaconGroup.position.set(hp2Center.x, ROUTE_DECK_HEIGHT + 1.15, hp2Center.z);
+cyl(course, mats.metal, V(hp2Center.x, ROUTE_DECK_HEIGHT + 0.55, hp2Center.z), 0.05, 1.10, 'y');
 const hp2Dome = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.18, 12), mats.beaconAmber);
 hp2BeaconGroup.add(hp2Dome);
 const hp2Reflector = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.12, 0.08), mats.yellow);
@@ -2441,8 +2443,8 @@ hazardRevolvingBeacons.push(hp2BeaconGroup);
 // 6. 4D Electronic Chasing LED Chevron Signs (pointing west toward finish straight)
 for (let c = 0; c < 4; c++) {
   const theta = -Math.PI * 0.35 + (Math.PI * 0.70 * c) / 3;
-  const cx = -0.2 + 3.82 * Math.cos(theta);
-  const cz = -10.0 + 3.82 * Math.sin(theta);
+  const cx = hp2Center.x + (hp2Radius + VIADUCT_LANE_WIDTH / 2 - 0.08) * Math.cos(theta);
+  const cz = hp2Center.z + (hp2Radius + VIADUCT_LANE_WIDTH / 2 - 0.08) * Math.sin(theta);
   box(course, mats.black, V(cx, ROUTE_DECK_HEIGHT + 0.55, cz), V(0.08, 0.28, 0.45), theta);
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.20, 3), mats.yellow);
   arrow.rotation.z = -Math.PI / 2;
@@ -2457,7 +2459,7 @@ for (let c = 0; c < 4; c++) {
 // -------------------------------------------------------------
 for (let ix = 0; ix < 10; ix++) {
   for (let iz = 0; iz < 12; iz++) {
-    box(course, (ix + iz) % 2 ? mats.black : mats.laneStripeWhite, V(-14.7 + ix * 0.30, ROUTE_DECK_HEIGHT + 0.015, -12 + (iz - 5.5) * 0.30), V(0.30, 0.012, 0.30), 0, false);
+    box(course, (ix + iz) % 2 ? mats.black : mats.laneStripeWhite, V(-14.7 + ix * 0.30, ROUTE_DECK_HEIGHT + 0.015, -14.4 + (iz - 5.5) * 0.30), V(0.30, 0.012, 0.30), 0, false);
   }
 }
 
