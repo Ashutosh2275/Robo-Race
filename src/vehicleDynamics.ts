@@ -277,22 +277,24 @@ export function stepVehicle3D(
  */
 export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
-    // Lane 1: Starting bay before the climb ramp (ground at ARENA_FLOOR_HEIGHT = -0.33)
-    { id: 'start', label: 'Starting Bay', x: -22.0 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
-    { id: 'slalom', label: 'Slalom Entry', x: -16.0 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
-    { id: 'speedbreaker_entry', label: 'Speed Breakers', x: 3.5 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
-    { id: 'rockfield_entry', label: 'Rock Field', x: 5.5 * scale, z: 13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
-    // Lane 2: Hill, Fire, and Water
-    { id: 'climb_summit', label: 'Climbing Hill Summit', x: 12.0 * scale, z: 6.75 * scale, y: 1.85 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
-    { id: 'fire_platform', label: 'Fire Platform', x: 5.0 * scale, z: 6.75 * scale, y: 0.38 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 5 },
-    { id: 'water_basin', label: 'Water Basin', x: -3.0 * scale, z: 6.75 * scale, y: -0.30 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 6 },
-    // Lane 3: Rotating Disc and Mixed Terrain
-    { id: 'turntable', label: 'Rotating Platform', x: -4.0 * scale, z: 0.00 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
-    { id: 'mixed_terrain', label: 'Mixed Terrain', x: 5.0 * scale, z: 0.00 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
-    // Lane 4: Parallel Planks
-    { id: 'parallel_planks', label: 'Parallel Planks', x: -3.0 * scale, z: -6.75 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
-    // Lane 5: Final Straight
-    { id: 'finish_straight', label: 'Final Straight', x: 6.0 * scale, z: -13.50 * scale, y: 0.67 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
+    // Lane 1: Starting bay and slaloms (ground at ARENA_FLOOR_HEIGHT = -0.33)
+    { id: 'start', label: 'Starting Bay', x: -20.5 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
+    { id: 'slalom', label: 'Slalom Entry', x: -16.0 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
+    { id: 'speedbreaker_entry', label: 'Speed Breakers', x: 3.5 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
+    { id: 'rockfield_entry', label: 'Rock Field', x: 6.0 * scale, z: 13.50 * scale, y: 0.12 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
+    // Lane 2: Mid-South Straight (ground level)
+    { id: 'lane2_straight', label: 'Mid-South Straight', x: 14.5 * scale, z: 6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
+    // Lane 3: Parking-Garage Spiral Tower & Rooftop Deck
+    { id: 'spiral_entrance', label: 'Spiral Entrance', x: -7.70 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
+    { id: 'spiral_mid', label: 'Spiral Mid-Climb', x: -3.5 * scale, z: 4.20 * scale, y: 0.56 - TRACK_CONTACT_OFFSET, yaw: 0, checkpointIndex: 6 },
+    { id: 'turntable', label: 'Spiral Rooftop Deck', x: 1.0 * scale, z: 0.00 * scale, y: 1.45 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
+    { id: 'mixed_terrain', label: 'Descent Ramp Landing', x: 10.75 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
+    // Lane 4: Technical North Straight (ground level)
+    { id: 'north_straight', label: 'North Straight', x: 14.5 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
+    // Lane 5: Final Mandatory Sequence (Fire -> Water -> Finish)
+    { id: 'fire_platform', label: 'Fire Hazard', x: -5.0 * scale, z: -13.50 * scale, y: 0.05 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
+    { id: 'water_basin', label: 'Water Basin', x: 0.5 * scale, z: -13.50 * scale, y: -0.30 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 11 },
+    { id: 'finish_straight', label: 'Grand Finish', x: 12.0 * scale, z: -13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 12 },
   ];
 }
 
@@ -458,14 +460,28 @@ export interface WaterPoolConfig {
   bedLevelY: number;   // -0.30m
 }
 
-export const WATER_POOL_CONFIG: WaterPoolConfig = {
-  xMin: -9.5,
-  xMax: 1.5,
-  zCenter: 6.75,
-  width: 4.40,
-  waterLevelY: 0.16,
-  bedLevelY: -0.30,
-};
+export const WATER_POOLS: WaterPoolConfig[] = [
+  // Lane 5: Mandatory Final Water Basin
+  {
+    xMin: 0.5,
+    xMax: 9.5,
+    zCenter: -13.50,
+    width: 4.40,
+    waterLevelY: 0.16,
+    bedLevelY: -0.30,
+  },
+  // Lane 2: Legacy Mid-South Water Basin
+  {
+    xMin: -9.5,
+    xMax: 1.5,
+    zCenter: 6.75,
+    width: 4.40,
+    waterLevelY: 0.16,
+    bedLevelY: -0.30,
+  },
+];
+
+export const WATER_POOL_CONFIG: WaterPoolConfig = WATER_POOLS[0];
 
 export interface WaterBuoyancyResult {
   inWater: boolean;
@@ -501,12 +517,15 @@ export function evaluateWaterBuoyancy(
   const courseX = worldX / mapScale;
   const courseZ = worldZ / mapScale;
 
-  const inWaterBounds =
-    courseX >= WATER_POOL_CONFIG.xMin &&
-    courseX <= WATER_POOL_CONFIG.xMax &&
-    Math.abs(courseZ - WATER_POOL_CONFIG.zCenter) <= WATER_POOL_CONFIG.width / 2;
+  let matchedPool: WaterPoolConfig | null = null;
+  for (const pool of WATER_POOLS) {
+    if (courseX >= pool.xMin && courseX <= pool.xMax && Math.abs(courseZ - pool.zCenter) <= pool.width / 2) {
+      matchedPool = pool;
+      break;
+    }
+  }
 
-  if (!inWaterBounds) {
+  if (!matchedPool) {
     return {
       inWater: false,
       immersionDepth: 0,
@@ -523,9 +542,9 @@ export function evaluateWaterBuoyancy(
     };
   }
 
-  // Immersion depth: distance from water surface (0.16m) down to track underside
+  // Immersion depth: distance from water surface down to track underside
   const trackUndersideY = worldY + TRACK_CONTACT_OFFSET;
-  const immersionDepth = Math.max(0, WATER_POOL_CONFIG.waterLevelY - trackUndersideY);
+  const immersionDepth = Math.max(0, matchedPool.waterLevelY - trackUndersideY);
 
   if (immersionDepth <= 0.01) {
     return {

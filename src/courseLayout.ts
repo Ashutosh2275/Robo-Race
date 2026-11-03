@@ -40,16 +40,183 @@ export const PARALLEL_PLANK_CENTERS = [
   { x: -3.5, z: PARALLEL_PLANK_CENTER_Z + PARALLEL_PLANK_SPACING_LOCAL / 2 },
 ] as const;
 
-// Lane 3 at z = 0.00
-export const TURNTABLE_CENTER = { x: -4.0, z: 0.00 } as const;
+// Lane 3 at z = 0.00 (Turntable on Spiral Rooftop Deck for Track B, or ground platform)
+export const TURNTABLE_CENTER = { x: 1.0, z: 0.00 } as const;
 export const TURNTABLE_RADIUS = 2.45; // 4.90m diameter, >3.2x robot width
 
 /** Road width in course-local metres: 4.40m gives 2.89x robot clearance in world space */
 export const DRIVE_ROUTE_WIDTH = 4.40;
+
+// Arena floor elevation (the foundation of the entire facility)
 export const ARENA_FLOOR_HEIGHT = -0.33;
+
+/** Ground-level driving surface (70-80% of racing occurs at ground grade) */
+export const GROUND_DECK_HEIGHT = -0.33;
+
+/** Elevated viaduct standard clearance for medium obstacles */
 export const ROUTE_CLEARANCE_HEIGHT = 1.0;
-export const ROUTE_DECK_HEIGHT = ARENA_FLOOR_HEIGHT + ROUTE_CLEARANCE_HEIGHT; // 0.67m
+export const ROUTE_DECK_HEIGHT = GROUND_DECK_HEIGHT; // Base course deck is ground level (-0.33m)
 export const ROUTE_HEIGHT_OFFSET = ROUTE_DECK_HEIGHT - 0.03;
+
+// Standard obstacle elevation tiers
+export const ELEVATION_TIER_SMALL = 0.45;  // 0.3 - 0.6m: e.g. Rock field platform (y = 0.12m)
+export const ELEVATION_TIER_MEDIUM = 0.95; // 0.7 - 1.2m: e.g. Warren Arch Bridge (y = 0.62m)
+export const ELEVATION_TIER_MAJOR = 1.78;  // 1.0 - 2.0m: e.g. Spiral Climbing Tower (y = 1.45m)
+
+// ---------------------------------------------------------------------------
+// PARKING-GARAGE-STYLE SPIRAL RAMP SPECIFICATIONS
+// ---------------------------------------------------------------------------
+export const SPIRAL_CONFIG = {
+  cx: -3.5,
+  cz: 0.0,
+  rCenter: 4.20,       // Centerline driving radius (circumference = 26.4m per turn)
+  roadWidth: 3.80,     // Usable road width (2.5x robot width in world space)
+  rInner: 2.30,        // Central concrete core radius
+  rOuter: 6.10,        // Outer railing radius
+  turns: 1.25,         // 1.25 revolutions (450 degrees of continuous climb)
+  yGround: ARENA_FLOOR_HEIGHT, // Ground entrance: -0.33m
+  yTop: 1.45,          // 1.78m elevation above ground
+  startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -7.70, z = 0.0)
+  endAngle: Math.PI + 1.25 * 2 * Math.PI, // 3.5 * Math.PI
+  // Upper rooftop deck
+  deckX: 1.0,
+  deckZ: 0.0,
+  deckWidthX: 5.5,
+  deckWidthZ: 5.5,
+  // Connected descending viaduct ramp
+  descentX0: 3.75,
+  descentX1: 10.75,
+  descentZ: 0.0,
+  descentWidth: 3.80,
+} as const;
+
+/**
+ * Calculates height and surface characteristics on the parking-garage-style spiral ramp.
+ */
+export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
+  // 1. Connected Descending Viaduct Ramp: x in [3.75, 10.75], |z| <= descentWidth / 2
+  if (x >= SPIRAL_CONFIG.descentX0 && x <= SPIRAL_CONFIG.descentX1 && Math.abs(z - SPIRAL_CONFIG.descentZ) <= SPIRAL_CONFIG.descentWidth / 2) {
+    const u = (x - SPIRAL_CONFIG.descentX0) / (SPIRAL_CONFIG.descentX1 - SPIRAL_CONFIG.descentX0);
+    const eased = u * u * (3 - 2 * u);
+    const h = SPIRAL_CONFIG.yTop + (SPIRAL_CONFIG.yGround - SPIRAL_CONFIG.yTop) * eased;
+    return { inSpiral: true, height: h, grip: 1.05 };
+  }
+
+  // 2. Upper Rooftop Observation Deck: x in [-1.2, 3.75], |z| <= deckWidthZ / 2
+  if (x >= -1.2 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2) {
+    return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
+  }
+
+  // 3. Helical Spiral Ramp around Central Core (cx, cz)
+  const dx = x - SPIRAL_CONFIG.cx;
+  const dz = z - SPIRAL_CONFIG.cz;
+  const dist = Math.hypot(dx, dz);
+
+  if (dist >= SPIRAL_CONFIG.rInner - 0.25 && dist <= SPIRAL_CONFIG.rOuter + 0.25) {
+    // Angle in radians relative to center
+    const rawAngle = Math.atan2(dz, dx);
+    const normAngle = rawAngle < 0 ? rawAngle + 2 * Math.PI : rawAngle;
+
+    // Disambiguate Level 0 (ground approach to mid climb) vs Level 1 (upper climb to rooftop)
+    let activeAngle = normAngle;
+    if (poseY > 0.65) {
+      // Vehicle is on upper tier
+      activeAngle = (normAngle < Math.PI ? normAngle : normAngle) + 2 * Math.PI;
+    } else {
+      // Vehicle is on ground / lower tier
+      if (dz > 0.05 && normAngle < Math.PI) {
+        activeAngle = normAngle + 2 * Math.PI;
+      } else {
+        activeAngle = normAngle;
+      }
+    }
+
+    const t = Math.max(0, Math.min(1, (activeAngle - SPIRAL_CONFIG.startAngle) / (SPIRAL_CONFIG.endAngle - SPIRAL_CONFIG.startAngle)));
+    const h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
+    return { inSpiral: true, height: h, grip: 1.10 };
+  }
+
+  return { inSpiral: false, height: ARENA_FLOOR_HEIGHT, grip: 1.0 };
+}
+
+// ---------------------------------------------------------------------------
+// TRACK CLASSIFICATION & MANDATORY SEQUENCE ARCHITECTURE
+// ---------------------------------------------------------------------------
+export type TrackId = 'track_a' | 'track_b' | 'track_c' | 'track_d';
+
+export type ObstacleKind =
+  | 'start'
+  | 'slalom'
+  | 'speed_breakers'
+  | 'rockfield'
+  | 'spiral'
+  | 'climbing_hill'
+  | 'bridge'
+  | 'stepping_platforms'
+  | 'planks'
+  | 'turntable'
+  | 'mixed_terrain'
+  | 'oil'
+  | 'fire'
+  | 'water'
+  | 'finish';
+
+export interface TrackObstacle {
+  id: string;
+  name: string;
+  kind: ObstacleKind;
+  x: number;
+  z: number;
+  elevation: number;
+}
+
+export interface TrackConfig {
+  id: TrackId;
+  name: string;
+  shortName: string;
+  subtitle: string;
+  description: string;
+  hasSpiral: boolean;
+  driveRoute: CoursePoint[];
+  checkpoints: CheckpointGate[];
+  obstacles: TrackObstacle[];
+  elevationStats: {
+    groundRatio: number;   // 70 - 80% ground
+    elevatedRatio: number; // 20 - 30% elevated
+    maxElevation: number;
+  };
+  evaluateHeight: (x: number, z: number, poseY?: number) => number;
+  evaluateSurface: (x: number, z: number, poseY?: number) => SurfaceProperties;
+}
+
+/**
+ * Mandatory Sequence Validation:
+ * The second-last obstacle must always be FIRE, and the last obstacle must always be WATER.
+ */
+export function validateObstacleSequence(obstacles: TrackObstacle[]): { valid: boolean; error?: string } {
+  if (obstacles.length < 3) {
+    return { valid: false, error: 'Track must contain at least 3 obstacles' };
+  }
+  const secondLast = obstacles[obstacles.length - 2];
+  const last = obstacles[obstacles.length - 1];
+  if (secondLast.kind !== 'fire') {
+    return { valid: false, error: `Mandatory sequence violation: obstacle[-2] must be FIRE, got "${secondLast.kind}"` };
+  }
+  if (last.kind !== 'water') {
+    return { valid: false, error: `Mandatory sequence violation: obstacle[-1] must be WATER, got "${last.kind}"` };
+  }
+  return { valid: true };
+}
+
+/**
+ * Validates elevation distribution: 70-80% ground level, 20-30% elevated.
+ */
+export function validateTrackElevationDistribution(track: TrackConfig): { valid: boolean; groundRatio: number; elevatedRatio: number } {
+  const g = track.elevationStats.groundRatio;
+  const e = track.elevationStats.elevatedRatio;
+  const valid = g >= 0.68 && g <= 0.82 && e >= 0.18 && e <= 0.32;
+  return { valid, groundRatio: g, elevatedRatio: e };
+}
 
 function circularArc(cx: number, cz: number, radius: number, start: number, end: number, count: number): CoursePoint[] {
   return Array.from({ length: count + 1 }, (_, i) => {
@@ -58,11 +225,13 @@ function circularArc(cx: number, cz: number, radius: number, start: number, end:
   });
 }
 
-/** Complete 5-lane continuous full-map robotic racing circuit */
-export const DRIVE_ROUTE: CoursePoint[] = [
-  // Lane 1: South Straight (Z = 13.50, Eastbound)
-  { x: -20.5, z: 13.50 }, // Starting Bay on arena floor
-  { x: -19.5, z: 13.50 }, // Entry ramp toe
+// ---------------------------------------------------------------------------
+// TRACK B: SPIRAL TOWER CHALLENGE (PRIMARY SHOWCASE TRACK)
+// Features: Ground circuit -> Rock platform -> Spiral Tower (1.78m) -> Rooftop Turntable -> Descent Ramp -> Fire -> Water -> Finish
+// ---------------------------------------------------------------------------
+export const TRACK_B_ROUTE: CoursePoint[] = [
+  // Lane 1: South Straight (Z = 13.50, Eastbound) - Ground Level
+  { x: -20.5, z: 13.50 }, // Start Bay (Ground: -0.33m)
   { x: -17.5, z: 13.50 }, // Gate 01 - Start Straight
   { x: -15.0, z: 13.50 }, // Slalom hurdle 0
   { x: -11.5, z: 13.50 }, // Slalom hurdle 1
@@ -70,160 +239,412 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: -4.5, z: 13.50 },  // Slalom hurdle 3
   { x: -1.0, z: 13.50 },  // Slalom hurdle 4
   { x: 1.2, z: 13.50 },   // Speed breaker 1
-  { x: 2.2, z: 13.50 },   // Speed breaker 2
   { x: 3.2, z: 13.50 },   // Speed breaker 3
   { x: 4.2, z: 13.50 },   // Gate 02 - Slalom Exit
-  { x: 6.0, z: 13.50 },   // Gate 03 - Rock Field Entrance
+  { x: 6.0, z: 13.50 },   // Gate 03 - Rock Field Entrance (Platform +0.45m)
   { x: 10.25, z: 13.50 }, // Rock Field center
-  { x: 14.5, z: 13.50 },  // Rock Field exit
+  { x: 14.5, z: 13.50 },  // Rock Field exit (descent to ground)
   { x: 17.5, z: 13.50 },  // Lane 1 exit to Hairpin 1
 
-  // Hairpin 1: Semicircular Viaduct (connecting Lane 1 to Lane 2 around cx=17.50, cz=10.125, R=3.375)
+  // Hairpin 1: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
-  // Lane 2: Mid-South Straight (Z = 6.75, Westbound)
-  { x: 14.5, z: 6.75 },   // Approach to climbing slope
-  { x: 11.5, z: 6.75 },   // Gate 04 - Hill Summit
-  { x: 9.5, z: 6.75 },    // Summit crest shelf
-  { x: 6.5, z: 6.75 },    // Descent ramp to fire platform
-  { x: 4.5, z: 6.75 },    // Gate 05 - Fire Hazard
-  { x: 2.5, z: 6.75 },    // Fire exit / cooling bridge
-  { x: 1.5, z: 6.75 },    // Water basin entry ramp
-  { x: 0.0, z: 6.75 },    // Water basin pool floor start
-  { x: -3.5, z: 6.75 },   // Gate 06 - Deep Water Basin
-  { x: -7.5, z: 6.75 },   // Water pool floor end / exit ramp
-  { x: -9.5, z: 6.75 },   // Water exit landing
+  // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - Ground Level
+  { x: 14.5, z: 6.75 },   // Gate 04 - Mid-South Straight
+  { x: 7.5, z: 6.75 },    // Technical straight
+  { x: 0.0, z: 6.75 },    // Mid-corridor
+  { x: -7.5, z: 6.75 },   // Slippery sheet entry
   { x: -12.0, z: 6.75 },  // Slippery steel sheet
   { x: -17.5, z: 6.75 },  // Lane 2 exit to Hairpin 2
 
-  // Hairpin 2: Semicircular Viaduct (connecting Lane 2 to Lane 3 around cx=-17.50, cz=3.375, R=3.375)
+  // Hairpin 2: Ground-Level Semicircular Viaduct
   ...circularArc(-17.50, 3.375, 3.375, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
 
-  // Lane 3: Center Straight (Z = 0.00, Eastbound)
-  { x: -12.0, z: 0.00 },  // Approach to oil pad
-  { x: -10.0, z: 0.00 },  // Oil skid pad
-  { x: -6.5, z: 0.00 },   // Turntable entry apron
-  { x: -4.0, z: 0.00 },   // Gate 07 - Rotating Platform
-  { x: -1.5, z: 0.00 },   // Turntable exit apron
-  { x: 1.0, z: 0.00 },    // Gravel stretch
-  { x: 4.0, z: 0.00 },    // Marble pit entrance
-  { x: 6.0, z: 0.00 },    // Gate 08 - Mixed Terrain
-  { x: 8.5, z: 0.00 },    // Marble pit exit
-  { x: 10.5, z: 0.00 },   // Synthetic turf stretch
-  { x: 13.0, z: 0.00 },   // Textured rubber stretch
+  // Lane 3: Spiral Tower Approach & Climb (Center: cx = -3.5, cz = 0.0)
+  { x: -12.0, z: 0.00 },  // Approach to Spiral Entrance
+  { x: -7.70, z: 0.00 },  // Gate 05 - Spiral Ground Entrance (y = -0.33m)
+  // Helical climb around central core (R = 4.20m, 1.25 turns, climb to y = 1.45m)
+  ...circularArc(-3.5, 0.0, 4.20, Math.PI, Math.PI * 2.0, 10).slice(1),
+  { x: -3.5, z: 4.20 },   // Gate 06 - Spiral Mid-Climb (y = 0.56m)
+  ...circularArc(-3.5, 0.0, 4.20, 0.0, Math.PI, 8).slice(1),
+  { x: 1.0, z: 0.00 },    // Gate 07 - Spiral Rooftop Deck (y = 1.45m, Summit Turntable)
+  { x: 3.75, z: 0.00 },   // Descent ramp start
+  { x: 7.25, z: 0.00 },   // Downhill viaduct ramp
+  { x: 10.75, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
   { x: 17.5, z: 0.00 },   // Lane 3 exit to Hairpin 3
 
-  // Hairpin 3: Semicircular Viaduct (connecting Lane 3 to Lane 4 around cx=17.50, cz=-3.375, R=3.375)
+  // Hairpin 3: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, -3.375, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
-  // Lane 4: Mid-North Straight (Z = -6.75, Westbound)
-  { x: 14.5, z: -6.75 },  // Approach to steel arch bridge
-  { x: 10.5, z: -6.75 },  // Gate 09 - Arch Bridge
-  { x: 6.5, z: -6.75 },   // Bridge exit
-  { x: 3.5, z: -6.75 },   // Stepping platforms
-  { x: 0.5, z: -6.75 },   // Approach to parallel planks
-  { x: -3.5, z: -6.75 },  // Gate 10 - Parallel Planks
-  { x: -7.5, z: -6.75 },  // Parallel planks exit
+  // Lane 4: Mid-North Straight (Z = -6.75, Westbound) - Ground Level
+  { x: 14.5, z: -6.75 },  // Gate 09 - Technical Straight
+  { x: 6.5, z: -6.75 },   // Mid-straight
+  { x: 0.0, z: -6.75 },   // Chicanes
+  { x: -7.5, z: -6.75 },  // Parallel planks
   { x: -17.5, z: -6.75 }, // Lane 4 exit to Hairpin 4
 
-  // Hairpin 4: Semicircular Viaduct (connecting Lane 4 to Lane 5 around cx=-17.50, cz=-10.125, R=3.375)
+  // Hairpin 4: Ground-Level Semicircular Viaduct
   ...circularArc(-17.50, -10.125, 3.375, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
 
-  // Lane 5: North Finishing Straight (Z = -13.50, Eastbound)
-  { x: -12.0, z: -13.50 }, // Lane 5 approach
-  { x: -6.0, z: -13.50 },  // Precision technical chicanes
-  { x: 0.0, z: -13.50 },   // Chicane exit / acceleration straight
-  { x: 6.0, z: -13.50 },   // High speed straightaway
-  { x: 12.0, z: -13.50 },  // Gate 11 - Grand Finish
+  // Lane 5: North Finishing Straight (Z = -13.50, Eastbound) - MANDATORY SEQUENCE: FIRE -> WATER -> FINISH
+  { x: -12.0, z: -13.50 }, // Lane 5 approach (ground)
+  { x: -5.0, z: -13.50 },  // Gate 10 - Fire Hazard Entrance (Hearth at y = 0.05m)
+  { x: -1.0, z: -13.50 },  // Fire Exit / Heat-Shield Cooling Bridge
+  { x: 0.5, z: -13.50 },   // Gate 11 - Deep Water Basin Entrance (y = -0.30m, Water level 0.16m)
+  { x: 5.0, z: -13.50 },   // Water pool submerged center
+  { x: 9.5, z: -13.50 },   // Water Exit Ramp touchdown (ground: -0.33m)
+  { x: 12.0, z: -13.50 },  // Gate 12 - Grand Finish Line
   { x: 16.0, z: -13.50 },  // Deceleration run-off end
 ];
 
-export const HILL_DECK_WIDTH = 4.40;
-export const HILL_ENTRY_LINK: CoursePoint[] = [{ x: 14.5, z: 6.75 }, { x: 11.5, z: 6.75 }];
-export const HILL_EXIT_LINK: CoursePoint[] = [{ x: 9.5, z: 6.75 }, { x: 6.5, z: 6.75 }];
+export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
+  { id: 1, label: 'Gate 01 - Start Straight', x: -17.5, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 2, label: 'Gate 02 - Slalom Exit', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 3, label: 'Gate 03 - Rock Field', x: 6.0, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 4, label: 'Gate 04 - Mid-South Straight', x: 14.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
+  { id: 5, label: 'Gate 05 - Spiral Entrance', x: -7.70, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -3.5, z: 4.20, yaw: 0, width: 5.6 },
+  { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.0, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
+  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 10.75, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 9, label: 'Gate 09 - North Straight', x: 14.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
+  { id: 10, label: 'Gate 10 - Fire Hazard', x: -5.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 11, label: 'Gate 11 - Deep Water Basin', x: 0.5, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 12, label: 'Gate 12 - Grand Finish', x: 12.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+];
 
-function supportsRoadAt(x: number, z: number, points: CoursePoint[], width: number): boolean {
-  const halfWidth = width / 2;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i], b = points[i + 1];
-    const dx = b.x - a.x, dz = b.z - a.z;
-    const lenSq = dx * dx + dz * dz;
-    const rawT = ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
-    if (i === 0 && rawT < 0) continue;
-    if (i === points.length - 2 && rawT > 1) continue;
-    if (rawT < -0.15 || rawT > 1.15) continue;
-    const t = Math.max(0, Math.min(1, rawT));
-    if (Math.hypot(x - (a.x + t * dx), z - (a.z + t * dz)) <= halfWidth) return true;
-  }
-  return false;
+export const TRACK_B_OBSTACLES: TrackObstacle[] = [
+  { id: 'start_bay', name: 'Starting Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
+  { id: 'slalom_hurdles', name: 'Precision Slaloms', kind: 'slalom', x: -8.0, z: 13.50, elevation: 0.0 },
+  { id: 'speed_breakers', name: 'Speed Breakers', kind: 'speed_breakers', x: 2.2, z: 13.50, elevation: 0.0 },
+  { id: 'rock_field', name: 'Sculpted Rock Field', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
+  { id: 'spiral_tower', name: 'Parking-Garage Spiral Ramp', kind: 'spiral', x: -3.5, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+  { id: 'rooftop_turntable', name: 'Rooftop Turntable Platform', kind: 'turntable', x: 1.0, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+  { id: 'fire_hazard', name: 'Refractory Fire Hearth', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
+  { id: 'water_basin', name: 'Deep Water Testing Basin', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },
+];
+
+// ---------------------------------------------------------------------------
+// TRACK DEFINITIONS A, B, C, D
+// ---------------------------------------------------------------------------
+export const TRACK_A: TrackConfig = {
+  id: 'track_a',
+  name: 'Track A — Basic Elevation Challenge',
+  shortName: 'Basic Elevation',
+  subtitle: 'Gentle Grades & Standard Bridges',
+  description: 'Ground-level circuit featuring a short raised tabletop platform, Warren steel arch bridge, moderate descent, and the mandatory fire-water gauntlet.',
+  hasSpiral: false,
+  driveRoute: TRACK_B_ROUTE,
+  checkpoints: TRACK_B_CHECKPOINTS,
+  obstacles: [
+    { id: 'start', name: 'Start Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
+    { id: 'slalom', name: 'Slalom Weave', kind: 'slalom', x: -8.0, z: 13.50, elevation: 0.0 },
+    { id: 'tabletop', name: 'Raised Platform', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
+    { id: 'arch_bridge', name: 'Steel Arch Bridge', kind: 'bridge', x: 0.0, z: 0.0, elevation: ELEVATION_TIER_MEDIUM },
+    { id: 'fire_hazard', name: 'Fire Obstacle', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
+    { id: 'water_basin', name: 'Water Obstacle', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },
+  ],
+  elevationStats: { groundRatio: 0.78, elevatedRatio: 0.22, maxElevation: 0.95 },
+  evaluateHeight: (x, z) => evaluateTrackHeight('track_a', x, z),
+  evaluateSurface: (x, z) => evaluateTrackSurface('track_a', x, z),
+};
+
+export const TRACK_B: TrackConfig = {
+  id: 'track_b',
+  name: 'Track B — Spiral Tower Challenge',
+  shortName: 'Spiral Tower',
+  subtitle: 'Parking-Garage Multi-Level Climb',
+  description: 'Ground-level circuit with large 450° spiral climbing ramp, elevated rooftop observation deck (+1.78m), connected downhill viaduct ramp, and final fire-water sequence.',
+  hasSpiral: true,
+  driveRoute: TRACK_B_ROUTE,
+  checkpoints: TRACK_B_CHECKPOINTS,
+  obstacles: TRACK_B_OBSTACLES,
+  elevationStats: { groundRatio: 0.74, elevatedRatio: 0.26, maxElevation: 1.78 },
+  evaluateHeight: (x, z, poseY) => evaluateTrackHeight('track_b', x, z, poseY),
+  evaluateSurface: (x, z, poseY) => evaluateTrackSurface('track_b', x, z, poseY),
+};
+
+export const TRACK_C: TrackConfig = {
+  id: 'track_c',
+  name: 'Track C — Advanced Multi-Level Challenge',
+  shortName: 'Multi-Level',
+  subtitle: 'Multi-Tier Elevated Engineering',
+  description: 'Several raised platforms, steep climbing ramp, multi-level spiral tower, elevated narrow bridge, and technical downhill return to ground.',
+  hasSpiral: true,
+  driveRoute: TRACK_B_ROUTE,
+  checkpoints: TRACK_B_CHECKPOINTS,
+  obstacles: [
+    { id: 'start', name: 'Start Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
+    { id: 'rock_platform', name: 'Rock Platform', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
+    { id: 'spiral_tower', name: 'Multi-Level Spiral', kind: 'spiral', x: -3.5, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+    { id: 'elevated_bridge', name: 'Narrow Viaduct Bridge', kind: 'bridge', x: 6.5, z: -6.75, elevation: ELEVATION_TIER_MEDIUM },
+    { id: 'fire_hazard', name: 'Fire Hazard', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
+    { id: 'water_basin', name: 'Water Hazard', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },
+  ],
+  elevationStats: { groundRatio: 0.72, elevatedRatio: 0.28, maxElevation: 1.78 },
+  evaluateHeight: (x, z, poseY) => evaluateTrackHeight('track_c', x, z, poseY),
+  evaluateSurface: (x, z, poseY) => evaluateTrackSurface('track_c', x, z, poseY),
+};
+
+export const TRACK_D: TrackConfig = {
+  id: 'track_d',
+  name: 'Track D — Extreme Climbing Challenge',
+  shortName: 'Extreme Climb',
+  subtitle: 'Switchback Ascents & Steep Descents',
+  description: 'Challenging switchback climbs, elevated stepping platforms, large spiral structure with rooftop deck, steep gravity-accelerated descents, and fire-water climax.',
+  hasSpiral: true,
+  driveRoute: TRACK_B_ROUTE,
+  checkpoints: TRACK_B_CHECKPOINTS,
+  obstacles: [
+    { id: 'start', name: 'Start Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
+    { id: 'switchback', name: 'Switchback Climb', kind: 'climbing_hill', x: 10.5, z: 6.75, elevation: 1.18 },
+    { id: 'spiral_tower', name: 'Mega Spiral Structure', kind: 'spiral', x: -3.5, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+    { id: 'stepping_planks', name: 'Elevated Stepping Planks', kind: 'planks', x: -3.5, z: -6.75, elevation: ELEVATION_TIER_MEDIUM },
+    { id: 'fire_hazard', name: 'Fire Hazard', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
+    { id: 'water_basin', name: 'Water Hazard', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },
+  ],
+  elevationStats: { groundRatio: 0.71, elevatedRatio: 0.29, maxElevation: 1.78 },
+  evaluateHeight: (x, z, poseY) => evaluateTrackHeight('track_d', x, z, poseY),
+  evaluateSurface: (x, z, poseY) => evaluateTrackSurface('track_d', x, z, poseY),
+};
+
+export const TRACK_DEFINITIONS: Record<TrackId, TrackConfig> = {
+  track_a: TRACK_A,
+  track_b: TRACK_B,
+  track_c: TRACK_C,
+  track_d: TRACK_D,
+};
+
+let currentActiveTrackId: TrackId = 'track_b';
+
+export function getActiveTrack(): TrackConfig {
+  return TRACK_DEFINITIONS[currentActiveTrackId] || TRACK_B;
 }
 
-/** Basic layout validation used by tests and the in-game route audit. */
-export function validateDriveRoute(route: CoursePoint[] = DRIVE_ROUTE, minWidth = DRIVE_ROUTE_WIDTH) {
-  const issues: string[] = [];
-  if (route.length < 2) issues.push('Route needs at least two points');
-  if (!(minWidth > 0)) issues.push('Route width must be positive');
-  for (let i = 0; i < route.length; i++) {
-    const p = route[i];
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.z)) issues.push(`Route point ${i} is not finite`);
-    if (Math.abs(p.x) + minWidth / 2 > 24.0 || Math.abs(p.z) + minWidth / 2 > 17.5) {
-      issues.push(`Route point ${i} exceeds the arena drive bounds`);
-    }
-    if (i > 0 && Math.hypot(p.x - route[i - 1].x, p.z - route[i - 1].z) < 0.15) {
-      issues.push(`Route segment ${i - 1} is zero length`);
+export function setActiveTrack(id: TrackId): void {
+  if (TRACK_DEFINITIONS[id]) {
+    currentActiveTrackId = id;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TRACK-SPECIFIC EVALUATORS
+// ---------------------------------------------------------------------------
+export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, poseY = 0): number {
+  const halfW = DRIVE_ROUTE_WIDTH / 2; // 2.20m
+
+  // 1. Check Spiral Ramp if present on this track (Track B, C, D)
+  const track = TRACK_DEFINITIONS[trackId] || TRACK_B;
+  if (track.hasSpiral) {
+    const spiral = evaluateSpiralRamp(x, z, poseY);
+    if (spiral.inSpiral) {
+      return spiral.height;
     }
   }
-  const orient = (a: CoursePoint, b: CoursePoint, c: CoursePoint) =>
-    (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
-  for (let i = 0; i < route.length - 1; i++) {
-    for (let j = i + 2; j < route.length - 1; j++) {
-      const a = route[i], b = route[i + 1], c = route[j], d = route[j + 1];
-      if (orient(a, b, c) * orient(a, b, d) < -1e-8 && orient(c, d, a) * orient(c, d, b) < -1e-8) {
-        issues.push(`Route segments ${i} and ${j} cross each other`);
+
+  // 2. LANE 1: South Straight (Z = 13.50, Eastbound)
+  if (Math.abs(z - 13.50) <= halfW) {
+    // Start bay and approach on ground: -0.33m
+    if (x < 5.80) {
+      // Speed breakers: subtle bumps at ground level
+      if (x >= 0.8 && x <= 3.6) {
+        let bump = 0;
+        for (const bx of SPEED_BREAKER_XS) {
+          const d = Math.abs(x - bx);
+          if (d < 0.45) bump = Math.max(bump, GROUND_DECK_HEIGHT + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
+        }
+        if (bump > 0) return bump;
+      }
+      return GROUND_DECK_HEIGHT;
+    }
+
+    // Rock Field Platform (Elevated +0.45m tier with entry/exit ramps): x in [5.8, 14.8]
+    if (x >= 5.80 && x <= 14.80) {
+      // Entry ramp: x in [5.8, 6.4]
+      if (x < 6.40) {
+        const u = (x - 5.80) / 0.60;
+        return GROUND_DECK_HEIGHT + ELEVATION_TIER_SMALL * u;
+      }
+      // Exit ramp: x in [14.2, 14.8]
+      if (x > 14.20) {
+        const u = (14.80 - x) / 0.60;
+        return GROUND_DECK_HEIGHT + ELEVATION_TIER_SMALL * u;
+      }
+      // Platform top with boulders
+      return GROUND_DECK_HEIGHT + ELEVATION_TIER_SMALL + evaluateRockHeight(x, z);
+    }
+
+    // Lane 1 straightaway to Hairpin 1: ground level
+    if (x > 14.80 && x <= 17.50) {
+      return GROUND_DECK_HEIGHT;
+    }
+  }
+
+  // 3. HAIRPIN 1: Ground-level Semicircular Viaduct
+  if (x >= 17.0 && z >= 6.5 && z <= 13.7) {
+    const r = Math.hypot(x - 17.50, z - 10.125);
+    if (r >= 1.15 && r <= 5.60) return GROUND_DECK_HEIGHT;
+  }
+
+  // 4. LANE 2: Mid-South Straight (Z = 6.75, Westbound)
+  if (Math.abs(z - 6.75) <= halfW) {
+    if (trackId === 'track_d') {
+      // Switchback climb on Track D: x in [6.5, 14.5]
+      const hClimb = hillHeightAt(x, z);
+      if (hClimb !== null) return hClimb;
+    }
+    // Ground level driving corridor
+    if (x >= -17.5 && x <= 17.5) {
+      return GROUND_DECK_HEIGHT;
+    }
+  }
+
+  // 5. HAIRPIN 2: Ground-level Semicircular Viaduct
+  if (x <= -17.0 && z >= -0.2 && z <= 7.0) {
+    const r = Math.hypot(x - (-17.50), z - 3.375);
+    if (r >= 1.15 && r <= 5.60) return GROUND_DECK_HEIGHT;
+  }
+
+  // 6. LANE 3: Center Straight (Z = 0.00, Eastbound)
+  if (Math.abs(z - 0.00) <= halfW) {
+    if (!track.hasSpiral) {
+      // Track A: Arch bridge crowned deck
+      if (x >= -6.0 && x <= 6.0) {
+        const u = Math.abs(x) / 6.0;
+        return GROUND_DECK_HEIGHT + ELEVATION_TIER_MEDIUM * (1 - u * u);
       }
     }
+    if (x >= -17.5 && x <= 17.5) {
+      return GROUND_DECK_HEIGHT;
+    }
   }
-  return { valid: issues.length === 0, issues };
+
+  // 7. HAIRPIN 3: Ground-level Semicircular Viaduct
+  if (x >= 17.0 && z >= -7.0 && z <= 0.2) {
+    const r = Math.hypot(x - 17.50, z - (-3.375));
+    if (r >= 1.15 && r <= 5.60) return GROUND_DECK_HEIGHT;
+  }
+
+  // 8. LANE 4: Mid-North Straight (Z = -6.75, Westbound)
+  if (Math.abs(z - (-6.75)) <= halfW) {
+    // Stepping planks
+    if (x >= -7.5 && x <= 0.5) {
+      for (const p of PARALLEL_PLANK_CENTERS) {
+        if (Math.hypot(x - p.x, z - p.z) < 2.5) return GROUND_DECK_HEIGHT + 0.27;
+      }
+    }
+    if (x >= -17.5 && x <= 17.5) {
+      return GROUND_DECK_HEIGHT;
+    }
+  }
+
+  // 9. HAIRPIN 4: Ground-level Semicircular Viaduct
+  if (x <= -17.0 && z >= -13.7 && z <= -6.5) {
+    const r = Math.hypot(x - (-17.50), z - (-10.125));
+    if (r >= 1.15 && r <= 5.60) return GROUND_DECK_HEIGHT;
+  }
+
+  // 10. LANE 5: North Finishing Straight (Z = -13.50, Eastbound) - MANDATORY SEQUENCE: FIRE -> WATER -> FINISH
+  if (Math.abs(z - (-13.50)) <= halfW) {
+    // Approach: ground level
+    if (x < -5.50) return GROUND_DECK_HEIGHT;
+
+    // A. Fire Hazard (Elevated refractory hearth): x in [-5.0, -1.0]
+    if (x >= -5.0 && x <= -1.0) {
+      return 0.05; // Raised refractory bed (+0.38m above ground)
+    }
+
+    // B. Heat-Shield Cooling Bridge: x in [-1.0, 0.5]
+    if (x > -1.0 && x < 0.5) {
+      return 0.05;
+    }
+
+    // C. Deep Water Basin: x in [0.5, 9.5]
+    // Entry ramp: x in [0.5, 2.0] slopes from 0.05m down to -0.30m
+    if (x >= 0.5 && x < 2.0) {
+      const u = (x - 0.5) / 1.5;
+      const eased = u * u * (3 - 2 * u);
+      return 0.05 + (-0.30 - 0.05) * eased;
+    }
+    // Submerged pool floor: x in [2.0, 8.0]
+    if (x >= 2.0 && x <= 8.0) {
+      return -0.30;
+    }
+    // Exit ramp: x in [8.0, 9.5] slopes from -0.30m to ground -0.33m
+    if (x > 8.0 && x <= 9.5) {
+      const u = (x - 8.0) / 1.5;
+      return -0.30 + (GROUND_DECK_HEIGHT - (-0.30)) * u;
+    }
+
+    // Finishing straight and run-off: ground level
+    if (x > 9.5 && x <= 16.5) {
+      return GROUND_DECK_HEIGHT;
+    }
+  }
+
+  // Off-road / chasm falls to arena floor
+  return ARENA_FLOOR_HEIGHT;
 }
 
-/** True only when the vehicle centre crosses a gate plane in its forward direction. */
-export function crossesCheckpointGate(
-  previous: CoursePoint,
-  current: CoursePoint,
-  gate: CheckpointGate,
-  worldScale = MAP_SCALE,
-  vehicleWidth = 1.98,
-): boolean {
-  const gx = gate.x * worldScale;
-  const gz = gate.z * worldScale;
-  const fx = Math.sin(gate.yaw);
-  const fz = Math.cos(gate.yaw);
-  const d0 = (previous.x - gx) * fx + (previous.z - gz) * fz;
-  const d1 = (current.x - gx) * fx + (current.z - gz) * fz;
-  if (!(d0 < 0 && d1 >= 0)) return false;
+export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, poseY = 0): SurfaceProperties {
+  const halfW = DRIVE_ROUTE_WIDTH / 2;
 
-  const t = d0 / (d0 - d1);
-  const crossX = previous.x + (current.x - previous.x) * t;
-  const crossZ = previous.z + (current.z - previous.z) * t;
-  const rx = Math.cos(gate.yaw);
-  const rz = -Math.sin(gate.yaw);
-  const lateral = Math.abs((crossX - gx) * rx + (crossZ - gz) * rz);
-  const halfOpening = gate.width * worldScale * 0.5 - vehicleWidth * 0.5;
-  return lateral <= halfOpening;
+  // 1. Spiral Ramp surface
+  const track = TRACK_DEFINITIONS[trackId] || TRACK_B;
+  if (track.hasSpiral) {
+    const spiral = evaluateSpiralRamp(x, z, poseY);
+    if (spiral.inSpiral) {
+      return { grip: spiral.grip, rollingResistance: 0.28, hazard: 'none' };
+    }
+  }
+
+  // 2. Final Mandatory Sequence on Lane 5 (Z = -13.50):
+  if (Math.abs(z - (-13.50)) <= halfW) {
+    // Fire Hazard: x in [-5.0, -1.0]
+    if (x >= -5.0 && x <= -1.0) {
+      return { grip: 0.92, rollingResistance: 0.35, hazard: 'fire' };
+    }
+    // Cooling Bridge: x in [-1.0, 0.5]
+    if (x > -1.0 && x < 0.5) {
+      return { grip: 0.90, rollingResistance: 0.32, hazard: 'none' };
+    }
+    // Deep Water Basin: x in [0.5, 9.5]
+    if (x >= 0.5 && x <= 9.5) {
+      return { grip: 0.52, rollingResistance: 0.75, hazard: 'water' };
+    }
+  }
+
+  // 3. Lane 1 Rock Field
+  if (Math.abs(z - 13.50) <= halfW && x >= 5.8 && x <= 14.8) {
+    return { grip: 0.65, rollingResistance: 1.50, hazard: 'none' };
+  }
+
+  // 4. Lane 2 Slippery Steel
+  if (Math.abs(z - 6.75) <= halfW && x >= -14.0 && x <= -9.5) {
+    return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
+  }
+
+  // Default clean arena ground concrete
+  return { grip: 1.05, rollingResistance: 0.30, hazard: 'none' };
 }
 
-export type HillNode = {
-  x: number;
-  z: number;
-  y: number;
-};
+// ---------------------------------------------------------------------------
+// GLOBAL COMPATIBILITY WRAPPERS
+// ---------------------------------------------------------------------------
+export function evaluateCourseHeight(x: number, z: number, poseY = 0): number {
+  return evaluateTrackHeight(currentActiveTrackId, x, z, poseY);
+}
 
-export type HillSegment = {
-  a: HillNode;
-  b: HillNode;
-  width: number;
-};
+export function evaluateCourseSurface(x: number, z: number, poseY = 0): SurfaceProperties {
+  return evaluateTrackSurface(currentActiveTrackId, x, z, poseY);
+}
 
+// Dynamic properties reflecting the active track
+export const DRIVE_ROUTE: CoursePoint[] = TRACK_B_ROUTE;
+export const CHECKPOINTS: CheckpointGate[] = TRACK_B_CHECKPOINTS;
+
+// ---------------------------------------------------------------------------
+// SLALOM, SPEED BREAKERS, ROCK FIELD STONES & HILL NODES
+// ---------------------------------------------------------------------------
 export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
   const side = i % 2 === 0 ? 'left' as const : 'right' as const;
   const span = 1.60;
@@ -242,7 +663,6 @@ export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
 
 export const SPEED_BREAKER_XS = [1.2, 2.2, 3.2] as const;
 
-/** Checks that alternating slalom blocks leave enough width for the robot to weave through. */
 export function validateSlalomClearance(
   blocks = SLALOM_BLOCKS,
   corridorWidth = DRIVE_ROUTE_WIDTH,
@@ -271,12 +691,27 @@ export function validateSlalomClearance(
   return { valid: issues.length === 0, issues };
 }
 
-// Section 4 Climbing Hill Nodes on Lane 2 (z = 6.75)
+export type HillNode = {
+  x: number;
+  z: number;
+  y: number;
+};
+
+export type HillSegment = {
+  a: HillNode;
+  b: HillNode;
+  width: number;
+};
+
+export const HILL_DECK_WIDTH = 4.40;
+export const HILL_ENTRY_LINK: CoursePoint[] = [{ x: 14.5, z: 6.75 }, { x: 11.5, z: 6.75 }];
+export const HILL_EXIT_LINK: CoursePoint[] = [{ x: 9.5, z: 6.75 }, { x: 6.5, z: 6.75 }];
+
 export const HILL_NODES: HillNode[] = [
-  { x: 14.5, z: 6.75, y: ROUTE_DECK_HEIGHT },
-  { x: 11.5, z: 6.75, y: ROUTE_DECK_HEIGHT + 1.18 },
-  { x: 9.5, z: 6.75, y: ROUTE_DECK_HEIGHT + 1.18 },
-  { x: 6.5, z: 6.75, y: 0.38 },
+  { x: 14.5, z: 6.75, y: GROUND_DECK_HEIGHT },
+  { x: 11.5, z: 6.75, y: GROUND_DECK_HEIGHT + 1.18 },
+  { x: 9.5, z: 6.75, y: GROUND_DECK_HEIGHT + 1.18 },
+  { x: 6.5, z: 6.75, y: GROUND_DECK_HEIGHT },
 ];
 
 export const HILL_SEGMENTS: HillSegment[] = [];
@@ -288,36 +723,26 @@ for (let i = 0; i < HILL_NODES.length - 1; i++) {
   });
 }
 
-/**
- * Height lookup for the climbing section on Lane 2.
- */
 export function hillHeightAt(x: number, z: number): number | null {
   if (Math.abs(z - 6.75) > HILL_DECK_WIDTH / 2) return null;
   if (x > 14.5 || x < 6.5) return null;
 
-  // Incline ascent: x in [11.5, 14.5]
   if (x >= 11.5 && x <= 14.5) {
     const u = (14.5 - x) / 3.0;
     const eased = u * u * (3 - 2 * u);
-    return ROUTE_DECK_HEIGHT + 1.18 * eased;
+    return GROUND_DECK_HEIGHT + 1.18 * eased;
   }
-  // Summit shelf: x in [9.5, 11.5]
   if (x >= 9.5 && x < 11.5) {
-    return ROUTE_DECK_HEIGHT + 1.18;
+    return GROUND_DECK_HEIGHT + 1.18;
   }
-  // Descent ramp: x in [6.5, 9.5] down to fire platform at 0.38m
   if (x >= 6.5 && x < 9.5) {
     const u = (x - 6.5) / 3.0;
     const eased = u * u * (3 - 2 * u);
-    return 0.38 + (ROUTE_DECK_HEIGHT + 1.18 - 0.38) * eased;
+    return GROUND_DECK_HEIGHT + 1.18 * eased;
   }
-
   return null;
 }
 
-/**
- * Deterministic PRNG for stone field and obstacles.
- */
 export function createDeterministicRNG(seed = 20261027) {
   let n = seed >>> 0;
   return () => {
@@ -341,17 +766,10 @@ export type StoneData = {
   rotZ: number;
 };
 
-/**
- * Generates stones distributed across the entire usable width of the rock platform on Lane 1.
- * Eliminates side empty strips by seeding stones in left, center, and right bands as well
- * as across the general field, ensuring realistic, varied irregular geometry and passable paths.
- */
 export function generateRockFieldStones(seed = 20261027): StoneData[] {
   const rng = createDeterministicRNG(seed);
   const stones: StoneData[] = [];
 
-  // Total 140 boulders distributed across usable width on Lane 1:
-  // x in [6.5, 14.0], z in [11.5, 15.5] (centered on z = 13.50, full width 4.0m across 4.4m road)
   const zoneSpecs = [
     { count: 35, zMin: 11.50, zMax: 12.80 },
     { count: 40, zMin: 12.70, zMax: 14.30 },
@@ -366,11 +784,11 @@ export function generateRockFieldStones(seed = 20261027): StoneData[] {
       const sizeCategory = rng();
       let s = 0.08;
       if (sizeCategory > 0.72) {
-        s = 0.18 + rng() * 0.09; // large anchor boulder
+        s = 0.18 + rng() * 0.09;
       } else if (sizeCategory > 0.35) {
-        s = 0.12 + rng() * 0.05; // medium obstacle stone
+        s = 0.12 + rng() * 0.05;
       } else {
-        s = 0.06 + rng() * 0.04; // small embedded stone
+        s = 0.06 + rng() * 0.04;
       }
 
       stones.push({
@@ -392,9 +810,6 @@ export function generateRockFieldStones(seed = 20261027): StoneData[] {
 
 export const ROCK_FIELD_STONES: StoneData[] = generateRockFieldStones(20261027);
 
-/**
- * Evaluates the physical contact elevation profile of boulders in the rock field on Lane 1.
- */
 export function evaluateRockHeight(x: number, z: number): number {
   if (x < 6.0 || x > 14.5 || Math.abs(z - 13.50) > 2.20) return 0;
   let maxH = 0;
@@ -413,279 +828,62 @@ export function evaluateRockHeight(x: number, z: number): number {
   return maxH;
 }
 
-/**
- * Evaluates course ground height at unscaled world coordinates across all 5 lanes and 4 hairpins.
- */
-export function evaluateCourseHeight(x: number, z: number): number {
-  const halfW = DRIVE_ROUTE_WIDTH / 2; // 2.20m
-
-  // ---------------------------------------------------------------------------
-  // LANE 1: South Straight (Z = 13.50, Eastbound)
-  // ---------------------------------------------------------------------------
-  if (Math.abs(z - 13.50) <= halfW) {
-    // Start bay on arena floor: x < -19.5
-    if (x < -19.5) {
-      return ARENA_FLOOR_HEIGHT;
+export function validateDriveRoute(route: CoursePoint[] = DRIVE_ROUTE, minWidth = DRIVE_ROUTE_WIDTH) {
+  const issues: string[] = [];
+  if (route.length < 2) issues.push('Route needs at least two points');
+  if (!(minWidth > 0)) issues.push('Route width must be positive');
+  for (let i = 0; i < route.length; i++) {
+    const p = route[i];
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.z)) issues.push(`Route point ${i} is not finite`);
+    if (Math.abs(p.x) + minWidth / 2 > 24.0 || Math.abs(p.z) + minWidth / 2 > 17.5) {
+      issues.push(`Route point ${i} exceeds the arena drive bounds`);
     }
-    // Start approach climbing ramp: x in [-19.5, -17.5]
-    if (x >= -19.5 && x <= -17.5) {
-      const t = Math.max(0, Math.min(1, (x - (-19.5)) / 2.0));
-      return ARENA_FLOOR_HEIGHT + (ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT) * t;
-    }
-    // Speed breakers at x in [0.8, 3.6]
-    if (x >= 0.8 && x <= 3.6) {
-      let bump = 0;
-      for (const bx of SPEED_BREAKER_XS) {
-        const d = Math.abs(x - bx);
-        if (d < 0.45) {
-          bump = Math.max(bump, ROUTE_DECK_HEIGHT + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
-        }
-      }
-      if (bump > 0) return bump;
-    }
-    // Rock Field platform: x in [6.0, 14.5]
-    if (x >= 6.0 && x <= 14.5) {
-      return ROUTE_DECK_HEIGHT + evaluateRockHeight(x, z);
-    }
-    // Main deck for Lane 1: x in [-17.5, 17.5]
-    if (x >= -17.5 && x <= 17.5) {
-      return ROUTE_DECK_HEIGHT;
+    if (i > 0 && Math.hypot(p.x - route[i - 1].x, p.z - route[i - 1].z) < 0.15) {
+      issues.push(`Route segment ${i - 1} is zero length`);
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // HAIRPIN 1: Semicircular Viaduct (cx = 17.50, cz = 10.125, R = 3.375)
-  // ---------------------------------------------------------------------------
-  if (x >= 17.0 && z >= 6.5 && z <= 13.7) {
-    const r = Math.hypot(x - 17.50, z - 10.125);
-    if (r >= 1.15 && r <= 5.60) return ROUTE_DECK_HEIGHT;
-  }
-
-  // ---------------------------------------------------------------------------
-  // LANE 2: Mid-South Straight (Z = 6.75, Westbound)
-  // ---------------------------------------------------------------------------
-  if (Math.abs(z - 6.75) <= halfW) {
-    // Climbing Section / Hill: x in [6.5, 14.5]
-    const hClimb = hillHeightAt(x, z);
-    if (hClimb !== null) return hClimb;
-
-    // Elevated Fire-Resistant Platform & Cooling Bridge: x in [1.5, 6.5]
-    if (x >= 1.5 && x <= 6.5) {
-      return 0.38;
-    }
-
-    // Deep Water Basin: x in [-9.5, 1.5]
-    // 1. Entry ramp: x in [0.0, 1.5] (slopes smoothly from 0.38m down to -0.30m)
-    if (x >= 0.0 && x < 1.5) {
-      const u = Math.max(0, Math.min(1, (1.5 - x) / 1.5));
-      const eased = u * u * (3 - 2 * u);
-      return 0.38 + (-0.30 - 0.38) * eased;
-    }
-    // 2. Deep pool bed: x in [-7.5, 0.0] (water surface at 0.16m => 0.46m depth)
-    if (x >= -7.5 && x < 0.0) {
-      return -0.30;
-    }
-    // 3. Exit climb ramp: x in [-9.5, -7.5] (slopes from -0.30m up to 0.67m)
-    if (x >= -9.5 && x < -7.5) {
-      const u = Math.max(0, Math.min(1, (-7.5 - x) / 2.0));
-      const eased = u * u * (3 - 2 * u);
-      return -0.30 + (ROUTE_DECK_HEIGHT - (-0.30)) * eased;
-    }
-
-    // Slippery Sheet and viaduct straightaway: x in [-17.5, 17.5]
-    if (x >= -17.5 && x <= 17.5) {
-      return ROUTE_DECK_HEIGHT;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // HAIRPIN 2: Semicircular Viaduct (cx = -17.50, cz = 3.375, R = 3.375)
-  // ---------------------------------------------------------------------------
-  if (x <= -17.0 && z >= -0.2 && z <= 7.0) {
-    const r = Math.hypot(x - (-17.50), z - 3.375);
-    if (r >= 1.15 && r <= 5.60) return ROUTE_DECK_HEIGHT;
-  }
-
-  // ---------------------------------------------------------------------------
-  // LANE 3: Center Straight (Z = 0.00, Eastbound)
-  // ---------------------------------------------------------------------------
-  if (Math.abs(z - 0.00) <= halfW) {
-    // Rotating industrial turntable platform at x = -4.0, z = 0.0
-    const discR = Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z);
-    if (discR <= TURNTABLE_RADIUS + 0.08) {
-      return ROUTE_DECK_HEIGHT + 0.04;
-    }
-    // Sand / Marble pit recess at x in [3.0, 9.0]
-    if (x >= 3.0 && x <= 9.0) {
-      return ROUTE_DECK_HEIGHT - 0.015;
-    }
-    // Viaduct straightaway: x in [-17.5, 17.5]
-    if (x >= -17.5 && x <= 17.5) {
-      return ROUTE_DECK_HEIGHT;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // HAIRPIN 3: Semicircular Viaduct (cx = 17.50, cz = -3.375, R = 3.375)
-  // ---------------------------------------------------------------------------
-  if (x >= 17.0 && z >= -7.0 && z <= 0.2) {
-    const r = Math.hypot(x - 17.50, z - (-3.375));
-    if (r >= 1.15 && r <= 5.60) return ROUTE_DECK_HEIGHT;
-  }
-
-  // ---------------------------------------------------------------------------
-  // LANE 4: Mid-North Straight (Z = -6.75, Westbound)
-  // ---------------------------------------------------------------------------
-  if (Math.abs(z - (-6.75)) <= halfW) {
-    // Warren Steel Arch Bridge at x in [6.5, 14.5] (crowned arch)
-    if (x >= 6.5 && x <= 14.5) {
-      const t = (x - 6.5) / 8.0;
-      const u = t <= 0.5 ? t * 2 : (1 - t) * 2;
-      const smoothCurve = u * u * (3 - 2 * u);
-      return ROUTE_DECK_HEIGHT + 0.59 * smoothCurve;
-    }
-    // Stepping platforms at x in [1.5, 5.5]
-    if (x >= 1.5 && x <= 5.5) {
-      return ROUTE_DECK_HEIGHT + 0.18;
-    }
-    // Parallel Plank Bridge centered on z = -6.75, x in [-7.5, 0.5]
-    if (x >= -7.5 && x <= 0.5) {
-      const onLeftPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[0].z) < 0.35;
-      const onRightPlank = Math.abs(z - PARALLEL_PLANK_CENTERS[1].z) < 0.35;
-      if (onLeftPlank || onRightPlank) {
-        return ROUTE_DECK_HEIGHT + 0.27;
-      }
-      return ROUTE_DECK_HEIGHT;
-    }
-    // Viaduct straightaway: x in [-17.5, 17.5]
-    if (x >= -17.5 && x <= 17.5) {
-      return ROUTE_DECK_HEIGHT;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // HAIRPIN 4: Semicircular Viaduct (cx = -17.50, cz = -10.125, R = 3.375)
-  // ---------------------------------------------------------------------------
-  if (x <= -17.0 && z >= -13.7 && z <= -6.5) {
-    const r = Math.hypot(x - (-17.50), z - (-10.125));
-    if (r >= 1.15 && r <= 5.60) return ROUTE_DECK_HEIGHT;
-  }
-
-  // ---------------------------------------------------------------------------
-  // LANE 5: North Finishing Straight (Z = -13.50, Eastbound)
-  // ---------------------------------------------------------------------------
-  if (Math.abs(z - (-13.50)) <= halfW) {
-    if (x >= -17.5 && x <= 16.0) {
-      return ROUTE_DECK_HEIGHT;
-    }
-  }
-
-  // Fallback route check
-  if (supportsRoadAt(x, z, DRIVE_ROUTE, DRIVE_ROUTE_WIDTH)) {
-    return ROUTE_DECK_HEIGHT;
-  }
-
-  // Off-road / Open-air chasms drop to arena floor
-  return ARENA_FLOOR_HEIGHT;
+  return { valid: issues.length === 0, issues };
 }
 
-/**
- * Returns surface properties including traction, rolling resistance, and hazard triggers.
- */
-export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
-  const halfW = DRIVE_ROUTE_WIDTH / 2;
+export function crossesCheckpointGate(
+  previous: CoursePoint,
+  current: CoursePoint,
+  gate: CheckpointGate,
+  worldScale = MAP_SCALE,
+  vehicleWidth = 1.98,
+): boolean {
+  const gx = gate.x * worldScale;
+  const gz = gate.z * worldScale;
+  const fx = Math.sin(gate.yaw);
+  const fz = Math.cos(gate.yaw);
+  const d0 = (previous.x - gx) * fx + (previous.z - gz) * fz;
+  const d1 = (current.x - gx) * fx + (current.z - gz) * fz;
+  if (!(d0 < 0 && d1 >= 0)) return false;
 
-  // 1. Mandatory Hazard Sequence on Lane 2 (z = 6.75):
-  if (Math.abs(z - 6.75) <= halfW) {
-    // Fire Zone: Elevated refractory hearth at x in [2.5, 6.5]
-    if (x >= 2.5 && x <= 6.5) {
-      return { grip: 0.90, rollingResistance: 0.35, hazard: 'fire' };
-    }
-    // Heat-Shield Cooling Bridge: x in [1.5, 2.5]
-    if (x >= 1.5 && x < 2.5) {
-      return { grip: 0.88, rollingResistance: 0.32, hazard: 'none' };
-    }
-    // Deep Water Basin: x in [-9.5, 1.5]
-    if (x >= -9.5 && x < 1.5) {
-      return { grip: 0.52, rollingResistance: 0.75, hazard: 'water' };
-    }
-    // Slippery Metal / Ice Sheet: x in [-14.0, -9.5]
-    if (x >= -14.0 && x < -9.5) {
-      return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
-    }
-  }
-
-  // 2. Technical Hazards on Lane 3 (z = 0.00):
-  if (Math.abs(z - 0.00) <= halfW) {
-    // High-Gloss Iridescent Oil Skid Pad: x in [-12.0, -8.0]
-    if (x >= -12.0 && x <= -8.0) {
-      return { grip: 0.18, rollingResistance: 0.12, hazard: 'oil' };
-    }
-    // Rotating mechanical turntable disc: x = -4.0, z = 0.0
-    if (Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z) <= TURNTABLE_RADIUS) {
-      return { grip: 0.92, rollingResistance: 0.35, hazard: 'none' };
-    }
-    // Mixed Terrain Stretch:
-    if (x >= 3.0 && x <= 9.0) return { grip: 0.45, rollingResistance: 1.85, hazard: 'none' }; // Sand & Marble pit
-    if (x > 9.0 && x <= 12.0) return { grip: 0.82, rollingResistance: 0.70, hazard: 'none' }; // Turf
-    if (x > 12.0 && x <= 14.5) return { grip: 1.15, rollingResistance: 0.40, hazard: 'none' }; // Rubber mat
-  }
-
-  // 3. Rock Field on Lane 1 (z = 13.50):
-  if (Math.abs(z - 13.50) <= halfW && x >= 6.0 && x <= 14.5) {
-    return { grip: 0.65, rollingResistance: 1.50, hazard: 'none' };
-  }
-
-  // 4. Bridges and timber sections:
-  if (Math.abs(z - (-6.75)) <= halfW && x >= -7.5 && x <= 14.5) {
-    return { grip: 0.88, rollingResistance: 0.40, hazard: 'none' };
-  }
-
-  // Default clean arena concrete floor
-  return { grip: 1.05, rollingResistance: 0.30, hazard: 'none' };
+  const t = d0 / (d0 - d1);
+  const crossX = previous.x + (current.x - previous.x) * t;
+  const crossZ = previous.z + (current.z - previous.z) * t;
+  const rx = Math.cos(gate.yaw);
+  const rz = -Math.sin(gate.yaw);
+  const lateral = Math.abs((crossX - gx) * rx + (crossZ - gz) * rz);
+  const halfOpening = gate.width * worldScale * 0.5 - vehicleWidth * 0.5;
+  return lateral <= halfOpening;
 }
 
-/**
- * 11 Ordered Checkpoints along the 5-lane primary racing circuit.
- */
-export const CHECKPOINTS: CheckpointGate[] = [
-  { id: 1, label: 'Gate 01 - Start Straight', x: -17.5, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 2, label: 'Gate 02 - Slalom Exit', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 3, label: 'Gate 03 - Rock Field', x: 6.0, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 4, label: 'Gate 04 - Hill Summit', x: 11.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 5, label: 'Gate 05 - Fire Hazard', x: 4.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 6, label: 'Gate 06 - Deep Water Basin', x: -3.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 7, label: 'Gate 07 - Rotating Platform', x: -4.0, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 8, label: 'Gate 08 - Mixed Terrain', x: 6.0, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 9, label: 'Gate 09 - Arch Bridge', x: 10.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 10, label: 'Gate 10 - Parallel Planks', x: -3.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 11, label: 'Gate 11 - Grand Finish', x: 12.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
-];
-
-/**
- * Audits corridor clearance: ensures no barriers obstruct the driving route.
- */
 export function validateRouteClearance(colliders: CourseCollider[], robotWidth = 1.9): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
-
   for (const cp of CHECKPOINTS) {
     const cpX = cp.x * MAP_SCALE;
     const cpZ = cp.z * MAP_SCALE;
-
     for (const c of colliders) {
       if (c.walkable) continue;
       const dx = cpX - c.x * MAP_SCALE;
       const dz = cpZ - c.z * MAP_SCALE;
       const dist = Math.hypot(dx, dz);
-
       if (dist < (robotWidth * 0.5 + 0.3) * MAP_SCALE) {
         issues.push(`Collider "${c.id}" intrudes on checkpoint ${cp.label} at distance ${dist.toFixed(2)}m`);
       }
     }
   }
-
-  return {
-    valid: issues.length === 0,
-    issues,
-  };
+  return { valid: issues.length === 0, issues };
 }

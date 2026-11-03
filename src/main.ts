@@ -37,13 +37,20 @@ import {
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
   ARENA_FLOOR_HEIGHT,
+  GROUND_DECK_HEIGHT,
   ROUTE_DECK_HEIGHT,
   ROUTE_HEIGHT_OFFSET,
+  ELEVATION_TIER_SMALL,
   HILL_ENTRY_LINK,
   HILL_EXIT_LINK,
   PARALLEL_PLANK_CENTERS,
   TURNTABLE_CENTER,
   TURNTABLE_RADIUS,
+  SPIRAL_CONFIG,
+  evaluateSpiralRamp,
+  getActiveTrack,
+  setActiveTrack,
+  type TrackId,
   CHECKPOINTS,
   SLALOM_BLOCKS,
   SPEED_BREAKER_XS,
@@ -493,8 +500,13 @@ function slopedDeck(id: string, x0: number, x1: number, z: number, width: number
     x0, y0 - thickness, z - half, x0, y0 - thickness, z + half,
     x1, y1 - thickness, z + half, x1, y1 - thickness, z - half,
   ];
+  const uvs = [
+    0, 0,  0, 1,  1, 1,  1, 0,
+    0, 0,  0, 1,  1, 1,  1, 0,
+  ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex([
     0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
     0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
@@ -534,8 +546,13 @@ function slopedDeckSegment(
     p1.x + half * nx, y1 - thickness, p1.z + half * nz,
     p1.x - half * nx, y1 - thickness, p1.z - half * nz,
   ];
+  const uvs = [
+    0, 0,  0, 1,  1, 1,  1, 0,
+    0, 0,  0, 1,  1, 1,  1, 0,
+  ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex([
     0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
     0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
@@ -557,8 +574,13 @@ function slopedDeckZ(id: string, x: number, width: number, z0: number, z1: numbe
     x - half, y0 - thickness, z0, x + half, y0 - thickness, z0,
     x + half, y1 - thickness, z1, x - half, y1 - thickness, z1,
   ];
+  const uvs = [
+    0, 0,  0, 1,  1, 1,  1, 0,
+    0, 0,  0, 1,  1, 1,  1, 0,
+  ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex([
     0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
     0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
@@ -707,19 +729,12 @@ function createRouteRibbon(
     const miterScale = clamp(1 / Math.max(0.65, Math.abs(dot)), 1.0, 1.35);
 
     // Centerline elevation governs the cross-section height uniformly
-    // Suppress highway road markings inside off-road rock quarry, hazard zones, motorized turntable, and marble pit
+    // Suppress highway road markings inside off-road rock quarry, hazard zones, and motorized turntable
     const inTurntable = Math.hypot(p.x - TURNTABLE_CENTER.x, p.z - TURNTABLE_CENTER.z) <= TURNTABLE_RADIUS + 0.15;
     const inRockField = p.x >= 6.0 && p.x <= 14.5 && Math.abs(p.z - 13.50) <= 2.2;
     const inHazardZone = p.x >= -9.5 && p.x <= 6.5 && Math.abs(p.z - 6.75) <= 2.2;
-    const inMarblePit = p.x >= 3.0 && p.x <= 9.0 && Math.abs(p.z - 0.00) <= 2.2;
-    const suppressMarkings = inRockField || inHazardZone || inTurntable || inMarblePit;
-    const centerY = inRockField
-      ? ROUTE_DECK_HEIGHT
-      : inTurntable
-        ? ROUTE_DECK_HEIGHT - 0.08
-        : inMarblePit
-          ? ROUTE_DECK_HEIGHT - 0.04
-          : evaluateCourseHeight(p.x, p.z);
+    const suppressMarkings = inRockField || inHazardZone || inTurntable;
+    const centerY = evaluateCourseHeight(p.x, p.z);
 
     if (withSkirts) {
       // 4 vertices per cross-section: 0: Top Left, 1: Top Right, 2: Bottom Right, 3: Bottom Left
@@ -830,21 +845,19 @@ const corridorLane2: CoursePoint[] = [
 // Hairpin 2: Semicircular Viaduct (cx = -17.50, cz = 3.375, R = 3.375)
 const hairpin2Arc = circularArcPoints(-17.50, 3.375, 3.375, Math.PI / 2, Math.PI * 1.5, 24);
 
-// Lane 3: Center Straight (Z = 0.00, Eastbound)
-const corridorLane3: CoursePoint[] = [
+// Lane 3: Center Straight Ground Approach & Landing Exit
+// Ground Approach to Spiral: x in [-17.5, -7.70]
+const corridorLane3Approach: CoursePoint[] = [
   { x: -17.5, z: 0.00 },
-  { x: -12.0, z: 0.00 },
-  { x: -10.0, z: 0.00 },
-  { x: -6.5, z: 0.00 },
-  { x: -4.0, z: 0.00 },
-  { x: -1.5, z: 0.00 },
-  { x: 1.0, z: 0.00 },
-  { x: 4.0, z: 0.00 },
-  { x: 6.0, z: 0.00 },
-  { x: 8.5, z: 0.00 },
-  { x: 10.5, z: 0.00 },
-  { x: 13.0, z: 0.00 },
-  { x: 17.5, z: 0.00 },
+  { x: -14.0, z: 0.00 },
+  { x: -11.0, z: 0.00 },
+  { x: -7.70, z: 0.00 },
+];
+// Landing Exit from Descending Ramp to Hairpin 3: x in [10.75, 17.5]
+const corridorLane3Exit: CoursePoint[] = [
+  { x: 10.75, z: 0.00 },
+  { x: 13.50, z: 0.00 },
+  { x: 17.50, z: 0.00 },
 ];
 
 // Hairpin 3: Semicircular Viaduct (cx = 17.50, cz = -3.375, R = 3.375)
@@ -867,12 +880,15 @@ const corridorLane4: CoursePoint[] = [
 const hairpin4Arc = circularArcPoints(-17.50, -10.125, 3.375, Math.PI / 2, Math.PI * 1.5, 24);
 
 // Lane 5: North Finishing Straight (Z = -13.50, Eastbound)
-const corridorLane5: CoursePoint[] = [
+// Approach to Fire Hazard: x in [-17.5, -5.5]
+const corridorLane5Approach: CoursePoint[] = [
   { x: -17.5, z: -13.50 },
   { x: -12.0, z: -13.50 },
-  { x: -6.0, z: -13.50 },
-  { x: 0.0, z: -13.50 },
-  { x: 6.0, z: -13.50 },
+  { x: -5.50, z: -13.50 },
+];
+// Grand Finish Straightaway after Water Exit: x in [9.5, 16.0]
+const corridorLane5Finish: CoursePoint[] = [
+  { x: 9.5, z: -13.50 },
   { x: 12.0, z: -13.50 },
   { x: 16.0, z: -13.50 },
 ];
@@ -883,11 +899,13 @@ const allCircuitCorridors = [
   hairpin1Arc,
   corridorLane2,
   hairpin2Arc,
-  corridorLane3,
+  corridorLane3Approach,
+  corridorLane3Exit,
   hairpin3Arc,
   corridorLane4,
   hairpin4Arc,
-  corridorLane5,
+  corridorLane5Approach,
+  corridorLane5Finish,
 ];
 
 for (const corr of allCircuitCorridors) {
@@ -944,7 +962,7 @@ const pierBentPositions: CoursePoint[] = [
 ];
 for (const pb of pierBentPositions) {
   const deckY = evaluateCourseHeight(pb.x, pb.z);
-  if (deckY < ROUTE_DECK_HEIGHT - 0.1) continue;
+  if (deckY <= GROUND_DECK_HEIGHT + 0.15) continue;
   const legHeight = (deckY - 0.22) - ARENA_FLOOR_HEIGHT;
   if (legHeight < 0.25) continue;
   const bentW = DRIVE_ROUTE_WIDTH - 0.40;
@@ -973,20 +991,224 @@ for (let x = -22; x <= 22; x += 2) {
   box(course, mats.yellow, V(x, 0.4, 13.6), V(1.55, 0.16, 0.055));
 }
 
-// A continuous approach ramp lifts the driving deck from arena grade to its
-// one-metre supported elevation before the start gate.
-box(course, mats.asphalt, V(-20.5, ARENA_FLOOR_HEIGHT + 0.01, 13.50), V(2.0, 0.02, DRIVE_ROUTE_WIDTH));
-colliders.push({ id: 'start_bay_floor', x: -20.5, z: 13.50, hx: 1.0, hz: DRIVE_ROUTE_WIDTH / 2, y: ARENA_FLOOR_HEIGHT, height: 0.10, rot: 0, walkable: true });
-
-slopedDeck('start_climb_ramp', -19.5, -17.5, 13.50, DRIVE_ROUTE_WIDTH,
-  ARENA_FLOOR_HEIGHT, ROUTE_DECK_HEIGHT, 0.16, mats.wood);
-colliders.push({ id: 'start_climb_ramp', x: -18.5, z: 13.50, hx: 1.0, hz: DRIVE_ROUTE_WIDTH / 2, y: (ARENA_FLOOR_HEIGHT + ROUTE_DECK_HEIGHT) / 2, height: ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT, rot: 0, walkable: true });
+// Start Bay and level transition to Lane 1 on ground grade (-0.33m)
+box(course, mats.asphalt, V(-19.5, ARENA_FLOOR_HEIGHT + 0.01, 13.50), V(4.0, 0.02, DRIVE_ROUTE_WIDTH));
+colliders.push({ id: 'start_bay_floor', x: -19.5, z: 13.50, hx: 2.0, hz: DRIVE_ROUTE_WIDTH / 2, y: ARENA_FLOOR_HEIGHT, height: 0.10, rot: 0, walkable: true });
 
 // Brick walls reach in from alternating edges, making a real left-right weave
 // while leaving the opposite half of the lane open at every hurdle.
 for (const obstacle of SLALOM_BLOCKS) {
   buildSlalomBlock(obstacle);
 }
+
+
+// ---------------------------------------------------------------------------
+// PARKING-GARAGE-STYLE SPIRAL RAMP & UPPER ROOFTOP TURNTABLE ON LANE 3
+// ---------------------------------------------------------------------------
+const hazardRevolvingBeacons: THREE.Group[] = [];
+
+function buildSpiralClimbingStructure() {
+  const cfg = SPIRAL_CONFIG;
+
+  // 1. Central Monolithic Concrete Core Column (R = 2.30m, H = 2.20m)
+  const coreH = 2.20;
+  cyl(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + coreH / 2, cfg.cz), cfg.rInner, coreH, 'y', 48);
+  // Octagonal footing foundation pad on arena floor
+  box(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.18, cfg.cz), V(cfg.rInner * 2 + 1.1, 0.36, cfg.rInner * 2 + 1.1));
+  // Circumferential structural steel tension bands
+  for (const ty of [0.15, 0.65, 1.15]) {
+    cyl(course, mats.black, V(cfg.cx, ty, cfg.cz), cfg.rInner + 0.03, 0.05, 'y', 48);
+  }
+
+  // 2. Continuous Ascending Helical Viaduct Slab (96 Segments over 1.25 turns, 450 degrees)
+  // Climbs smoothly from ground entrance (y = -0.33m at x = -7.70, z = 0.0) up to rooftop (y = 1.45m at x = 1.0, z = 0.0)
+  const segments = 96;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const totalAngle = cfg.endAngle - cfg.startAngle; // 1.25 * 2 * PI = 2.5 * PI (450 deg)
+
+  for (let s = 0; s <= segments; s++) {
+    const t = s / segments;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yTop = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const yBot = yTop - 0.18; // 18cm reinforced slab thickness
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+
+    const xIn = cfg.cx + cfg.rInner * cosT;
+    const zIn = cfg.cz + cfg.rInner * sinT;
+    const xOut = cfg.cx + cfg.rOuter * cosT;
+    const zOut = cfg.cz + cfg.rOuter * sinT;
+
+    positions.push(xIn, yTop, zIn);   // 0
+    positions.push(xOut, yTop, zOut);  // 1
+    positions.push(xOut, yBot, zOut);  // 2
+    positions.push(xIn, yBot, zIn);   // 3
+
+    uvs.push(0, t * 12);
+    uvs.push(1, t * 12);
+    uvs.push(1, t * 12);
+    uvs.push(0, t * 12);
+
+    if (s < segments) {
+      const b = s * 4;
+      const n = (s + 1) * 4;
+      // Top driving surface
+      indices.push(b, n, b + 1, b + 1, n, n + 1);
+      // Outer vertical side
+      indices.push(b + 1, n + 1, b + 2, b + 2, n + 1, n + 2);
+      // Bottom underside slab
+      indices.push(b + 2, n + 2, b + 3, b + 3, n + 2, n + 3);
+      // Inner vertical side
+      indices.push(b + 3, n + 3, b, b, n + 3, n);
+    }
+  }
+
+  const rampGeo = new THREE.BufferGeometry();
+  rampGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  rampGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  rampGeo.setIndex(indices);
+  rampGeo.computeVertexNormals();
+  const rampMesh = new THREE.Mesh(rampGeo, mats.asphalt);
+  rampMesh.receiveShadow = true;
+  course.add(rampMesh);
+
+  // 3. Cantilever Radial Structural Steel I-Beams & Outer Columns
+  for (let b = 0; b <= 24; b++) {
+    const t = b / 24;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yTop = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const midR = (cfg.rInner + cfg.rOuter) / 2;
+    const beamLen = cfg.rOuter - cfg.rInner;
+
+    const bx = cfg.cx + midR * cosT;
+    const bz = cfg.cz + midR * sinT;
+    const beam = box(course, mats.metal, V(bx, yTop - 0.22, bz), V(beamLen, 0.12, 0.18));
+    beam.rotation.y = -theta;
+
+    if (yTop > ARENA_FLOOR_HEIGHT + 0.45) {
+      const colX = cfg.cx + (cfg.rOuter - 0.22) * cosT;
+      const colZ = cfg.cz + (cfg.rOuter - 0.22) * sinT;
+      const colH = yTop - 0.18 - ARENA_FLOOR_HEIGHT;
+      cyl(course, mats.metal, V(colX, ARENA_FLOOR_HEIGHT + colH / 2, colZ), 0.10, colH, 'y', 16);
+      box(course, mats.concretePier, V(colX, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.44, 0.36, 0.44));
+    }
+  }
+
+  // 4. Outer Curved Steel Guardrail & Inner Curb
+  const railSegments = 48;
+  for (let r = 0; r < railSegments; r++) {
+    const t0 = r / railSegments;
+    const t1 = (r + 1) / railSegments;
+    const theta0 = cfg.startAngle + t0 * totalAngle;
+    const theta1 = cfg.startAngle + t1 * totalAngle;
+    const midTheta = (theta0 + theta1) / 2;
+    const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
+
+    // Outer Guardrail
+    const outX = cfg.cx + (cfg.rOuter - 0.12) * Math.cos(midTheta);
+    const outZ = cfg.cz + (cfg.rOuter - 0.12) * Math.sin(midTheta);
+    const chord = (cfg.rOuter * totalAngle) / railSegments;
+    const rail = box(course, mats.barrier, V(outX, yMid + 0.22, outZ), V(chord + 0.05, 0.36, 0.18));
+    rail.rotation.y = Math.PI / 2 - midTheta;
+    const yellowCap = box(course, mats.yellow, V(outX, yMid + 0.41, outZ), V(chord + 0.05, 0.03, 0.20), 0, false);
+    yellowCap.rotation.y = Math.PI / 2 - midTheta;
+
+    // Amber cat-eye reflectors
+    if (r % 2 === 0) {
+      const eye = box(course, mats.beaconAmber, V(outX - 0.08 * Math.cos(midTheta), yMid + 0.28, outZ - 0.08 * Math.sin(midTheta)), V(0.06, 0.06, 0.02), 0, false);
+      eye.rotation.y = Math.PI / 2 - midTheta;
+    }
+
+    // Inner Safety Curb
+    const inX = cfg.cx + (cfg.rInner + 0.10) * Math.cos(midTheta);
+    const inZ = cfg.cz + (cfg.rInner + 0.10) * Math.sin(midTheta);
+    const inChord = (cfg.rInner * totalAngle) / railSegments;
+    const curb = box(course, mats.concreteCurb, V(inX, yMid + 0.08, inZ), V(inChord + 0.04, 0.14, 0.18));
+    curb.rotation.y = Math.PI / 2 - midTheta;
+  }
+
+  // 5. Upper Rooftop Observation Deck (5.5m x 5.5m at y = 1.45m)
+  const deckX = cfg.deckX; // 1.0
+  const deckZ = cfg.deckZ; // 0.0
+  const deckW = cfg.deckWidthX; // 5.5
+  const deckD = cfg.deckWidthZ; // 5.5
+  const deckY = cfg.yTop; // 1.45
+
+  // Deck slab
+  box(course, mats.diamondPlate, V(deckX, deckY - 0.04, deckZ), V(deckW, 0.08, deckD));
+  // Deck heavy foundation frame
+  box(course, mats.concretePier, V(deckX, deckY - 0.16, deckZ), V(deckW + 0.20, 0.16, deckD + 0.20));
+
+  // 4 Massive Concrete Support Columns under Deck
+  const colLegH = deckY - 0.24 - ARENA_FLOOR_HEIGHT;
+  for (const cx of [deckX - deckW / 2 + 0.6, deckX + deckW / 2 - 0.6]) {
+    for (const cz of [deckZ - deckD / 2 + 0.6, deckZ + deckD / 2 - 0.6]) {
+      box(course, mats.concretePier, V(cx, ARENA_FLOOR_HEIGHT + colLegH / 2, cz), V(0.55, colLegH, 0.55));
+      box(course, mats.concretePier, V(cx, ARENA_FLOOR_HEIGHT + 0.20, cz), V(0.90, 0.40, 0.90));
+    }
+  }
+
+  // Deck Perimeter Safety Railings (North and South borders)
+  for (const side of [-1, 1]) {
+    const rZ = deckZ + side * (deckD / 2 - 0.14);
+    box(course, mats.barrier, V(deckX, deckY + 0.22, rZ), V(deckW, 0.36, 0.24));
+    box(course, mats.yellow, V(deckX, deckY + 0.41, rZ), V(deckW, 0.03, 0.26), 0, false);
+  }
+
+  // 4 Revolving Amber Strobe Beacons at Rooftop Corners
+  for (const cx of [deckX - deckW / 2 + 0.25, deckX + deckW / 2 - 0.25]) {
+    for (const cz of [deckZ - deckD / 2 + 0.25, deckZ + deckD / 2 - 0.25]) {
+      cyl(course, mats.metal, V(cx, deckY + 0.40, cz), 0.05, 0.80, 'y');
+      const bGroup = new THREE.Group();
+      bGroup.position.set(cx, deckY + 0.85, cz);
+      course.add(bGroup);
+      const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.16, 12), mats.beaconAmber);
+      bGroup.add(dome);
+      hazardRevolvingBeacons.push(bGroup);
+    }
+  }
+
+  // 6. Connected Descending Viaduct Ramp (x in [3.75, 10.75], slopes from 1.45m down to -0.33m)
+  const dX0 = cfg.descentX0; // 3.75
+  const dX1 = cfg.descentX1; // 10.75
+  const dLen = dX1 - dX0; // 7.0m
+  const dWidth = cfg.descentWidth; // 3.80m
+
+  // Continuous downhill sloped deck
+  slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.18, mats.asphalt);
+
+  // Descending Ramp Pier Bents (at x = 5.5, 7.5, 9.5)
+  for (const px of [5.5, 7.5, 9.5]) {
+    const u = (px - dX0) / dLen;
+    const h = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
+    const legH = h - 0.18 - ARENA_FLOOR_HEIGHT;
+    if (legH > 0.35) {
+      box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + legH / 2, cfg.descentZ), V(0.44, legH, dWidth - 0.4));
+      for (const side of [-1, 1]) {
+        box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.18, cfg.descentZ + side * (dWidth / 2 - 0.6)), V(0.68, 0.36, 0.68));
+      }
+    }
+  }
+
+  // Descending Ramp Safety Railings (North and South shoulders)
+  for (const side of [-1, 1]) {
+    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.14);
+    const dSteps = 14;
+    const dStepW = dLen / dSteps;
+    for (let s = 0; s < dSteps; s++) {
+      const rx = dX0 + (s + 0.5) * dStepW;
+      const u = (rx - dX0) / dLen;
+      const ry = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
+      box(course, mats.barrier, V(rx, ry + 0.20, rZ), V(dStepW + 0.04, 0.36, 0.22));
+      box(course, mats.yellow, V(rx, ry + 0.39, rZ), V(dStepW + 0.04, 0.03, 0.24), 0, false);
+    }
+  }
+}
+
 
 // Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)
 for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
@@ -1002,6 +1224,9 @@ for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
   course.add(bump);
   colliders.push({ id: `speed_breaker_${i}`, x, z: 13.50, hx: 0.45, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 0.05, height: 0.09, rot: 0, walkable: true });
 }
+
+// Build the Featured Parking-Garage Spiral Ramp
+buildSpiralClimbingStructure();
 
 // ---------------------------------------------------------------------------
 // SECTION 4: Climbing Section & Zigzag Hill on Lane 2 (Z = 6.75, X in [6.5, 14.5])
@@ -1137,17 +1362,19 @@ for (const ox of [8.7, 10.5, 12.3]) {
 }
 
 // ---------------------------------------------------------------------------
-// CHECKPOINT 7: Motorized Industrial Turntable at x = 10.65, z = 0.1 (Ultra-Real 3D + 4D)
+// CHECKPOINT 7: Motorized Industrial Turntable on Spiral Rooftop Deck (y = 1.45m)
 // ---------------------------------------------------------------------------
-// 1. Monolithic Stationary Steel Pit Basin & Mounting Collar (Recessed into Apron)
+const ttY = SPIRAL_CONFIG.yTop; // 1.45m (Summit Rooftop Observation Deck)
+
+// 1. Monolithic Stationary Steel Pit Basin & Mounting Collar (Recessed into Rooftop Deck)
 // Heavy reinforced concrete pit foundation pad supporting the widened 4.90m turntable
-box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT - 0.10, TURNTABLE_CENTER.z), V(5.6, 0.20, 5.6));
+box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ttY - 0.10, TURNTABLE_CENTER.z), V(5.6, 0.20, 5.6));
 // Outer machined steel coaming flange ring (outer rim diameter 5.24m, R = 2.62m)
-cyl(course, mats.metal, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.018, TURNTABLE_CENTER.z), 2.62, 0.055, 'y', 64);
+cyl(course, mats.metal, V(TURNTABLE_CENTER.x, ttY + 0.018, TURNTABLE_CENTER.z), 2.62, 0.055, 'y', 64);
 // Inner roller-bearing raceway ring
-cyl(course, mats.black, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.012, TURNTABLE_CENTER.z), 2.52, 0.048, 'y', 64);
+cyl(course, mats.black, V(TURNTABLE_CENTER.x, ttY + 0.012, TURNTABLE_CENTER.z), 2.52, 0.048, 'y', 64);
 // Beveled hazard transition rim
-cyl(course, mats.yellow, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.022, TURNTABLE_CENTER.z), 2.68, 0.018, 'y', 64);
+cyl(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.022, TURNTABLE_CENTER.z), 2.68, 0.018, 'y', 64);
 
 // 32 Precision Chrome Roller Bearings seated inside the perimeter raceway trough
 const racewayBallGeo = new THREE.SphereGeometry(0.045, 12, 12);
@@ -1156,7 +1383,7 @@ for (let b = 0; b < 32; b++) {
   const bx = TURNTABLE_CENTER.x + 2.52 * Math.cos(theta);
   const bz = TURNTABLE_CENTER.z + 2.52 * Math.sin(theta);
   const ballMesh = new THREE.Mesh(racewayBallGeo, mats.chrome);
-  ballMesh.position.set(bx, ROUTE_DECK_HEIGHT + 0.032, bz);
+  ballMesh.position.set(bx, ttY + 0.032, bz);
   ballMesh.castShadow = true;
   course.add(ballMesh);
 }
@@ -1166,17 +1393,17 @@ for (let h = 0; h < 32; h++) {
   const theta = (h * Math.PI * 2) / 32;
   const hx = TURNTABLE_CENTER.x + 2.65 * Math.cos(theta);
   const hz = TURNTABLE_CENTER.z + 2.65 * Math.sin(theta);
-  box(course, h % 2 === 0 ? mats.yellow : mats.black, V(hx, ROUTE_DECK_HEIGHT + 0.035, hz), V(0.18, 0.012, 0.48), theta, false);
+  box(course, h % 2 === 0 ? mats.yellow : mats.black, V(hx, ttY + 0.035, hz), V(0.18, 0.012, 0.48), theta, false);
 }
 
 // Heavy electric motor drive pod mounted on stationary coaming (east rim)
-box(course, mats.charcoal, V(TURNTABLE_CENTER.x + 2.74, ROUTE_DECK_HEIGHT + 0.22, TURNTABLE_CENTER.z), V(0.55, 0.44, 0.45));
-cyl(course, mats.metal, V(TURNTABLE_CENTER.x + 2.50, ROUTE_DECK_HEIGHT + 0.12, TURNTABLE_CENTER.z), 0.16, 0.18, 'y', 16);
-box(course, mats.yellow, V(TURNTABLE_CENTER.x + 2.74, ROUTE_DECK_HEIGHT + 0.46, TURNTABLE_CENTER.z), V(0.40, 0.04, 0.35), 0, false);
+box(course, mats.charcoal, V(TURNTABLE_CENTER.x + 2.74, ttY + 0.22, TURNTABLE_CENTER.z), V(0.55, 0.44, 0.45));
+cyl(course, mats.metal, V(TURNTABLE_CENTER.x + 2.50, ttY + 0.12, TURNTABLE_CENTER.z), 0.16, 0.18, 'y', 16);
+box(course, mats.yellow, V(TURNTABLE_CENTER.x + 2.74, ttY + 0.46, TURNTABLE_CENTER.z), V(0.40, 0.04, 0.35), 0, false);
 
 // 2. Rotating Turntable Platter (inside discGroup)
 const discGroup = new THREE.Group();
-discGroup.position.set(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.025, TURNTABLE_CENTER.z);
+discGroup.position.set(TURNTABLE_CENTER.x, ttY + 0.025, TURNTABLE_CENTER.z);
 course.add(discGroup);
 
 // Main heavy industrial diamond-plate steel platter (diameter 4.90m, R = 2.45m, flush with track surface)
@@ -1241,7 +1468,7 @@ for (let m = 0; m < 8; m++) {
 }
 
 // 4. Heavy Structural Pier Bent Anchored to Arena Floor
-const discLegHeight = ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT;
+const discLegHeight = ttY - ARENA_FLOOR_HEIGHT;
 // Massive central reinforced concrete support column
 cyl(course, mats.concretePier, V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + discLegHeight / 2, TURNTABLE_CENTER.z), 0.75, discLegHeight, 'y', 32);
 // Octagonal footing base pad on arena floor
@@ -1251,105 +1478,11 @@ for (let o = 0; o < 4; o++) {
   const oAngle = o * Math.PI / 2 + Math.PI / 4;
   const oRimX = TURNTABLE_CENTER.x + 2.30 * Math.cos(oAngle);
   const oRimZ = TURNTABLE_CENTER.z + 2.30 * Math.sin(oAngle);
-  tubeBetween(V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + 0.40, TURNTABLE_CENTER.z), V(oRimX, ROUTE_DECK_HEIGHT - 0.08, oRimZ), 0.10, mats.metal);
+  tubeBetween(V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + 0.40, TURNTABLE_CENTER.z), V(oRimX, ttY - 0.08, oRimZ), 0.10, mats.metal);
 }
 
-// ---------------------------------------------------------------------------
-// SECTION 9: Mixed Terrain & Marble Pit on Lane 3 (Z = 0.00, X in [1.0, 14.5])
-// ---------------------------------------------------------------------------
-// A. Crushed Granite Gravel Stretch: x in [1.0, 3.0]
-box(course, mats.gravelBed, V(2.0, ROUTE_DECK_HEIGHT + 0.02, 0.0), V(2.0, 0.03, DRIVE_ROUTE_WIDTH - 0.20));
-
-// B. High-Tech Industrial Marble & Bearing Testing Basin: x in [3.0, 9.0]
-const pitX0 = 3.0, pitX1 = 9.0;
-const pitCenterX = (pitX0 + pitX1) / 2; // 6.0
-const pitCenterZ = 0.00;
-const pitWidthX = pitX1 - pitX0;        // 6.0m
-const pitDepthZ = DRIVE_ROUTE_WIDTH - 0.36; // 4.04m
-
-// Recessed containment bed foundation
-box(course, mats.black, V(pitCenterX, ROUTE_DECK_HEIGHT - 0.02, pitCenterZ), V(pitWidthX + 0.20, 0.04, pitDepthZ + 0.20), 0, false);
-box(course, mats.floor, V(pitCenterX, ROUTE_DECK_HEIGHT - 0.01, pitCenterZ), V(pitWidthX, 0.02, pitDepthZ), 0, false);
-
-// Longitudinal Heavy Steel Coamings with Hazard Warning Stripes (North and South borders)
-for (const side of [-1, 1]) {
-  const zCoam = side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.metal, V(pitCenterX, ROUTE_DECK_HEIGHT + 0.06, zCoam), V(pitWidthX + 0.20, 0.14, 0.20));
-  box(course, mats.yellow, V(pitCenterX, ROUTE_DECK_HEIGHT + 0.14, zCoam), V(pitWidthX + 0.20, 0.02, 0.22), 0, false);
-  for (let bx = pitX0 + 0.5; bx <= pitX1 - 0.5; bx += 1.2) {
-    box(course, mats.metal, V(bx, ROUTE_DECK_HEIGHT + 0.06, zCoam + side * 0.12), V(0.10, 0.12, 0.08));
-  }
-}
-
-// Beveled Diamond-Plate Transition Ramps at West Entry and East Exit
-slopedDeck('pit_entry_ramp', pitX0 - 0.40, pitX0, pitCenterZ, pitDepthZ, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT - 0.015, 0.03, mats.diamondPlate);
-slopedDeck('pit_exit_ramp', pitX1, pitX1 + 0.40, pitCenterZ, pitDepthZ, ROUTE_DECK_HEIGHT - 0.015, ROUTE_DECK_HEIGHT, 0.03, mats.diamondPlate);
-
-// 4D Motorized Revolving Amber Warning Beacons at pit corners
-const hazardRevolvingBeacons: THREE.Group[] = [];
-for (const bx of [pitX0 + 0.2, pitX1 - 0.2]) {
-  const bz = -(DRIVE_ROUTE_WIDTH / 2 - 0.08);
-  cyl(course, mats.metal, V(bx, ROUTE_DECK_HEIGHT + 0.45, bz), 0.045, 0.90, 'y');
-  const bGroup = new THREE.Group();
-  bGroup.position.set(bx, ROUTE_DECK_HEIGHT + 0.95, bz);
-  course.add(bGroup);
-  const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.16, 12), mats.beaconAmber);
-  bGroup.add(dome);
-  const reflector = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.10, 0.07), mats.yellow);
-  bGroup.add(reflector);
-  hazardRevolvingBeacons.push(bGroup);
-}
-
-// 4D Animated Directional Chasing Chevron Signs (>>>) along North Barrier
+// 4D Animated Directional Chasing Chevron Signs along Hairpin Curves
 const chevronSignArrows: THREE.Mesh[] = [];
-const chevronSignGroup = new THREE.Group();
-chevronSignGroup.position.set(pitCenterX, ROUTE_DECK_HEIGHT + 0.70, -(DRIVE_ROUTE_WIDTH / 2 - 0.08));
-course.add(chevronSignGroup);
-box(chevronSignGroup, mats.black, V(0, 0, 0), V(3.6, 0.65, 0.10));
-for (let a = 0; a < 6; a++) {
-  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 3), new THREE.MeshBasicMaterial({ color: '#f0bd53' }));
-  arrow.rotation.z = -Math.PI / 2;
-  arrow.position.set(-1.25 + a * 0.50, 0, 0.06);
-  chevronSignGroup.add(arrow);
-  chevronSignArrows.push(arrow);
-}
-
-// C. Synthetic Turf Stretch: x in [9.0, 12.0]
-box(course, mats.turf, V(10.5, ROUTE_DECK_HEIGHT + 0.015, 0.0), V(3.0, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
-
-// D. Textured Rubber Mat Stretch: x in [12.0, 14.5]
-box(course, mats.rubber, V(13.25, ROUTE_DECK_HEIGHT + 0.015, 0.0), V(2.5, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
-
-// 96 Precision Industrial Rolling Elements & Ball Bearings inside the Pit
-const bearingSphereGeo = new THREE.SphereGeometry(1, 16, 14);
-const chromeBearingMat = new THREE.MeshStandardMaterial({ color: '#f4f6f8', metalness: 0.98, roughness: 0.06 });
-const ceramicBearingMat = new THREE.MeshStandardMaterial({ color: '#1a1d1f', metalness: 0.35, roughness: 0.18 });
-const amberMarbleMat = new THREE.MeshStandardMaterial({ color: '#c48232', metalness: 0.12, roughness: 0.16 });
-const cobaltMarbleMat = new THREE.MeshStandardMaterial({ color: '#1e3f66', metalness: 0.12, roughness: 0.16 });
-const carnelianMarbleMat = new THREE.MeshStandardMaterial({ color: '#8b281d', metalness: 0.12, roughness: 0.16 });
-const bearingMaterials = [
-  chromeBearingMat,
-  chromeBearingMat,
-  ceramicBearingMat,
-  amberMarbleMat,
-  cobaltMarbleMat,
-  carnelianMarbleMat,
-];
-
-const marbleRng = createDeterministicRNG(20261101);
-for (let i = 0; i < 96; i++) {
-  const px = pitX0 + 0.35 + marbleRng() * (pitWidthX - 0.70);
-  const pz = -pitDepthZ / 2 + 0.25 + marbleRng() * (pitDepthZ - 0.50);
-  const radius = 0.036 + marbleRng() * 0.028;
-  const mat = bearingMaterials[i % bearingMaterials.length];
-  const sphere = new THREE.Mesh(bearingSphereGeo, mat);
-  sphere.position.set(px, ROUTE_DECK_HEIGHT - 0.01 + radius * 0.95, pz);
-  sphere.scale.set(radius, radius, radius);
-  sphere.rotation.set(marbleRng() * Math.PI, marbleRng() * Math.PI, marbleRng() * Math.PI);
-  sphere.castShadow = true;
-  sphere.receiveShadow = true;
-  course.add(sphere);
-}
 
 // 5 Distinct Natural Geological Rock Geometries (Granite, Basalt, River Cobble, Limestone, Scree)
 function createGraniteBoulderGeo(): THREE.BufferGeometry {
@@ -1415,39 +1548,41 @@ const rockGeos = [graniteGeo, basaltGeo, riverStoneGeo, limestoneGeo, screeGeo];
 const rockMats = [mats.granite, mats.basalt, mats.riverStone, mats.limestone, mats.gravel];
 
 // SECTION 3: Natural Boulder Quarry Bed & Rock Field on Lane 1 (Z = 13.50, X in [6.0, 14.5])
+const rockPlatDeckY = GROUND_DECK_HEIGHT + ELEVATION_TIER_SMALL; // -0.33 + 0.45 = 0.12m
+
 // Monolithic reinforced concrete foundation deck carrying the rock platform above arena floor
-box(course, mats.concretePier, V(10.25, ROUTE_DECK_HEIGHT - 0.11, 13.50), V(8.50, 0.22, DRIVE_ROUTE_WIDTH));
+box(course, mats.concretePier, V(10.25, rockPlatDeckY - 0.11, 13.50), V(8.50, 0.22, DRIVE_ROUTE_WIDTH));
 colliders.push({
   id: 'rock_platform_deck',
   x: 10.25,
   z: 13.50,
   hx: 4.25,
   hz: DRIVE_ROUTE_WIDTH / 2,
-  y: ROUTE_DECK_HEIGHT,
+  y: rockPlatDeckY,
   height: 0.22,
   rot: 0,
   walkable: true,
 });
 
 // Monolithic dark crushed aggregate bed eliminating harsh seam cuts and covering asphalt completely
-box(course, mats.gravelBed, V(10.25, ROUTE_DECK_HEIGHT + 0.025, 13.50), V(8.40, 0.045, DRIVE_ROUTE_WIDTH - 0.15));
+box(course, mats.gravelBed, V(10.25, rockPlatDeckY + 0.025, 13.50), V(8.40, 0.045, DRIVE_ROUTE_WIDTH - 0.15));
 
 // Smooth bevelled crushed stone lead-in and exit ramps
-slopedDeck('rock_bed_entrance_ramp', 5.80, 6.20, 13.50, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT + 0.035, 0.03, mats.gravelBed);
-slopedDeck('rock_bed_exit_ramp', 14.30, 14.70, 13.50, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT + 0.035, ROUTE_DECK_HEIGHT, 0.03, mats.gravelBed);
+slopedDeck('rock_bed_entrance_ramp', 5.80, 6.40, 13.50, DRIVE_ROUTE_WIDTH - 0.20, GROUND_DECK_HEIGHT, rockPlatDeckY + 0.035, 0.06, mats.gravelBed);
+slopedDeck('rock_bed_exit_ramp', 14.20, 14.80, 13.50, DRIVE_ROUTE_WIDTH - 0.20, rockPlatDeckY + 0.035, GROUND_DECK_HEIGHT, 0.06, mats.gravelBed);
 
 // Natural weathered granite retaining rock kerbs along both shoulders
 for (const side of [-1, 1]) {
   const zCurb = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.18);
-  box(course, mats.granite, V(10.25, ROUTE_DECK_HEIGHT + 0.08, zCurb), V(8.50, 0.16, 0.28));
-  box(course, mats.yellow, V(10.25, ROUTE_DECK_HEIGHT + 0.17, zCurb), V(8.50, 0.02, 0.24), 0, false);
+  box(course, mats.granite, V(10.25, rockPlatDeckY + 0.08, zCurb), V(8.50, 0.16, 0.28));
+  box(course, mats.yellow, V(10.25, rockPlatDeckY + 0.17, zCurb), V(8.50, 0.02, 0.24), 0, false);
   colliders.push({
     id: `rock_platform_kerb_${side}`,
     x: 10.25,
     z: zCurb,
     hx: 4.25,
     hz: 0.14,
-    y: ROUTE_DECK_HEIGHT + 0.08,
+    y: rockPlatDeckY + 0.08,
     height: 0.16,
     rot: 0,
     walkable: false,
@@ -1455,9 +1590,9 @@ for (const side of [-1, 1]) {
 }
 
 // Concrete pier bents supporting the rock field viaduct platform above arena floor
-const rockPierH = (ROUTE_DECK_HEIGHT - 0.22) - ARENA_FLOOR_HEIGHT;
+const rockPierH = Math.max(0.20, (rockPlatDeckY - 0.22) - ARENA_FLOOR_HEIGHT);
 for (const px of [7.5, 10.25, 13.0]) {
-  box(course, mats.concretePier, V(px, ROUTE_DECK_HEIGHT - 0.22 - 0.12, 13.50), V(0.44, 0.24, DRIVE_ROUTE_WIDTH - 0.4));
+  box(course, mats.concretePier, V(px, rockPlatDeckY - 0.22 - 0.12, 13.50), V(0.44, 0.24, DRIVE_ROUTE_WIDTH - 0.4));
   for (const side of [-1, 1]) {
     const colZ = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.85);
     cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + rockPierH / 2, colZ), 0.22, rockPierH, 'y', 20);
@@ -1472,7 +1607,7 @@ for (let i = 0; i < ROCK_FIELD_STONES.length; i++) {
   const geo = rockGeos[i % rockGeos.length];
   const mat = rockMats[i % rockMats.length];
   const rockMesh = new THREE.Mesh(geo, mat);
-  rockMesh.position.set(rk.x, rk.y + ROUTE_DECK_HEIGHT + 0.02, rk.z);
+  rockMesh.position.set(rk.x, rk.y + rockPlatDeckY + 0.02, rk.z);
   rockMesh.scale.set(rk.scaleX, rk.scaleY, rk.scaleZ);
   rockMesh.rotation.set(rk.rotX, rk.rotY, rk.rotZ);
   rockMesh.castShadow = true;
@@ -1487,7 +1622,7 @@ for (let i = 0; i < 120; i++) {
   const sz = 11.50 + screeRng() * 4.0;
   const sSize = 0.025 + screeRng() * 0.038;
   const sMesh = new THREE.Mesh(screeGeo, i % 2 === 0 ? mats.granite : mats.basalt);
-  sMesh.position.set(sx, ROUTE_DECK_HEIGHT + 0.038 + sSize * 0.4, sz);
+  sMesh.position.set(sx, rockPlatDeckY + 0.038 + sSize * 0.4, sz);
   sMesh.scale.set(sSize, sSize * 0.65, sSize);
   sMesh.rotation.set(screeRng() * Math.PI, screeRng() * Math.PI, 0);
   sMesh.castShadow = true;
@@ -1495,21 +1630,28 @@ for (let i = 0; i < 120; i++) {
 }
 
 // ---------------------------------------------------------------------------
-// SECTION 6: Elevated Fire-Resistant Obstacle Platform on Lane 2 (Z = 6.75, X in [2.5, 6.5])
 // ---------------------------------------------------------------------------
-// Heavy refractory ceramic viaduct foundation at y = 0.38m
+// SECTION 6 & 7: MANDATORY FINAL GAUNTLET ON LANE 5 (Z = -13.50)
+// STRICT SEQUENCE: FIRE PLATFORM -> HEAT-SHIELD BRIDGE -> DEEP WATER BASIN -> FINISH
+// ---------------------------------------------------------------------------
+
+// A. ELEVATED REFRACTORY FIRE HAZARD PLATFORM (X in [-5.0, -1.0], Z = -13.50, y = 0.05m)
+const fireLaneZ = -13.50;
 const firePlatLen = 4.00;
-const firePlatMidX = 4.50;
-const firePlatElevY = 0.38;
+const firePlatMidX = -3.00;
+const firePlatElevY = 0.05; // +0.38m above ground floor (-0.33m)
+
+// Lead-in approach ramp from ground grade (-0.33m) up to fire platform (0.05m)
+slopedDeck('fire_leadin_ramp', -5.80, -5.00, fireLaneZ, DRIVE_ROUTE_WIDTH - 0.20, ARENA_FLOOR_HEIGHT, firePlatElevY, 0.12, mats.diamondPlate);
 
 // Primary reinforced concrete deck slab
-box(course, mats.concretePier, V(firePlatMidX, firePlatElevY - 0.06, 6.75), V(firePlatLen, 0.12, DRIVE_ROUTE_WIDTH));
-box(course, mats.black, V(firePlatMidX, firePlatElevY + 0.015, 6.75), V(firePlatLen - 0.05, 0.03, DRIVE_ROUTE_WIDTH - 0.28));
+box(course, mats.concretePier, V(firePlatMidX, firePlatElevY - 0.06, fireLaneZ), V(firePlatLen, 0.12, DRIVE_ROUTE_WIDTH));
+box(course, mats.black, V(firePlatMidX, firePlatElevY + 0.015, fireLaneZ), V(firePlatLen - 0.05, 0.03, DRIVE_ROUTE_WIDTH - 0.28));
 
 colliders.push({
   id: 'elevated_fire_platform',
   x: firePlatMidX,
-  z: 6.75,
+  z: fireLaneZ,
   hx: firePlatLen / 2,
   hz: DRIVE_ROUTE_WIDTH / 2,
   y: firePlatElevY,
@@ -1518,20 +1660,20 @@ colliders.push({
   walkable: true,
 });
 
-// Structural concrete pier bents supporting fire platform above arena floor
+// Concrete pier bents supporting fire platform above arena floor
 const firePierH = firePlatElevY - ARENA_FLOOR_HEIGHT;
-for (const fx of [2.8, 4.5, 6.2]) {
+for (const fx of [-4.5, -3.0, -1.5]) {
   for (const side of [-1, 1]) {
-    cyl(course, mats.concretePier, V(fx, ARENA_FLOOR_HEIGHT + firePierH / 2, 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55)), 0.22, firePierH, 'y', 20);
+    cyl(course, mats.concretePier, V(fx, ARENA_FLOOR_HEIGHT + firePierH / 2, fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55)), 0.22, firePierH, 'y', 20);
   }
 }
 
 // Incandescent Magma Fissure Underbed
-box(course, mats.magmaBed, V(firePlatMidX, firePlatElevY + 0.022, 6.75), V(firePlatLen - 0.10, 0.018, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.magmaBed, V(firePlatMidX, firePlatElevY + 0.022, fireLaneZ), V(firePlatLen - 0.10, 0.018, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
 
 // Heavy refractory brick borders along both shoulders with hazard coping
 for (const side of [-1, 1]) {
-  const zCurb = 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
+  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
   box(course, mats.slalomBrick, V(firePlatMidX, firePlatElevY + 0.12, zCurb), V(firePlatLen, 0.22, 0.32));
   box(course, mats.yellow, V(firePlatMidX, firePlatElevY + 0.24, zCurb), V(firePlatLen, 0.04, 0.34), 0, false);
 }
@@ -1539,8 +1681,8 @@ for (const side of [-1, 1]) {
 // 36 Sculpted Basalt Charcoal Rocks with Glowing Lava Fissures
 const charRNG = createDeterministicRNG(1984);
 for (let c = 0; c < 36; c++) {
-  const cx = 2.65 + charRNG() * 3.70;
-  const cz = 6.75 + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 0.85);
+  const cx = -4.85 + charRNG() * 3.70;
+  const cz = fireLaneZ + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 0.85);
   const cr = 0.09 + charRNG() * 0.11;
   const rock = new THREE.Mesh(basaltGeo, mats.charcoal);
   rock.position.set(cx, firePlatElevY + 0.03 + cr * 0.45, cz);
@@ -1550,7 +1692,7 @@ for (let c = 0; c < 36; c++) {
   course.add(rock);
 }
 
-// Ultra-Realistic Additive Curved Flame Tongues (Blender / AAA Video Grade)
+// Ultra-Realistic Additive Curved Flame Tongues
 function createFlameTongueGeometry(height: number, width: number): THREE.BufferGeometry {
   const slices = 10;
   const positions: number[] = [];
@@ -1605,15 +1747,15 @@ const ultraRealFlames: UltraRealFlame[] = [];
 const flameGeom = createFlameTongueGeometry(1.25, 0.42);
 
 for (let f = 0; f < 28; f++) {
-  const fx = 2.65 + (f % 7) * 0.53 + (f % 2 ? 0.06 : -0.06);
-  const fz = 6.75 + (Math.floor(f / 7) - 1.5) * 0.95 + ((f * 3) % 5 - 2.0) * 0.22;
+  const fx = -4.85 + charRNG() * 3.70;
+  const fz = fireLaneZ + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 0.95);
   const flameMesh = new THREE.Mesh(flameGeom, mats.flameTongue);
-  flameMesh.position.set(fx, firePlatElevY + 0.04, fz);
-  const sXZ = 0.75 + (f % 3) * 0.22;
-  const sY = 0.85 + ((f * 5) % 4) * 0.20;
+  flameMesh.position.set(fx, firePlatElevY + 0.08, fz);
+  const sY = 0.85 + charRNG() * 0.55;
+  const sXZ = 0.80 + charRNG() * 0.45;
   flameMesh.scale.set(sXZ, sY, sXZ);
+  flameMesh.rotation.y = charRNG() * Math.PI * 2;
   course.add(flameMesh);
-
   ultraRealFlames.push({
     mesh: flameMesh,
     baseX: fx,
@@ -1641,8 +1783,8 @@ interface FireEmber {
 const fireEmbers: FireEmber[] = [];
 for (let i = 0; i < 72; i++) {
   const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.024, 0), mats.ember);
-  const baseX = 2.65 + charRNG() * 3.70;
-  const baseZ = 6.75 + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
+  const baseX = -4.85 + charRNG() * 3.70;
+  const baseZ = fireLaneZ + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
   const ember: FireEmber = {
     mesh,
     baseX,
@@ -1658,16 +1800,16 @@ for (let i = 0; i < 72; i++) {
   fireEmbers.push(ember);
 }
 
-// Dual Chaotic Dynamic Firelights (Core Radiant + Turbulent Jitter)
+// Dual Chaotic Dynamic Firelights on Lane 5
 const fireLightCore = new THREE.PointLight('#ff7700', 18, 8.5, 1.4);
-fireLightCore.position.set(4.50, firePlatElevY + 1.1, 6.75);
+fireLightCore.position.set(-3.00, firePlatElevY + 1.1, fireLaneZ);
 scene.add(fireLightCore);
 
 const fireLightFlicker = new THREE.PointLight('#ff2200', 12, 6.5, 1.6);
-fireLightFlicker.position.set(4.50, firePlatElevY + 1.5, 6.75);
+fireLightFlicker.position.set(-3.00, firePlatElevY + 1.5, fireLaneZ);
 scene.add(fireLightFlicker);
 
-// Dynamic billowing smoke particles
+// Dynamic billowing smoke particles on Lane 5
 const smokeCanvas = document.createElement('canvas');
 smokeCanvas.width = smokeCanvas.height = 128;
 const smokeContext = smokeCanvas.getContext('2d')!;
@@ -1682,22 +1824,20 @@ const smokeMaterial = new THREE.SpriteMaterial({ map: smokeTexture, transparent:
 const fireSmoke: THREE.Sprite[] = [];
 for (let i = 0; i < 12; i++) {
   const smoke = new THREE.Sprite(smokeMaterial.clone());
-  smoke.position.set(2.7 + i * 0.30, firePlatElevY + 0.95 + (i % 3) * 0.14, 6.75 + ((i % 4) - 1.5) * 0.65);
+  smoke.position.set(-4.85 + i * 0.30, firePlatElevY + 0.95 + (i % 3) * 0.14, fireLaneZ + ((i % 4) - 1.5) * 0.65);
   smoke.scale.set(0.65, 1.05, 1);
   course.add(smoke);
   fireSmoke.push(smoke);
 }
 
-// ---------------------------------------------------------------------------
-// Heat-Shield Cooling Bridge (Lane 2, Z = 6.75, X in [1.5, 2.5], y = 0.38m)
-// ---------------------------------------------------------------------------
-box(course, mats.concretePier, V(2.0, firePlatElevY - 0.06, 6.75), V(1.00, 0.12, DRIVE_ROUTE_WIDTH));
-box(course, mats.diamondPlate, V(2.0, firePlatElevY + 0.015, 6.75), V(1.00, 0.03, DRIVE_ROUTE_WIDTH - 0.24));
+// B. HEAT-SHIELD COOLING BRIDGE (Lane 5, Z = -13.50, X in [-1.0, 0.5], y = 0.05m)
+box(course, mats.concretePier, V(-0.25, firePlatElevY - 0.06, fireLaneZ), V(1.50, 0.12, DRIVE_ROUTE_WIDTH));
+box(course, mats.diamondPlate, V(-0.25, firePlatElevY + 0.015, fireLaneZ), V(1.50, 0.03, DRIVE_ROUTE_WIDTH - 0.24));
 colliders.push({
   id: 'cooling_transition_deck',
-  x: 2.0,
-  z: 6.75,
-  hx: 0.50,
+  x: -0.25,
+  z: fireLaneZ,
+  hx: 0.75,
   hz: DRIVE_ROUTE_WIDTH / 2,
   y: firePlatElevY,
   height: 0.18,
@@ -1705,62 +1845,58 @@ colliders.push({
   walkable: true,
 });
 for (const side of [-1, 1]) {
-  const zCurb = 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
-  box(course, mats.concretePier, V(2.0, firePlatElevY + 0.18, zCurb), V(1.00, 0.36, 0.28));
-  box(course, mats.yellow, V(2.0, firePlatElevY + 0.38, zCurb), V(1.00, 0.04, 0.30), 0, false);
+  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
+  box(course, mats.concretePier, V(-0.25, firePlatElevY + 0.18, zCurb), V(1.50, 0.36, 0.28));
+  box(course, mats.yellow, V(-0.25, firePlatElevY + 0.38, zCurb), V(1.50, 0.04, 0.30), 0, false);
 }
 
-// ---------------------------------------------------------------------------
-// SECTION 7: Deep Water Basin with Archimedes Buoyancy on Lane 2 (Z = 6.75, X in [-9.5, 1.5])
-// ---------------------------------------------------------------------------
-// Heavy watertight containment basin: 11.0m length, full road width (4.40m), depth 0.46m
+// C. DEEP WATER BASIN WITH ARCHIMEDES BUOYANCY (Lane 5, Z = -13.50, X in [0.5, 9.5])
 const waterBedY = -0.30;
 const waterSurfaceY = 0.16; // 0.46m water depth
-const waterTankWallH = 0.72; // Rises to y = 0.42m (freeboard 0.26m above water surface)
+const waterTankWallH = 0.72; // Rises to y = 0.42m
+const waterLen = 9.0;
+const waterMidX = 5.0;
 
 // Concrete foundation pad beneath the basin
-box(course, mats.concretePier, V(-4.0, ARENA_FLOOR_HEIGHT - 0.05, 6.75), V(11.2, 0.12, DRIVE_ROUTE_WIDTH + 0.20));
+box(course, mats.concretePier, V(waterMidX, ARENA_FLOOR_HEIGHT - 0.05, fireLaneZ), V(waterLen + 0.2, 0.12, DRIVE_ROUTE_WIDTH + 0.20));
 
 // Watertight Stainless Steel Containment Sidewalls along Left and Right shoulders
 for (const side of [-1, 1]) {
-  const zWall = 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.metal, V(-4.0, waterBedY + waterTankWallH / 2, zWall), V(11.1, waterTankWallH, 0.28));
-  box(course, mats.yellow, V(-4.0, waterBedY + waterTankWallH + 0.02, zWall), V(11.1, 0.04, 0.32), 0, false);
-  // Heavy structural vertical stiffening ribs
-  for (let rx = -9.2; rx <= 1.2; rx += 0.85) {
+  const zWall = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
+  box(course, mats.metal, V(waterMidX, waterBedY + waterTankWallH / 2, zWall), V(waterLen + 0.1, waterTankWallH, 0.28));
+  box(course, mats.yellow, V(waterMidX, waterBedY + waterTankWallH + 0.02, zWall), V(waterLen + 0.1, 0.04, 0.32), 0, false);
+  for (let rx = 1.0; rx <= 9.0; rx += 0.85) {
     box(course, mats.metal, V(rx, waterBedY + waterTankWallH / 2, zWall + side * 0.16), V(0.10, waterTankWallH, 0.08));
     box(course, mats.black, V(rx, waterBedY + waterTankWallH * 0.7, zWall + side * 0.18), V(0.06, 0.06, 0.06), 0, false);
   }
 }
 
-// Zone A: Gradual Entry Ramp (x in [0.0, 1.5], slopes from y = 0.38m down to waterBedY = -0.30m)
-slopedDeck('water_pool_entry_ramp', 0.0, 1.5, 6.75, DRIVE_ROUTE_WIDTH - 0.28, -0.30, 0.38, 0.14, mats.diamondPlate);
+// Entry Ramp (x in [0.5, 2.0], slopes from y = 0.05m down to waterBedY = -0.30m)
+slopedDeck('water_pool_entry_ramp', 0.5, 2.0, fireLaneZ, DRIVE_ROUTE_WIDTH - 0.28, 0.05, -0.30, 0.14, mats.diamondPlate);
 colliders.push({
   id: 'water_pool_entry_ramp',
-  x: 0.75,
-  z: 6.75,
+  x: 1.25,
+  z: fireLaneZ,
   hx: 0.75,
   hz: DRIVE_ROUTE_WIDTH / 2,
-  y: (0.38 + waterBedY) / 2,
-  height: 0.38 - waterBedY + 0.14,
+  y: (0.05 + waterBedY) / 2,
+  height: 0.05 - waterBedY + 0.14,
   rot: 0,
   walkable: true,
 });
 
-// Zone B: Deep Central Pool Floor (x in [-7.5, 0.0], y = -0.30m, length 7.5m)
-box(course, mats.metal, V(-3.75, waterBedY - 0.04, 6.75), V(7.55, 0.08, DRIVE_ROUTE_WIDTH - 0.28));
-// Submerged diamond-plate runner strips under robot tracks
-box(course, mats.diamondPlate, V(-3.75, waterBedY + 0.01, 6.75 - 0.79), V(7.5, 0.02, 0.50), 0, false);
-box(course, mats.diamondPlate, V(-3.75, waterBedY + 0.01, 6.75 + 0.79), V(7.5, 0.02, 0.50), 0, false);
-// Transverse drainage and sediment grates along pool bed
-for (let gx = -7.2; gx <= -0.4; gx += 0.50) {
-  box(course, mats.metal, V(gx, waterBedY + 0.015, 6.75), V(0.04, 0.012, DRIVE_ROUTE_WIDTH - 0.48), 0, false);
+// Deep Central Pool Floor (x in [2.0, 8.0], y = -0.30m, length 6.0m)
+box(course, mats.metal, V(5.0, waterBedY - 0.04, fireLaneZ), V(6.05, 0.08, DRIVE_ROUTE_WIDTH - 0.28));
+box(course, mats.diamondPlate, V(5.0, waterBedY + 0.01, fireLaneZ - 0.79), V(6.0, 0.02, 0.50), 0, false);
+box(course, mats.diamondPlate, V(5.0, waterBedY + 0.01, fireLaneZ + 0.79), V(6.0, 0.02, 0.50), 0, false);
+for (let gx = 2.4; gx <= 7.6; gx += 0.50) {
+  box(course, mats.metal, V(gx, waterBedY + 0.015, fireLaneZ), V(0.04, 0.012, DRIVE_ROUTE_WIDTH - 0.48), 0, false);
 }
 colliders.push({
   id: 'water_pool_deep_bed',
-  x: -3.75,
-  z: 6.75,
-  hx: 3.75,
+  x: 5.0,
+  z: fireLaneZ,
+  hx: 3.0,
   hz: DRIVE_ROUTE_WIDTH / 2,
   y: waterBedY,
   height: 0.14,
@@ -1768,36 +1904,36 @@ colliders.push({
   walkable: true,
 });
 
-// Zone C: Gradual Exit Climb Ramp (x in [-9.5, -7.5], slopes from waterBedY = -0.30m up to ROUTE_DECK_HEIGHT = 0.67m)
-slopedDeck('water_pool_exit_ramp', -9.5, -7.5, 6.75, DRIVE_ROUTE_WIDTH - 0.28, ROUTE_DECK_HEIGHT, waterBedY, 0.16, mats.diamondPlate);
+// Exit Climb Ramp (x in [8.0, 9.5], slopes from waterBedY = -0.30m up to ARENA_FLOOR_HEIGHT = -0.33m)
+slopedDeck('water_pool_exit_ramp', 8.0, 9.5, fireLaneZ, DRIVE_ROUTE_WIDTH - 0.28, -0.30, ARENA_FLOOR_HEIGHT, 0.16, mats.diamondPlate);
 colliders.push({
   id: 'water_pool_exit_ramp',
-  x: -8.5,
-  z: 6.75,
-  hx: 1.00,
+  x: 8.75,
+  z: fireLaneZ,
+  hx: 0.75,
   hz: DRIVE_ROUTE_WIDTH / 2,
-  y: (ROUTE_DECK_HEIGHT + waterBedY) / 2,
-  height: ROUTE_DECK_HEIGHT - waterBedY + 0.16,
+  y: (ARENA_FLOOR_HEIGHT + waterBedY) / 2,
+  height: 0.20,
   rot: 0,
   walkable: true,
 });
 
-// Ultra-Realistic 3D Water Volume & Surface (Tranquil Mirror Surface, 0.46m Depth)
-const hazardWaterGeom = new THREE.PlaneGeometry(10.95, DRIVE_ROUTE_WIDTH - 0.28, 24, 16);
+// Ultra-Realistic 3D Water Volume & Surface (Tranquil Mirror Surface)
+const hazardWaterGeom = new THREE.PlaneGeometry(8.95, DRIVE_ROUTE_WIDTH - 0.28, 24, 16);
 const hazardWaterMesh = new THREE.Mesh(hazardWaterGeom, mats.water);
 hazardWaterMesh.rotation.x = -Math.PI / 2;
-hazardWaterMesh.position.set(-4.0, waterSurfaceY, 6.75);
+hazardWaterMesh.position.set(5.0, waterSurfaceY, fireLaneZ);
 hazardWaterMesh.receiveShadow = true;
 course.add(hazardWaterMesh);
 
-// Shoreline froth & meniscus strips along the basin tank walls
+// Shoreline froth & meniscus strips
 for (const side of [-1, 1]) {
-  box(course, mats.waterFoam, V(-4.0, waterSurfaceY + 0.005, 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.22)), V(10.9, 0.015, 0.12), 0, false);
+  box(course, mats.waterFoam, V(5.0, waterSurfaceY + 0.005, fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.22)), V(8.9, 0.015, 0.12), 0, false);
 }
-box(course, mats.waterFoam, V(-9.46, waterSurfaceY + 0.005, 6.75), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
-box(course, mats.waterFoam, V(1.46, waterSurfaceY + 0.005, 6.75), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.waterFoam, V(0.54, waterSurfaceY + 0.005, fireLaneZ), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.waterFoam, V(9.46, waterSurfaceY + 0.005, fireLaneZ), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
 
-// Interactive Vehicle Water Splashes (particle pool for track spray)
+// Water splash pool
 interface WaterSplashParticle {
   mesh: THREE.Mesh;
   vx: number;
@@ -1819,12 +1955,11 @@ const hazardWaterRipples: THREE.Mesh[] = [];
 for (let i = 0; i < 8; i++) {
   const ripple = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.30, 28), new THREE.MeshBasicMaterial({ color: '#8dd9e8', transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false }));
   ripple.rotation.x = -Math.PI / 2;
-  ripple.position.set(-7.5 + i * 1.05, waterSurfaceY + 0.008, 6.75 + (i % 2 ? 0.9 : -0.9));
+  ripple.position.set(2.0 + i * 0.85, waterSurfaceY + 0.008, fireLaneZ + (i % 2 ? 0.9 : -0.9));
   course.add(ripple);
   hazardWaterRipples.push(ripple);
 }
 
-// ---------------------------------------------------------------------------
 // SECTION 8: Slippery Polished Steel Sheet / Ice Hazard on Lane 2 (Z = 6.75, X in [-14.0, -9.5])
 // ---------------------------------------------------------------------------
 box(course, mats.concretePier, V(-11.75, ROUTE_DECK_HEIGHT - 0.08, 6.75), V(4.5, 0.18, DRIVE_ROUTE_WIDTH));
@@ -1950,6 +2085,7 @@ for (const hp of hairpins) {
   const steps = 16;
   const dAngle = (hp.endAngle - hp.startAngle) / steps;
   const halfW = DRIVE_ROUTE_WIDTH / 2;
+  const hpDeckY = GROUND_DECK_HEIGHT; // -0.33m
 
   for (let s = 0; s < steps; s++) {
     const theta0 = hp.startAngle + s * dAngle;
@@ -1963,9 +2099,9 @@ for (const hp of hairpins) {
     const ox = hp.cx + rOut * Math.cos(midTheta);
     const oz = hp.cz + rOut * Math.sin(midTheta);
     const outChord = rOut * absDTheta;
-    const outWall = box(course, mats.concretePier, V(ox, ROUTE_DECK_HEIGHT + 0.18, oz), V(outChord + 0.08, 0.36, 0.28), tangRot);
+    const outWall = box(course, mats.concretePier, V(ox, hpDeckY + 0.18, oz), V(outChord + 0.08, 0.36, 0.28), tangRot);
     outWall.rotation.y = tangRot;
-    const outCap = box(course, s % 2 === 0 ? mats.yellow : mats.black, V(ox, ROUTE_DECK_HEIGHT + 0.38, oz), V(outChord + 0.08, 0.04, 0.30), tangRot, false);
+    const outCap = box(course, s % 2 === 0 ? mats.yellow : mats.black, V(ox, hpDeckY + 0.38, oz), V(outChord + 0.08, 0.04, 0.30), tangRot, false);
     outCap.rotation.y = tangRot;
     colliders.push({
       id: `${hp.id}_outer_barrier_${s}`,
@@ -1973,7 +2109,7 @@ for (const hp of hairpins) {
       z: oz,
       hx: outChord / 2 + 0.04,
       hz: 0.14,
-      y: ROUTE_DECK_HEIGHT + 0.18,
+      y: hpDeckY + 0.18,
       height: 0.36,
       rot: tangRot,
       walkable: false,
@@ -1985,17 +2121,17 @@ for (const hp of hairpins) {
     const iz = hp.cz + rIn * Math.sin(midTheta);
     const inChord = rIn * absDTheta;
     const kMat = s % 2 === 0 ? mats.fiaRed : mats.fiaWhite;
-    const innerCurb = box(course, kMat, V(ix, ROUTE_DECK_HEIGHT + 0.06, iz), V(inChord + 0.04, 0.10, 0.24), tangRot, false);
+    const innerCurb = box(course, kMat, V(ix, hpDeckY + 0.06, iz), V(inChord + 0.04, 0.10, 0.24), tangRot, false);
     innerCurb.rotation.y = tangRot;
   }
 
   // Central Apex Warning Pylon & Revolving Beacon
-  cyl(course, mats.concretePier, V(hp.cx, ROUTE_DECK_HEIGHT + 0.05, hp.cz), 0.45, 0.10, 'y', 20);
-  cyl(course, mats.yellow, V(hp.cx, ROUTE_DECK_HEIGHT + 0.32, hp.cz), 0.18, 0.60, 'y');
-  cyl(course, mats.black, V(hp.cx, ROUTE_DECK_HEIGHT + 0.64, hp.cz), 0.19, 0.06, 'y');
+  cyl(course, mats.concretePier, V(hp.cx, hpDeckY + 0.05, hp.cz), 0.45, 0.10, 'y', 20);
+  cyl(course, mats.yellow, V(hp.cx, hpDeckY + 0.32, hp.cz), 0.18, 0.60, 'y');
+  cyl(course, mats.black, V(hp.cx, hpDeckY + 0.64, hp.cz), 0.19, 0.06, 'y');
   const bGroup = new THREE.Group();
-  bGroup.position.set(hp.cx, ROUTE_DECK_HEIGHT + 1.15, hp.cz);
-  cyl(course, mats.metal, V(hp.cx, ROUTE_DECK_HEIGHT + 0.55, hp.cz), 0.05, 1.10, 'y');
+  bGroup.position.set(hp.cx, hpDeckY + 1.15, hp.cz);
+  cyl(course, mats.metal, V(hp.cx, hpDeckY + 0.55, hp.cz), 0.05, 1.10, 'y');
   const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.18, 12), mats.beaconAmber);
   bGroup.add(dome);
   const reflector = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.12, 0.08), mats.yellow);
@@ -2009,11 +2145,11 @@ for (const hp of hairpins) {
     const theta = hp.startAngle + tFrac * (hp.endAngle - hp.startAngle);
     const cx = hp.cx + (hp.radius + halfW - 0.08) * Math.cos(theta);
     const cz = hp.cz + (hp.radius + halfW - 0.08) * Math.sin(theta);
-    box(course, mats.black, V(cx, ROUTE_DECK_HEIGHT + 0.55, cz), V(0.08, 0.28, 0.45), theta);
+    box(course, mats.black, V(cx, hpDeckY + 0.55, cz), V(0.08, 0.28, 0.45), theta);
     const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.20, 3), mats.yellow);
     arrow.rotation.z = hp.facingOutDir > 0 ? Math.PI / 2 : -Math.PI / 2;
     arrow.rotation.y = theta;
-    arrow.position.set(cx - 0.06 * Math.cos(theta), ROUTE_DECK_HEIGHT + 0.55, cz - 0.06 * Math.sin(theta));
+    arrow.position.set(cx - 0.06 * Math.cos(theta), hpDeckY + 0.55, cz - 0.06 * Math.sin(theta));
     course.add(arrow);
     chevronSignArrows.push(arrow);
   }
@@ -2024,30 +2160,34 @@ for (const hp of hairpins) {
 // ---------------------------------------------------------------------------
 // Straight lane corridors with clear 2.35m open-air chasms between viaducts
 const straightLaneSpecs = [
-  { laneId: 1, z: 13.50, xMin: -18.5, xMax: 17.5, dir: 1 as const },   // Eastbound
-  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Westbound
-  { laneId: 3, z: 0.00,  xMin: -17.5, xMax: 17.5, dir: 1 as const },   // Eastbound
-  { laneId: 4, z: -6.75, xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Westbound
-  { laneId: 5, z: -13.50, xMin: -17.5, xMax: 16.0, dir: 1 as const },  // Eastbound
+  { laneId: 1, z: 13.50, xMin: -18.5, xMax: 5.80, dir: 1 as const },   // Lane 1 Approach (Ground)
+  { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
+  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Lane 2 (Ground)
+  { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -7.70, dir: 1 as const },  // Lane 3 Ground Approach
+  { laneId: 3, z: 0.00,  xMin: 10.75, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
+  { laneId: 4, z: -6.75, xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Lane 4 (Ground)
+  { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
+  { laneId: 5, z: -13.50, xMin: 9.50,  xMax: 16.0, dir: 1 as const },  // Lane 5 Finish Straight
 ];
 
 for (const lane of straightLaneSpecs) {
   const halfW = DRIVE_ROUTE_WIDTH / 2;
   const len = lane.xMax - lane.xMin;
   const midX = (lane.xMin + lane.xMax) / 2;
+  const laneDeckY = GROUND_DECK_HEIGHT; // -0.33m
 
   for (const side of [-1, 1]) {
     const zCurb = lane.z + side * (halfW - 0.14);
     // Continuous concrete parapet base with yellow coping
-    box(course, mats.concretePier, V(midX, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(len, 0.36, 0.28));
-    box(course, mats.yellow, V(midX, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(len, 0.04, 0.30), 0, false);
+    box(course, mats.concretePier, V(midX, laneDeckY + 0.18, zCurb), V(len, 0.36, 0.28));
+    box(course, mats.yellow, V(midX, laneDeckY + 0.38, zCurb), V(len, 0.04, 0.30), 0, false);
     colliders.push({
-      id: `lane_${lane.laneId}_barrier_${side > 0 ? 'south' : 'north'}`,
+      id: `lane_${lane.laneId}_barrier_${side > 0 ? 'south' : 'north'}_${Math.round(lane.xMin)}`,
       x: midX,
       z: zCurb,
       hx: len / 2,
       hz: 0.14,
-      y: ROUTE_DECK_HEIGHT + 0.18,
+      y: laneDeckY + 0.18,
       height: 0.36,
       rot: 0,
       walkable: false,
@@ -2055,7 +2195,7 @@ for (const lane of straightLaneSpecs) {
 
     // Reflective cat-eyes along the parapet wall
     for (let wx = lane.xMin + 2.0; wx <= lane.xMax - 2.0; wx += 3.5) {
-      box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, ROUTE_DECK_HEIGHT + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
+      box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, laneDeckY + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
     }
   }
 }
@@ -2063,8 +2203,8 @@ for (const lane of straightLaneSpecs) {
 // Stanchion Luminaires in the open chasms between lanes
 for (const fx of [-14.0, -8.0, -2.0, 4.0, 10.0, 15.0]) {
   for (const chasmZ of [10.125, 3.375, -3.375, -10.125]) {
-    cyl(course, mats.metal, V(fx, ROUTE_DECK_HEIGHT + 1.2, chasmZ), 0.04, 1.2, 'y');
-    box(course, mats.yellow, V(fx, ROUTE_DECK_HEIGHT + 1.8, chasmZ), V(0.24, 0.12, 0.36), 0, false);
+    cyl(course, mats.metal, V(fx, ARENA_FLOOR_HEIGHT + 0.6, chasmZ), 0.04, 1.2, 'y');
+    box(course, mats.yellow, V(fx, ARENA_FLOOR_HEIGHT + 1.2, chasmZ), V(0.24, 0.12, 0.36), 0, false);
   }
 }
 
@@ -2664,6 +2804,14 @@ function renderUI() {
         <b style="color:#f0bd53;letter-spacing:0.05em;">SIMULATION SETTINGS</b>
         <button id="closeSettingsBtn" class="iconbtn" style="padding:4px 8px;font-size:10px;">✕ CLOSE</button>
       </div>
+      <label>Racing Circuit Track
+        <select id="trackSelect">
+          <option value="track_b" selected>Track B — Spiral Tower Challenge (Showcase)</option>
+          <option value="track_a">Track A — Basic Elevation Challenge</option>
+          <option value="track_c">Track C — Advanced Multi-Level Challenge</option>
+          <option value="track_d">Track D — Extreme Climbing Challenge</option>
+        </select>
+      </label>
       <label>Controller Mode
         <select id="controlMode">
           <option value="single_stick">Single Stick / Universal</option>
@@ -3074,6 +3222,15 @@ function showMenu() {
           <b>Keyboard:</b> W/S Drive · A Left · D Right · Space Brake · R Recover · C Camera · Esc Pause<br>
           <b>Controllers:</b> Compatible with Xbox, PS, RadioMaster & EdgeTX transmitters
         </p>
+        <div style="margin: 12px 0 10px; text-align: left;">
+          <div style="font-size:11px;color:#f0bd53;font-weight:bold;margin-bottom:6px;letter-spacing:0.05em;">CHOOSE CIRCUIT TRACK:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <button class="iconbtn track-btn active" data-track="track_b" id="btnTrackB" style="border-color:#f0bd53;color:#f0bd53;font-weight:bold;">★ TRACK B: SPIRAL TOWER</button>
+            <button class="iconbtn track-btn" data-track="track_a" id="btnTrackA">TRACK A: ELEVATION</button>
+            <button class="iconbtn track-btn" data-track="track_c" id="btnTrackC">TRACK C: MULTI-LEVEL</button>
+            <button class="iconbtn track-btn" data-track="track_d" id="btnTrackD">TRACK D: EXTREME CLIMB</button>
+          </div>
+        </div>
         <button class="action" id="btnStartRace">START RACE</button>
         <div class="subactions">
           <button class="iconbtn" id="btnMenuCam">CAMERA: CHASE</button>
@@ -3083,6 +3240,24 @@ function showMenu() {
     </div>
   `;
   $('#btnStartRace', o).addEventListener('click', startRace);
+  const trackBtns = o.querySelectorAll<HTMLButtonElement>('.track-btn');
+  trackBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const trackId = btn.dataset.track as TrackId;
+      setActiveTrack(trackId);
+      trackBtns.forEach(b => {
+        b.style.borderColor = '';
+        b.style.color = '';
+        b.style.fontWeight = '';
+      });
+      btn.style.borderColor = '#f0bd53';
+      btn.style.color = '#f0bd53';
+      btn.style.fontWeight = 'bold';
+      const select = $('#trackSelect') as HTMLSelectElement | null;
+      if (select) select.value = trackId;
+      displayToast(`SELECTED: ${getActiveTrack().name.toUpperCase()}`);
+    });
+  });
   $('#btnMenuCam', o).addEventListener('click', cycleCamera);
   $('#btnMenuSettings', o).addEventListener('click', () => $('#settings').classList.toggle('hidden'));
 }
@@ -3388,6 +3563,13 @@ function stepPhysics(dt: number) {
 
   // Debug hook for automated verification
   (window as unknown as Record<string, unknown>).__gameDebug = {
+    track: getActiveTrack().id,
+    trackName: getActiveTrack().name,
+    setTrack: (id: TrackId) => {
+      setActiveTrack(id);
+      displayToast(`TRACK: ${getActiveTrack().name.toUpperCase()}`);
+    },
+    getActiveTrack,
     raceState,
     countdown,
     pose,
@@ -4023,11 +4205,11 @@ function animate() {
   for (let i = 0; i < fireEmbers.length; i++) {
     const em = fireEmbers[i];
     em.y += em.vy * frameTime;
-    const h = em.y - (0.38 + 0.12);
+    const h = em.y - (firePlatElevY + 0.12);
     if (h > 1.95) {
-      em.y = 0.38 + 0.12;
-      em.baseX = 2.65 + Math.random() * 3.70;
-      em.baseZ = 6.75 + (Math.random() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
+      em.y = firePlatElevY + 0.12;
+      em.baseX = -4.85 + Math.random() * 3.70;
+      em.baseZ = fireLaneZ + (Math.random() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
     } else {
       em.mesh.position.x = em.baseX + Math.sin(em.omega * h + em.phase) * (em.swirlRadius * (1 + h * 0.6));
       em.mesh.position.z = em.baseZ + Math.cos(em.omega * h + em.phase) * (em.swirlRadius * (1 + h * 0.6));
@@ -4037,8 +4219,8 @@ function animate() {
     }
   }
 
-  // 6. Interactive Vehicle Water Splash Particles
-  const inWater = (pose.x / MAP_SCALE >= -9.5 && pose.x / MAP_SCALE <= 1.5 && Math.abs(pose.z / MAP_SCALE - 6.75) < DRIVE_ROUTE_WIDTH / 2);
+  // 6. Interactive Vehicle Water Splash Particles on Lane 5
+  const inWater = (pose.x / MAP_SCALE >= 0.5 && pose.x / MAP_SCALE <= 9.5 && Math.abs(pose.z / MAP_SCALE - (-13.50)) < DRIVE_ROUTE_WIDTH / 2);
   const robotSpeed = Math.hypot(pose.vx, pose.vz);
   if (inWater && robotSpeed > 0.35) {
     for (let k = 0; k < 2; k++) {
@@ -4079,9 +4261,9 @@ function animate() {
   for (let i = 0; i < fireSmoke.length; i++) {
     const phase = (now * 0.00032 + i * 0.15) % 1;
     const smoke = fireSmoke[i];
-    smoke.position.y = 0.38 + 0.55 + phase * 1.35;
-    smoke.position.x = 2.70 + i * 0.30 + Math.sin(now * 0.0012 + i) * phase * 0.28;
-    smoke.position.z = 6.75 + ((i % 4) - 1.5) * 0.65;
+    smoke.position.y = firePlatElevY + 0.55 + phase * 1.35;
+    smoke.position.x = -4.85 + i * 0.30 + Math.sin(now * 0.0012 + i) * phase * 0.28;
+    smoke.position.z = fireLaneZ + ((i % 4) - 1.5) * 0.65;
     smoke.scale.set(0.42 + phase * 0.52, 0.56 + phase * 0.74, 1);
     (smoke.material as THREE.SpriteMaterial).opacity = 0.42 * (1 - phase);
   }
