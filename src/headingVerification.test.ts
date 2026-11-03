@@ -44,20 +44,20 @@ test('Eight-Direction Movement: normalized differential commands obey heading ru
     assert.equal(s.yaw, 0, 'Forward should not rotate yaw');
   }
 
-  // 2. Forward-left semantic command: moves +Z and nose rotates left.
+  // 2. Forward-left semantic command: moves +Z and nose rotates anticlockwise (left).
   {
     const s = createState();
     simulateStep(s, 1, 1);
     assert.ok(s.vz > 0, 'Forward-left should make forward progress');
-    assert.ok(s.yaw < 0, `Forward-left must rotate nose LEFT (negative yaw), got ${s.yaw}`);
+    assert.ok(s.yaw > 0, `Forward-left must rotate nose ANTICLOCKWISE (positive yaw), got ${s.yaw}`);
   }
 
-  // 3. Forward-right semantic command: moves +Z and nose rotates right.
+  // 3. Forward-right semantic command: moves +Z and nose rotates clockwise (right).
   {
     const s = createState();
     simulateStep(s, 1, -1);
     assert.ok(s.vz > 0, 'Forward-right should make forward progress');
-    assert.ok(s.yaw > 0, `Forward-right must rotate nose RIGHT (positive yaw), got ${s.yaw}`);
+    assert.ok(s.yaw < 0, `Forward-right must rotate nose CLOCKWISE (negative yaw), got ${s.yaw}`);
   }
 
   // 4. Backward (S): moves -Z, zero yaw change
@@ -68,36 +68,36 @@ test('Eight-Direction Movement: normalized differential commands obey heading ru
     assert.equal(s.yaw, 0, 'Reverse should not rotate yaw');
   }
 
-  // 5. Backward-left semantic command: moves -Z and nose rotates left.
+  // 5. Backward-left semantic command: moves -Z and nose rotates anticlockwise (left).
   {
     const s = createState();
     simulateStep(s, -1, 1);
     assert.ok(s.vz < 0, 'Backward-left should travel in reverse');
-    assert.ok(s.yaw < 0, `Backward-left MUST turn nose LEFT (negative yaw), got ${s.yaw}`);
+    assert.ok(s.yaw > 0, `Backward-left MUST turn nose ANTICLOCKWISE (positive yaw), got ${s.yaw}`);
   }
 
-  // 6. Backward-right semantic command: moves -Z and nose rotates right.
+  // 6. Backward-right semantic command: moves -Z and nose rotates clockwise (right).
   {
     const s = createState();
     simulateStep(s, -1, -1);
     assert.ok(s.vz < 0, 'Backward-right should travel in reverse');
-    assert.ok(s.yaw > 0, `Backward-right MUST turn nose RIGHT (positive yaw), got ${s.yaw}`);
+    assert.ok(s.yaw < 0, `Backward-right MUST turn nose CLOCKWISE (negative yaw), got ${s.yaw}`);
   }
 
-  // 7. Semantic pivot-left command: in-place rotation with nose turning left.
+  // 7. Semantic pivot-left command: in-place rotation with nose turning anticlockwise (left).
   {
     const s = createState();
     simulateStep(s, 0, 1);
     assert.ok(Math.abs(s.vz) < 0.01 && Math.abs(s.vx) < 0.01, 'Pivot left should stay in place');
-    assert.ok(s.yaw < 0, `Pivot left must rotate nose LEFT, got ${s.yaw}`);
+    assert.ok(s.yaw > 0, `Pivot left must rotate nose ANTICLOCKWISE, got ${s.yaw}`);
   }
 
-  // 8. Semantic pivot-right command: in-place rotation with nose turning right.
+  // 8. Semantic pivot-right command: in-place rotation with nose turning clockwise (right).
   {
     const s = createState();
     simulateStep(s, 0, -1);
     assert.ok(Math.abs(s.vz) < 0.01 && Math.abs(s.vx) < 0.01, 'Pivot right should stay in place');
-    assert.ok(s.yaw > 0, `Pivot right must rotate nose RIGHT, got ${s.yaw}`);
+    assert.ok(s.yaw < 0, `Pivot right must rotate nose CLOCKWISE, got ${s.yaw}`);
   }
 });
 
@@ -108,9 +108,9 @@ test('Reverse throttle never flips normalized steering semantics', () => {
   const revLeft = createState();
   simulateStep(revLeft, -1, 1);
 
-  // Both MUST have negative yaw (nose turns left)
-  assert.ok(fwdLeft.yaw < 0, 'normalized forward-left steering must turn the nose left');
-  assert.ok(revLeft.yaw < 0, 'normalized reverse-left steering must turn the nose left');
+  // Both MUST have positive yaw (nose turns anticlockwise)
+  assert.ok(fwdLeft.yaw > 0, 'normalized forward-left steering must turn the nose anticlockwise');
+  assert.ok(revLeft.yaw > 0, 'normalized reverse-left steering must turn the nose anticlockwise');
   assert.equal(Math.sign(fwdLeft.yaw), Math.sign(revLeft.yaw), 'Steering sign must be identical forward vs reverse');
 
   const fwdRight = createState();
@@ -119,9 +119,9 @@ test('Reverse throttle never flips normalized steering semantics', () => {
   const revRight = createState();
   simulateStep(revRight, -1, -1);
 
-  // Both MUST have positive yaw (nose turns right)
-  assert.ok(fwdRight.yaw > 0, 'normalized forward-right steering must turn the nose right');
-  assert.ok(revRight.yaw > 0, 'normalized reverse-right steering must turn the nose right');
+  // Both MUST have negative yaw (nose turns clockwise)
+  assert.ok(fwdRight.yaw < 0, 'normalized forward-right steering must turn the nose clockwise');
+  assert.ok(revRight.yaw < 0, 'normalized reverse-right steering must turn the nose clockwise');
   assert.equal(Math.sign(fwdRight.yaw), Math.sign(revRight.yaw), 'Steering sign must be identical forward vs reverse');
 });
 
@@ -154,22 +154,22 @@ test('Normalized steering stays consistent across terrain slopes and friction', 
   // Level ground
   const levelLeft = createState();
   simulateStep(levelLeft, 0.5, 1, asphalt, { x: 0, z: 0 });
-  assert.ok(levelLeft.yaw < 0, 'Level ground left turn should have yaw < 0');
+  assert.ok(levelLeft.yaw > 0, 'Level ground left turn should have yaw > 0 (anticlockwise)');
 
   // Downhill slope (+Z is downhill)
   const downhillLeft = createState();
   simulateStep(downhillLeft, 0.5, 1, asphalt, { x: 0, z: -0.3 });
-  assert.ok(downhillLeft.yaw < 0, 'Downhill left turn must preserve nose left turn direction');
+  assert.ok(downhillLeft.yaw > 0, 'Downhill left turn must preserve nose left turn direction (anticlockwise)');
 
   // Uphill slope (-Z is downhill)
   const uphillLeft = createState();
   simulateStep(uphillLeft, 0.5, 1, asphalt, { x: 0, z: 0.3 });
-  assert.ok(uphillLeft.yaw < 0, 'Uphill left turn must preserve nose left turn direction');
+  assert.ok(uphillLeft.yaw > 0, 'Uphill left turn must preserve nose left turn direction (anticlockwise)');
 
   // Low grip surface (slick oil)
   const slickLeft = createState();
   simulateStep(slickLeft, 0.5, 1, slickOil, { x: 0, z: 0 });
-  assert.ok(slickLeft.yaw < 0, 'Slick oil left turn must preserve nose left turn direction');
+  assert.ok(slickLeft.yaw > 0, 'Slick oil left turn must preserve nose left turn direction (anticlockwise)');
 });
 
 test('UniversalController maps transmitter and gamepad stick left to positive semantic steering', () => {
@@ -204,14 +204,14 @@ test('UniversalController maps transmitter and gamepad stick left to positive se
   assert.equal(diag.failsafeActive, false);
 });
 
-test('UniversalController keyboard output reaches the drivetrain with requested screen-relative turn directions', () => {
+test('UniversalController keyboard output reaches the drivetrain with requested nose-relative directions', () => {
   const cases = [
-    { keys: ['KeyA'], yaw: 1, label: 'A counter-clockwise pivot' },
-    { keys: ['KeyD'], yaw: -1, label: 'D clockwise pivot' },
-    { keys: ['KeyW', 'KeyA'], yaw: 1, label: 'W+A left curve' },
-    { keys: ['KeyW', 'KeyD'], yaw: -1, label: 'W+D right curve' },
-    { keys: ['KeyS', 'KeyA'], yaw: -1, label: 'S+A reverse clockwise curve' },
-    { keys: ['KeyS', 'KeyD'], yaw: 1, label: 'S+D reverse counter-clockwise curve' },
+    { keys: ['KeyA'], yaw: 1, label: 'A nose-left pivot (anticlockwise)' },
+    { keys: ['KeyD'], yaw: -1, label: 'D nose-right pivot (clockwise)' },
+    { keys: ['KeyW', 'KeyA'], yaw: 1, label: 'W+A nose-left curve (anticlockwise)' },
+    { keys: ['KeyW', 'KeyD'], yaw: -1, label: 'W+D nose-right curve (clockwise)' },
+    { keys: ['KeyS', 'KeyA'], yaw: -1, label: 'S+A reverse-left diagonal rotates clockwise' },
+    { keys: ['KeyS', 'KeyD'], yaw: 1, label: 'S+D reverse-right diagonal rotates anticlockwise' },
   ] as const;
 
   for (const item of cases) {

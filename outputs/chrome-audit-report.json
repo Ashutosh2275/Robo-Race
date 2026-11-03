@@ -1,0 +1,112 @@
+{
+  "consoleMessages": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://localhost:5173/@vite/client",
+        "line": 945,
+        "column": 8,
+        "lineNumber": 945,
+        "columnNumber": 8
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://localhost:5173/@vite/client",
+        "line": 1054,
+        "column": 11,
+        "lineNumber": 1054,
+        "columnNumber": 11
+      }
+    },
+    {
+      "type": "warning",
+      "text": "THREE.WebGLProgram: Program Info Log: (210,86-138): warning X4122: sum of 0.996094 and -2.98545e-017 cannot be represented accurately in double precision\n(209,39-65): warning X4122: sum of 1 and -1.49272e-017 cannot be represented accurately in double precision\n(210,87-113): warning X4122: sum of 1 and -1.49272e-017 cannot be represented accurately in double precision\n(209,39-65): warning X4122: sum of 1 and -1.66644e-018 cannot be represented accurately in double precision\n(210,87-113): warning X4122: sum of 1 and -1.66644e-018 cannot be represented accurately in double precision",
+      "location": {
+        "url": "http://localhost:5173/node_modules/.vite/deps/three.module-DFtsUDDU.js?v=55533885",
+        "line": 1747,
+        "column": 15,
+        "lineNumber": 1747,
+        "columnNumber": 15
+      }
+    }
+  ],
+  "pageErrors": [],
+  "requestFailures": [],
+  "perfMetrics": {
+    "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "vendor": "Google Inc. (Intel)",
+    "memory": {
+      "totalJSHeapSize": "68.2 MB",
+      "usedJSHeapSize": "42.3 MB"
+    }
+  },
+  "uiAudit": {
+    "hudVisible": false,
+    "batteryText": "100%",
+    "motorTempText": "31°C",
+    "healthText": "100%",
+    "touchControlsPresent": false,
+    "touchControlsDisplay": "none"
+  },
+  "debugState": {
+    "hasDebug": true,
+    "raceState": "racing",
+    "pose": {
+      "x": -28.990000000000002,
+      "y": -0.45,
+      "z": 10.4,
+      "vx": 0,
+      "vy": 0,
+      "vz": 0,
+      "pitch": 0,
+      "yaw": 1.5707963267948966,
+      "roll": 0,
+      "pitchRate": 0,
+      "yawRate": 0,
+      "rollRate": 0,
+      "isFlipped": false,
+      "isGrounded": true,
+      "flippedTimer": 0,
+      "sideDropTime": 0,
+      "endDropTime": 0
+    },
+    "subsystems": {
+      "battery": {
+        "voltage": 16.799955666666666,
+        "capacityMah": 5000,
+        "chargeMah": 4999.9416666666675,
+        "percentage": 99.99883333333335,
+        "health": 98,
+        "temperature": 28.000874688646626,
+        "currentAmps": 1.2,
+        "powerWatts": 20.159949333333333,
+        "estimatedRuntimeSec": 14999.825000000003
+      },
+      "motors": {
+        "leftTemp": 28,
+        "rightTemp": 28,
+        "leftTorque": 0,
+        "rightTorque": 0,
+        "thermalThrottle": 1
+      },
+      "esc": {
+        "temperature": 28.057734414154908,
+        "powerDelivery": 100,
+        "overheated": false
+      },
+      "integrity": {
+        "chassis": 100,
+        "leftTrack": 100,
+        "rightTrack": 100,
+        "driveWheels": 100,
+        "electronicsEnclosure": 100
+      },
+      "activeHazard": "none"
+    },
+    "currentCheckpoint": 0
+  }
+}

@@ -53,6 +53,48 @@ export function getFootprintAabbHalfExtents(yaw: number) {
 }
 export const ROLLOVER_CRITICAL_ANGLE = 1.25; // ~72 degrees; beyond this, rollover occurs
 
+export type StaticBarrierFootprint = { x: number; z: number; hx: number; hz: number; rot?: number };
+
+/**
+ * Separating-axis collision test between the robot's oriented footprint and
+ * a rotated rectangular barrier. Returns the smallest safe depenetration
+ * direction, or null when the two shapes are clear.
+ */
+export function vehicleBarrierPenetration(
+  x: number,
+  z: number,
+  yaw: number,
+  barrier: StaticBarrierFootprint,
+) {
+  const forward = { x: Math.sin(yaw), z: Math.cos(yaw) };
+  const right = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+  const obstacleX = { x: Math.cos(barrier.rot ?? 0), z: -Math.sin(barrier.rot ?? 0) };
+  const obstacleZ = { x: Math.sin(barrier.rot ?? 0), z: Math.cos(barrier.rot ?? 0) };
+  const dx = x - barrier.x;
+  const dz = z - barrier.z;
+  let minimumOverlap = Infinity;
+  let normalX = 0;
+  let normalZ = 0;
+
+  for (const axis of [forward, right, obstacleX, obstacleZ]) {
+    const vehicleRadius = Math.abs(axis.x * forward.x + axis.z * forward.z) * ROBOT_HALF_LENGTH
+      + Math.abs(axis.x * right.x + axis.z * right.z) * ROBOT_HALF_WIDTH;
+    const obstacleRadius = Math.abs(axis.x * obstacleX.x + axis.z * obstacleX.z) * barrier.hx
+      + Math.abs(axis.x * obstacleZ.x + axis.z * obstacleZ.z) * barrier.hz;
+    const signedDistance = dx * axis.x + dz * axis.z;
+    const overlap = vehicleRadius + obstacleRadius - Math.abs(signedDistance);
+    if (overlap <= 0) return null;
+    if (overlap < minimumOverlap) {
+      minimumOverlap = overlap;
+      const sign = signedDistance >= 0 ? 1 : -1;
+      normalX = axis.x * sign;
+      normalZ = axis.z * sign;
+    }
+  }
+
+  return { nx: normalX, nz: normalZ, depth: minimumOverlap };
+}
+
 /**
  * Calculates 4 contact patch locations in world space based on pose.
  */
@@ -121,21 +163,31 @@ export function stepVehicle3D(
 
   const groundPitch = -Math.atan2(frontH - rearH, TRACK_LENGTH);
   const rawGroundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
+  const centerH = heightAt(pose.x, pose.z);
   const rollDifferential = Math.abs(rightH - leftH);
   const pitchDifferential = Math.abs(frontH - rearH);
-  // A single corner probe crossing a board seam should not instantly bank the
-  // whole chassis. Hold a substantial support loss briefly before tipping.
-  pose.sideDropTime = rollDifferential > 0.38 ? (pose.sideDropTime ?? 0) + dt : 0;
-  pose.endDropTime = pitchDifferential > 0.72 ? (pose.endDropTime ?? 0) + dt : 0;
+
+  // 1. True cliff-edge detection:
+  // On continuous slopes and ramps, the terrain smoothly supports both tracks,
+  // so the center height matches the midpoint of the tracks: |centerH - avgH| ~ 0.
+  // A true cliff edge drop-off has a sharp discontinuous step: one track hangs
+  // over empty air while the center remains on the deck.
+  const isCliffStep = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.10;
+  const isCliffSideDrop = rollDifferential >= 0.70 && (isCliffStep || rollDifferential >= 0.75);
+  const isCliffEndDrop = pitchDifferential >= 0.90;
+
+  pose.sideDropTime = isCliffSideDrop ? (pose.sideDropTime ?? 0) + dt : 0;
+  pose.endDropTime = isCliffEndDrop ? (pose.endDropTime ?? 0) + dt : 0;
   const sideDropActive = pose.sideDropTime >= 0.20;
   const endDropActive = pose.endDropTime >= 0.20;
-  const groundRoll = rollDifferential > 0.38
-    ? Math.max(-0.16, Math.min(0.16, rawGroundRoll))
+
+  // On continuous slopes and banked terrain, ground roll cleanly matches the terrain.
+  const groundRoll = isCliffSideDrop
+    ? Math.max(-0.25, Math.min(0.25, rawGroundRoll))
     : rawGroundRoll;
-  // A tracked chassis has very little suspension roll. Keep only a barely
-  // perceptible lateral load cue; the former 0.16 rad bank made it look like
-  // the robot was hovering and swinging like an aircraft during pivots.
-  const turnBank = Math.max(-0.025, Math.min(0.025, -angularYaw * longitudinalSpeed / gravity * 0.035));
+
+  // Tracked differential vehicles have stiff suspension with subtle turn banking cues.
+  const turnBank = Math.max(-0.015, Math.min(0.015, -angularYaw * longitudinalSpeed / gravity * 0.02));
 
   // Check if currently upside down
   const inverted = isVehicleInverted(pose.pitch, pose.roll);
@@ -155,31 +207,42 @@ export function stepVehicle3D(
     return;
   }
 
-  // Not inverted: check for rollover tipping torques (e.g. driving off a bridge or severe bank)
-  // A sustained edge loss tips around the supported track with a gravity-scale
-  // angular acceleration. The short dwell prevents false rollovers at seams.
+  // Edge-drop tipping vs critically damped ground terrain tracking:
   if (sideDropActive) {
     const tipDir = rightH < leftH ? 1 : -1;
-    pose.rollRate += tipDir * 4.2 * dt;
+    pose.rollRate += tipDir * 4.8 * dt;
     pose.rollRate *= Math.exp(-dt * 0.4);
   } else {
-    // Ground springs gently align roll with terrain
+    // Critically damped terrain following (omega_n = 16 rad/s, zeta = 1.0)
     const rollError = groundRoll + turnBank - pose.roll;
-    pose.rollRate += rollError * 22 * dt - pose.rollRate * 9 * dt;
+    pose.rollRate += (rollError * 32.0 - pose.rollRate * 12.0) * dt;
   }
 
   if (endDropActive) {
     const tipDir = frontH < rearH ? -1 : 1;
-    pose.pitchRate += tipDir * 4.2 * dt;
+    pose.pitchRate += tipDir * 4.8 * dt;
     pose.pitchRate *= Math.exp(-dt * 0.4);
   } else {
     const pitchError = groundPitch - pose.pitch;
-    pose.pitchRate += pitchError * 22 * dt - pose.pitchRate * 9 * dt;
+    pose.pitchRate += (pitchError * 32.0 - pose.pitchRate * 12.0) * dt;
   }
 
   // Integrate pitch and roll
   pose.pitch += pose.pitchRate * dt;
   pose.roll += pose.rollRate * dt;
+
+  // Obstacle Reaction Yaw Torque ("broad twist" on boulders / asymmetric obstacles)
+  // When one track encounters higher elevation on a discrete obstacle (rock/boulder), asymmetric ground
+  // reaction drag retards that track, causing authentic physical yaw deflection ("broad twist").
+  // CRITICAL DISTINCTION: Continuous planar ramps and slopes support both tracks linearly such that
+  // centerH matches track midpoint: |centerH - avgH| < 0.012. Only discrete convex bumps (boulders)
+  // deviate from planar slope and trigger physical drag deflection.
+  const isConvexObstacle = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.012;
+  if (!pose.isFlipped && Math.abs(longitudinalSpeed) > 0.15 && rollDifferential > 0.025 && isConvexObstacle && !sideDropActive) {
+    const obstacleTwist = -Math.sign(longitudinalSpeed) * (leftH - rightH) * 2.5;
+    pose.yawRate = (pose.yawRate ?? 0) + (obstacleTwist - (pose.yawRate ?? 0)) * (1 - Math.exp(-dt * 6.0));
+    pose.yaw += obstacleTwist * dt;
+  }
 
   // Check again if newly inverted
   if (isVehicleInverted(pose.pitch, pose.roll)) {
@@ -216,10 +279,10 @@ export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
     // Stage on the lower approach, before the steep entry ramp. This keeps
     // the complete track footprint on one level surface at race start.
-    { id: 'start', label: 'Starting Bay', x: -18.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
+    { id: 'start', label: 'Starting Bay', x: -22.3 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
     // Rewind recovery to the next still-required obstacle section, so a reset
     // cannot teleport past the slalom or its speed breakers.
-    { id: 'slalom', label: 'Slalom Entry', x: -12.0 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
+    { id: 'slalom', label: 'Slalom Entry', x: -17.8 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
     { id: 'speedbreaker_entry', label: 'Speed Breaker Entry', x: -0.5 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
     { id: 'ramp_entry', label: 'Ramp Approach', x: 3.4 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
     { id: 'bridge_entry', label: 'Bridge Approach', x: 7.2 * scale, z: 8.0 * scale, y: -TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 4 },

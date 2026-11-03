@@ -18,10 +18,16 @@ async function main() {
   const url = `http://localhost:${port}/`;
   console.log(`Vite server running at ${url}`);
 
-  // 2. Launch Chromium with flags
+  // 2. Launch Google Chrome with flags
   const browser = await chromium.launch({
+    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     headless: true,
     args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--use-gl=angle',
+      '--use-angle=d3d11',
+      '--enable-webgl',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
@@ -97,38 +103,38 @@ async function main() {
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(500);
 
-  // 5. Keyboard convention is screen-relative: A counter-clockwise, D clockwise.
-  console.log('Testing A (Counter-clockwise pivot)...');
+  // 5. A/D are verified against the robot nose heading: A anticlockwise (positive yaw delta), D clockwise (negative yaw delta).
+  console.log('Testing A (nose-left pivot, anticlockwise)...');
   await resetProbePose();
   const yawBeforeA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(600);
   const yawDuringA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before A: ${yawBeforeA.toFixed(3)}, Yaw during A: ${yawDuringA.toFixed(3)} (Delta: ${(yawDuringA - yawBeforeA).toFixed(3)})`);
-  assert.ok(angleDelta(yawDuringA, yawBeforeA) > 0.03, 'A must rotate counter-clockwise in actual gameplay');
+  console.log(`Yaw before A: ${yawBeforeA.toFixed(3)}, Yaw during A: ${yawDuringA.toFixed(3)} (Delta: ${(yawDuringA - yawBeforeA).toFixed(3)} -> Anticlockwise)`);
+  assert.ok(angleDelta(yawDuringA, yawBeforeA) > 0.03, 'A must rotate the robot nose anticlockwise in actual gameplay');
   await page.keyboard.up('KeyA');
   await page.waitForTimeout(300);
 
-  // 6. Test T (right alias) and D (Rotate Right - yaw should increase)
-  console.log('Testing T (Right pivot alias)...');
+  // 6. Test T (right alias) and D (nose-right pivot, clockwise)
+  console.log('Testing T (Right pivot alias, clockwise)...');
   await resetProbePose();
   const yawBeforeT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyT');
   await page.waitForTimeout(600);
   const yawDuringT = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before T: ${yawBeforeT.toFixed(3)}, Yaw during T: ${yawDuringT.toFixed(3)} (Delta: ${(yawDuringT - yawBeforeT).toFixed(3)} -> Right)`);
-  assert.ok(angleDelta(yawDuringT, yawBeforeT) < -0.03, 'T right-turn alias should rotate clockwise');
+  console.log(`Yaw before T: ${yawBeforeT.toFixed(3)}, Yaw during T: ${yawDuringT.toFixed(3)} (Delta: ${(yawDuringT - yawBeforeT).toFixed(3)} -> Clockwise)`);
+  assert.ok(angleDelta(yawDuringT, yawBeforeT) < -0.03, 'T right-turn alias should rotate the nose clockwise');
   await page.keyboard.up('KeyT');
   await page.waitForTimeout(300);
 
-  console.log('Testing D (Right pivot)...');
+  console.log('Testing D (Right pivot, clockwise)...');
   await resetProbePose();
   const yawBeforeD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(600);
   const yawDuringD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before D: ${yawBeforeD.toFixed(3)}, Yaw during D: ${yawDuringD.toFixed(3)} (Delta: ${(yawDuringD - yawBeforeD).toFixed(3)} -> Right)`);
-  assert.ok(angleDelta(yawDuringD, yawBeforeD) < -0.03, 'D must rotate clockwise in actual gameplay');
+  console.log(`Yaw before D: ${yawBeforeD.toFixed(3)}, Yaw during D: ${yawDuringD.toFixed(3)} (Delta: ${(yawDuringD - yawBeforeD).toFixed(3)} -> Clockwise)`);
+  assert.ok(angleDelta(yawDuringD, yawBeforeD) < -0.03, 'D must rotate the robot nose clockwise in actual gameplay');
   await page.keyboard.up('KeyD');
   await page.waitForTimeout(300);
 
@@ -147,54 +153,54 @@ async function main() {
   await page.keyboard.up('KeyA');
   await page.waitForTimeout(300);
 
-  // 7. Test W+A (Forward-Left Curve) and W+D (Forward-Right Curve)
-  console.log('Testing W+A (Forward-Left Curve)...');
+  // 7. Test W+A (Forward-Left Curve, anticlockwise) and W+D (Forward-Right Curve, clockwise)
+  console.log('Testing W+A (Forward-Left Curve, anticlockwise)...');
   await resetProbePose();
   const yawBeforeWA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
   const forwardLeftDebug = await page.evaluate(() => window.__gameDebug);
-  assert.ok(angleDelta(forwardLeftDebug.pose.yaw, yawBeforeWA) > 0.03, 'W+A must produce a left-curving trajectory');
+  assert.ok(angleDelta(forwardLeftDebug.pose.yaw, yawBeforeWA) > 0.03, 'W+A must produce an anticlockwise curving trajectory');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
 
-  console.log('Testing W+D (Forward-Right Curve)...');
+  console.log('Testing W+D (Forward-Right Curve, clockwise)...');
   await resetProbePose();
   const yawBeforeWD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyW');
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(1000);
   const forwardRightDebug = await page.evaluate(() => window.__gameDebug);
-  assert.ok(angleDelta(forwardRightDebug.pose.yaw, yawBeforeWD) < -0.03, 'W+D must produce a right-curving trajectory');
+  assert.ok(angleDelta(forwardRightDebug.pose.yaw, yawBeforeWD) < -0.03, 'W+D must produce a clockwise curving trajectory');
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(300);
 
-  // 8. Reverse keyboard steering follows driving-game path curvature.
-  console.log('Testing S+A (Reverse Clockwise Curve)...');
+  // 8. Reverse keeps steering nose-relative: S+A still turns the nose anticlockwise.
+  console.log('Testing S+A (reverse, nose-left anticlockwise curve)...');
   await resetProbePose();
   const yawBeforeSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(1000);
   const yawDuringSA = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Clockwise)`);
-  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) < -0.03, 'S+A must curve clockwise while reversing');
+  console.log(`Yaw before S+A: ${yawBeforeSA.toFixed(3)}, Yaw during S+A: ${yawDuringSA.toFixed(3)} (Delta: ${(yawDuringSA - yawBeforeSA).toFixed(3)} -> Nose Anticlockwise)`);
+  assert.ok(angleDelta(yawDuringSA, yawBeforeSA) > 0.03, 'S+A must turn the robot nose anticlockwise while reversing');
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);
 
-  console.log('Testing S+D (Reverse Counter-clockwise Curve)...');
+  console.log('Testing S+D (reverse, nose-right clockwise curve)...');
   await resetProbePose();
   const yawBeforeSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(1000);
   const yawDuringSD = await page.evaluate(() => window.__gameDebug?.pose?.yaw || 0);
-  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Counter-clockwise)`);
-  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) > 0.03, 'S+D must curve counter-clockwise while reversing');
+  console.log(`Yaw before S+D: ${yawBeforeSD.toFixed(3)}, Yaw during S+D: ${yawDuringSD.toFixed(3)} (Delta: ${(yawDuringSD - yawBeforeSD).toFixed(3)} -> Nose Clockwise)`);
+  assert.ok(angleDelta(yawDuringSD, yawBeforeSD) < -0.03, 'S+D must turn the robot nose clockwise while reversing');
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyS');
   await page.waitForTimeout(300);

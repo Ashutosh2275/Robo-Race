@@ -111,13 +111,14 @@ export function integrateDrive(
   state.vx = forward.x * longitudinal + rightAxis.x * lateral;
   state.vz = forward.z * longitudinal + rightAxis.z * lateral;
 
-  // In the scene's +Z-forward convention, positive yaw points to +X (right).
-  // A left turn therefore has negative yaw. When the right belt is faster,
-  // the chassis rotates left: the sign is (leftForce - rightForce).
-  // Yaw follows actual traction-limited force difference, not a separate
-  // steering animation, so low-grip turns lose authority naturally.
+  // Canonical steering convention:
+  // When the right belt is faster (rightForce > leftForce), the chassis rotates
+  // ANTICLOCKWISE (nose turns left, yaw increases: +Delta yaw).
+  // When the left belt is faster (leftForce > rightForce), the chassis rotates
+  // CLOCKWISE (nose turns right, yaw decreases: -Delta yaw).
+  // Yaw follows actual traction-limited force difference, so low-grip surfaces lose authority naturally.
   const angularTarget = config.motorAcceleration > 0
-    ? (leftForce - rightForce) / config.motorAcceleration * config.turnRate
+    ? (rightForce - leftForce) / config.motorAcceleration * config.turnRate
     : 0;
   const angularBlend = 1 - Math.exp(-config.turnResponse * dt);
   state.angular += (angularTarget - state.angular) * angularBlend;

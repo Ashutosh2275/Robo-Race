@@ -13,6 +13,7 @@ import {
   ROBOT_HALF_WIDTH,
   ROBOT_HALF_LENGTH,
   getFootprintAabbHalfExtents,
+  vehicleBarrierPenetration,
 } from './vehicleDynamics.ts';
 
 const flatGround = () => 0.03;
@@ -54,6 +55,21 @@ test('collision envelope rotates with the robot rather than remaining a fixed sq
   assert.ok(Math.abs(facingForward.z - ROBOT_HALF_LENGTH) < 1e-8);
   assert.ok(Math.abs(facingRight.x - ROBOT_HALF_LENGTH) < 1e-8);
   assert.ok(Math.abs(facingRight.z - ROBOT_HALF_WIDTH) < 1e-8);
+});
+
+test('barrier collision uses oriented footprints and returns full depenetration distance', () => {
+  const wall = { x: 0, z: 0, hx: 0.1, hz: 1.0, rot: 0 };
+  const shallowHit = vehicleBarrierPenetration(0.9, 0, Math.PI / 2, wall);
+  assert.ok(shallowHit, 'the front of the robot should contact a thin wall');
+  assert.ok(Math.abs(shallowHit.nx - 1) < 1e-6 && Math.abs(shallowHit.nz) < 1e-6,
+    'normal should point out from the wall along the shortest separation axis');
+  assert.ok(Math.abs(shallowHit.depth - 0.05) < 1e-6, 'return the whole overlap, not a fixed tiny nudge');
+  assert.equal(vehicleBarrierPenetration(1.0, 0, Math.PI / 2, wall), null,
+    'a robot whose oriented front is clear must not hit the wall');
+
+  const rotatedWall = { x: 0, z: 0, hx: 0.1, hz: 1.0, rot: Math.PI / 2 };
+  const sideHit = vehicleBarrierPenetration(0, 0.95, Math.PI / 2, rotatedWall);
+  assert.ok(sideHit && sideHit.nz > 0.99, 'rotated barrier geometry must use its actual collider orientation');
 });
 
 test('isVehicleInverted detects upright vs inverted angles', () => {
@@ -168,4 +184,56 @@ test('recovery chooses the latest safe anchor and falls back from a blocked one'
   const latestSafe = getSafeRecoveryAnchor(8, anchors, anchor => anchor.id !== 'mixed_terrain');
   assert.equal(latestSafe.id, 'hazard_entry');
   assert.equal(getSafeRecoveryAnchor(0, anchors, () => false), null, 'no blocked location may be selected as a fallback');
+});
+
+test('rotating vehicle in place does not introduce gyroscopic pitch/roll twisting or rollover', () => {
+  // Test 360-degree rotation on flat ground: pitch and roll must stay strictly ~0
+  const poseFlat = makePose({ x: 0, z: 0, yaw: 0 });
+  for (let i = 0; i < 180; i++) {
+    // 3 seconds of pivoting in place at 2.1 rad/s
+    poseFlat.yaw += 2.1 * (1 / 60);
+    stepVehicle3D(poseFlat, flatGround, 0, 2.1, 1 / 60);
+    assert.equal(poseFlat.isFlipped, false, 'pivot turning must never flip on flat ground');
+    assert.ok(Math.abs(poseFlat.pitch) < 0.01, `pitch must not twist out during turn, got ${poseFlat.pitch}`);
+    assert.ok(Math.abs(poseFlat.roll) < 0.01, `roll must not twist out during turn, got ${poseFlat.roll}`);
+  }
+
+  // Test rotation on a 15-degree continuous slope: pitch/roll smoothly track ground without runaway
+  const slopeGround = (_x: number, z: number) => z * Math.tan(15 * Math.PI / 180);
+  const poseSlope = makePose({ x: 0, z: 0, yaw: 0 });
+  for (let i = 0; i < 240; i++) {
+    poseSlope.yaw += 1.8 * (1 / 60);
+    stepVehicle3D(poseSlope, slopeGround, 0.5, 1.8, 1 / 60);
+    assert.equal(poseSlope.isFlipped, false, 'turning on a normal slope must never flip the vehicle');
+    assert.ok(Math.abs(poseSlope.pitch) <= 0.35, `pitch on 15 deg slope must stay within physical bound, got ${poseSlope.pitch}`);
+    assert.ok(Math.abs(poseSlope.roll) <= 0.35, `roll on 15 deg slope must stay within physical bound, got ${poseSlope.roll}`);
+  }
+});
+
+test('climbing an asymmetric rock obstacle exerts physical reaction yaw twist (broad twist)', () => {
+  // Ground with a raised rock on the left side: left track climbs h=0.15m, right track stays on 0m
+  const rockGroundLeft = (x: number, _z: number) => (x < 0 ? 0.15 : 0.0);
+  const pose = makePose({ x: 0, z: 0, yaw: 0 });
+  const initialYaw = pose.yaw;
+
+  // Move forward at 1.5 m/s over the asymmetric rock
+  for (let i = 0; i < 30; i++) {
+    stepVehicle3D(pose, rockGroundLeft, 1.5, 0, 1 / 60);
+  }
+
+  // Left track climbs rock -> left track retarded -> robot nose twists right (-yaw in Three.js)
+  assert.ok(pose.yaw < initialYaw, `expected nose to twist right (yaw < 0), got ${pose.yaw}`);
+  assert.ok(Math.abs(pose.yaw - initialYaw) > 0.04, `expected broad twist magnitude > 0.04 rad, got ${Math.abs(pose.yaw - initialYaw)}`);
+  assert.ok(pose.roll < 0, `left side up produces negative roll, got ${pose.roll}`);
+
+  // Ground with a raised rock on the right side: right track climbs h=0.15m
+  const rockGroundRight = (x: number, _z: number) => (x > 0 ? 0.15 : 0.0);
+  const pose2 = makePose({ x: 0, z: 0, yaw: 0 });
+  for (let i = 0; i < 30; i++) {
+    stepVehicle3D(pose2, rockGroundRight, 1.5, 0, 1 / 60);
+  }
+
+  // Right track climbs rock -> right track retarded -> robot nose twists left (+yaw in Three.js)
+  assert.ok(pose2.yaw > 0, `expected nose to twist left (yaw > 0), got ${pose2.yaw}`);
+  assert.ok(pose2.yaw > 0.04, `expected broad twist magnitude > 0.04 rad, got ${pose2.yaw}`);
 });

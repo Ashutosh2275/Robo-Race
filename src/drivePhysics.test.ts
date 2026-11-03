@@ -9,30 +9,31 @@ function state(overrides: Partial<DriveState> = {}): DriveState { return { x: 0,
 test('opposite track commands turn in place and left track forward turns right', () => {
   const s = state();
   integrateDrive(s, 1, -1, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(s.yaw > 0);
+  assert.ok(s.yaw < 0, `left forward + right reverse turns clockwise (negative yaw), got ${s.yaw}`);
   assert.ok(Math.abs(s.x) < .001 && Math.abs(s.z) < .001);
 });
 
 test('canonical left and right track commands turn in the intended directions', () => {
   const a = state();
-  // Normalized semantic steering remains +1 LEFT and -1 RIGHT.
+  // Normalized semantic steering: +1 LEFT turns ANTICLOCKWISE (positive yaw)
   const aTracks = mixDifferentialSteering(0, 1);
   integrateDrive(a, aTracks.left, aTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(a.yaw < 0, `canonical LEFT should produce negative yaw in +Z convention, got ${a.yaw}`);
+  assert.ok(a.yaw > 0, `canonical A (anticlockwise) must produce positive yaw, got ${a.yaw}`);
 
   const d = state();
+  // Normalized semantic steering: -1 RIGHT turns CLOCKWISE (negative yaw)
   const dTracks = mixDifferentialSteering(0, -1);
   integrateDrive(d, dTracks.left, dTracks.right, asphalt, { x: 0, z: 0 }, config, .1);
-  assert.ok(d.yaw > 0, `canonical RIGHT should produce positive yaw in +Z convention, got ${d.yaw}`);
+  assert.ok(d.yaw < 0, `canonical D (clockwise) must produce negative yaw, got ${d.yaw}`);
 });
 
 test('full throttle plus steering produces a responsive arc instead of a wide drift', () => {
   const s = state();
-  // Canonical semantic steering: +1 is LEFT (Key A)
+  // Canonical semantic steering: +1 is LEFT (Key A, anticlockwise)
   const tracks = mixDifferentialSteering(1, 1);
   for (let i = 0; i < 60; i++) integrateDrive(s, tracks.left, tracks.right, asphalt, { x: 0, z: 0 }, config, 1 / 120);
-  assert.ok(s.yaw < -.3, `expected a clear left arc, got ${s.yaw.toFixed(3)} rad`);
-  assert.ok(s.x < 0, 'robot should make forward progress along its left-turning arc');
+  assert.ok(s.yaw > .3, `expected a clear anticlockwise arc, got ${s.yaw.toFixed(3)} rad`);
+  assert.ok(s.x > 0, 'robot should make forward progress along its anticlockwise turning arc');
 });
 
 test('gravity accelerates a neutral robot downhill along the ground tangent', () => {
@@ -84,7 +85,7 @@ test('limited surface grip also reduces turning authority while the belts keep s
   const a = mixDifferentialSteering(0, 1);
   integrateDrive(asphaltState, a.left, a.right, asphalt, { x: 0, z: 0 }, config, .1);
   const slick = integrateDrive(slickState, a.left, a.right, { grip: .18, rollingResistance: .1 }, { x: 0, z: 0 }, config, .1);
-  assert.ok(asphaltState.yaw < 0);
+  assert.ok(asphaltState.yaw > 0, `asphaltState left turn must produce positive anticlockwise yaw, got ${asphaltState.yaw}`);
   assert.ok(Math.abs(slickState.yaw) < Math.abs(asphaltState.yaw));
   assert.ok(slick.motorSlip > 0);
   assert.ok(slick.trackSpeedLeft < 0 && slick.trackSpeedRight > 0);

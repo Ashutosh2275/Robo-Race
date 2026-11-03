@@ -551,10 +551,12 @@ export class UniversalController {
           if (this.config.invertSteering || profile.invertSteering) rawSteering = -rawSteering;
           semanticSteering = this.applyDeadzoneAndExpo(rawSteering - profile.centerOffsetSteering, profile.deadzone, profile.expo);
 
-          // Canonical differential mix: vL = v - s*k, vR = v + s*k
+          // Differential mix: in reverse (semanticThrottle < -0.05), steering left rotates clockwise, right rotates anti-clockwise
+          const isReverse = semanticThrottle < -0.05;
+          const effectiveSteering = isReverse ? -semanticSteering : semanticSteering;
           const isPivot = Math.abs(semanticThrottle) < 0.05 && Math.abs(semanticSteering) > 0.05;
           const steerMix = (isPivot ? this.tuning.pivotSensitivity : this.tuning.steeringSensitivity) * this.config.sensitivity;
-          const mixed = mixThrottleSteering(semanticThrottle, semanticSteering, steerMix);
+          const mixed = mixThrottleSteering(semanticThrottle, effectiveSteering, steerMix);
 
           left = mixed.left;
           right = mixed.right;
@@ -592,7 +594,9 @@ export class UniversalController {
         const thr = this.applyDeadzoneAndExpo(rawThr);
         const steer = this.applyDeadzoneAndExpo(rawSteer);
 
-        const mixed = mixThrottleSteering(thr, steer, this.tuning.steeringSensitivity * this.config.sensitivity);
+        const isReverse = thr < -0.05;
+        const effectiveSteer = isReverse ? -steer : steer;
+        const mixed = mixThrottleSteering(thr, effectiveSteer, this.tuning.steeringSensitivity * this.config.sensitivity);
         outputs.leftTrack = mixed.left;
         outputs.rightTrack = mixed.right;
         outputs.throttle = thr;
