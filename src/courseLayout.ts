@@ -38,6 +38,9 @@ export const PARALLEL_PLANK_CENTERS = [
   { x: -7.35, z: PARALLEL_PLANK_CENTER_Z + PARALLEL_PLANK_SPACING_LOCAL / 2 },
 ] as const;
 
+export const TURNTABLE_CENTER = { x: 10.65, z: 0.1 } as const;
+export const TURNTABLE_RADIUS = 2.45; // Enlarged from 1.48m to 2.45m (~4.90m diameter, >3.2x robot width)
+
 /** Route centreline in course-local metres. The road is built from this path
  * before obstacle modules are placed, so every section has a continuous base. */
 // A wider driving envelope keeps the robot's full track covers clear while
@@ -471,10 +474,10 @@ export function evaluateCourseHeight(x: number, z: number): number {
 
   // Rotating industrial turntable platform at x = 10.65, z = 0.1
   // Monolithic level platter (flush with road deck) with smooth perimeter bevel
-  const discR = Math.hypot(x - 10.65, z - 0.1);
-  if (discR <= 1.48) {
-    if (discR > 1.32) {
-      const t = (discR - 1.32) / 0.16;
+  const discR = Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z);
+  if (discR <= TURNTABLE_RADIUS + 0.08) {
+    if (discR > TURNTABLE_RADIUS - 0.14) {
+      const t = (discR - (TURNTABLE_RADIUS - 0.14)) / 0.22;
       return (ROUTE_DECK_HEIGHT + 0.04) * (1 - t) + ROUTE_DECK_HEIGHT * t;
     }
     return ROUTE_DECK_HEIGHT + 0.04;
@@ -656,9 +659,9 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
     return { grip: 0.45, rollingResistance: 1.85, hazard: 'none' };
   }
 
-  // Rotating disc
-  if (Math.hypot(x - 10.65, z - 0.1) < 1.35) {
-    return { grip: 0.82, rollingResistance: 0.42, hazard: 'none' };
+  // Rotating mechanical turntable disc (high-traction steel diamond plate)
+  if (Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z) <= TURNTABLE_RADIUS) {
+    return { grip: 0.92, rollingResistance: 0.35, hazard: 'none' };
   }
 
   // Mixed terrain stretch at z ~ 0
@@ -692,7 +695,7 @@ export const CHECKPOINTS: CheckpointGate[] = [
   { id: 4, label: 'Gate 04 - Ramp Approach', x: 4.4, z: 8.0, yaw: Math.PI / 2, width: 6.4 },
   { id: 5, label: 'Gate 05 - Bridge Crest', x: 9.6, z: 8.0, yaw: Math.PI / 2, width: 6.4 },
   { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.atan2(1.5, -4.5), width: 7.0 },
-  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: -Math.PI / 2, width: 6.4 },
+  { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: -Math.PI / 2, width: 7.2 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 6.4 },
   { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: -Math.PI / 2, width: 6.4 },
   { id: 10, label: 'Gate 10 - Hairpin Complex', x: -7.5, z: -8.0, yaw: Math.PI / 2, width: 6.4 },

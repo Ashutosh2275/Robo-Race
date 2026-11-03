@@ -337,3 +337,113 @@ export function applyRecovery(
   pose.isFlipped = false;
   pose.flippedTimer = 0;
 }
+
+export type TurntableSurfaceState = {
+  centerX: number;
+  centerZ: number;
+  radius: number;
+  omega: number; // rad/s
+};
+
+/**
+ * Returns rotation speed in rad/s configured by race difficulty.
+ */
+export function getTurntableOmega(difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | 'Pro'): number {
+  switch (difficulty) {
+    case 'Beginner': return 0.28;      // ~2.7 RPM (stable, gentle rotation)
+    case 'Intermediate': return 0.48;  // ~4.6 RPM (competition standard)
+    case 'Advanced': return 0.75;      // ~7.2 RPM (challenging slip)
+    case 'Pro': return 1.05;           // ~10.0 RPM (intense drift & centrifugal challenge)
+  }
+}
+
+/**
+ * Genuine physical interaction between the rotating platform and the robot chassis.
+ * When on the platform:
+ * 1. Deck rotation imparts linear tangential surface velocity via track contact friction.
+ * 2. Asymmetric track surface speed creates genuine rotational torque aligning yaw heading.
+ * 3. Centrifugal tendency exerts radial outward acceleration allowing authentic drift/slip.
+ * 4. Rim bevel smoothly transitions friction coupling onto and off the platform without popping.
+ */
+export function applyTurntableSurfaceInteraction(
+  robotWorldX: number,
+  robotWorldZ: number,
+  robotVx: number,
+  robotVz: number,
+  robotYaw: number,
+  robotYawRate: number,
+  turntable: TurntableSurfaceState,
+  effectiveGrip: number,
+  dt: number,
+  mapScale = 1.3
+) {
+  const worldCenterX = turntable.centerX * mapScale;
+  const worldCenterZ = turntable.centerZ * mapScale;
+  const worldRadius = turntable.radius * mapScale;
+
+  const dx = robotWorldX - worldCenterX;
+  const dz = robotWorldZ - worldCenterZ;
+  const dist = Math.hypot(dx, dz);
+
+  if (dist > worldRadius) {
+    return {
+      vx: robotVx,
+      vz: robotVz,
+      yaw: robotYaw,
+      yawRate: robotYawRate,
+      onTurntable: false,
+      surfaceSpeed: 0,
+      centrifugalForce: 0,
+    };
+  }
+
+  // Tangential surface velocity vector of the rotating platter at robot's contact point:
+  // v_surf = omega x (p - c)
+  // In world axes where +X is East and +Z is South:
+  // With +Y rotation, a point at (+dx, +dz) moves with:
+  // vSurfX = omega * dz
+  // vSurfZ = -omega * dx
+  const vSurfX = turntable.omega * dz;
+  const vSurfZ = -turntable.omega * dx;
+  const surfaceSpeed = Math.hypot(vSurfX, vSurfZ);
+
+  // Smooth edge blend over outer 0.28m of the rim
+  const blend = Math.max(0, Math.min(1, (worldRadius - dist) / 0.28));
+
+  // 1. Linear friction drag coupling:
+  // Surface friction pulls the robot tracks toward local deck velocity
+  const linearCoupling = Math.min(1, 4.8 * effectiveGrip * blend * dt);
+  const newVx = robotVx + (vSurfX - robotVx) * linearCoupling;
+  const newVz = robotVz + (vSurfZ - robotVz) * linearCoupling;
+
+  // 2. Rotational yaw torque coupling:
+  // Rotating deck under the dual track contact patches imparts authentic rotational torque
+  const yawCoupling = Math.min(1, 3.8 * effectiveGrip * blend * dt);
+  const newYawRate = robotYawRate + (turntable.omega - robotYawRate) * yawCoupling;
+  const newYaw = robotYaw + newYawRate * dt;
+
+  // 3. Centrifugal outward radial acceleration:
+  let finalVx = newVx;
+  let finalVz = newVz;
+  let centrifugalForce = 0;
+  if (dist > 0.05) {
+    const centrifugalA = (turntable.omega * turntable.omega) * dist;
+    centrifugalForce = centrifugalA;
+    const maxCentripetalA = effectiveGrip * 9.81;
+    if (centrifugalA > maxCentripetalA * 0.40) {
+      const slipA = (centrifugalA - maxCentripetalA * 0.40) * 0.38 * blend;
+      finalVx += (dx / dist) * slipA * dt;
+      finalVz += (dz / dist) * slipA * dt;
+    }
+  }
+
+  return {
+    vx: finalVx,
+    vz: finalVz,
+    yaw: newYaw,
+    yawRate: newYawRate,
+    onTurntable: true,
+    surfaceSpeed,
+    centrifugalForce,
+  };
+}

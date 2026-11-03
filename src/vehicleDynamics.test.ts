@@ -14,6 +14,8 @@ import {
   ROBOT_HALF_LENGTH,
   getFootprintAabbHalfExtents,
   vehicleBarrierPenetration,
+  getTurntableOmega,
+  applyTurntableSurfaceInteraction,
 } from './vehicleDynamics.ts';
 
 const flatGround = () => 0.03;
@@ -236,4 +238,82 @@ test('climbing an asymmetric rock obstacle exerts physical reaction yaw twist (b
   // Right track climbs rock -> right track retarded -> robot nose twists left (+yaw in Three.js)
   assert.ok(pose2.yaw > 0, `expected nose to twist left (yaw > 0), got ${pose2.yaw}`);
   assert.ok(pose2.yaw > 0.04, `expected broad twist magnitude > 0.04 rad, got ${pose2.yaw}`);
+});
+
+test('getTurntableOmega returns ascending angular rotation speeds across difficulty tiers', () => {
+  const b = getTurntableOmega('Beginner');
+  const i = getTurntableOmega('Intermediate');
+  const a = getTurntableOmega('Advanced');
+  const p = getTurntableOmega('Pro');
+
+  assert.ok(b < i, 'Beginner speed must be slower than Intermediate');
+  assert.ok(i < a, 'Intermediate speed must be slower than Advanced');
+  assert.ok(a < p, 'Advanced speed must be slower than Pro');
+  assert.ok(b >= 0.20 && b <= 0.35, 'Beginner must provide stable, gentle rotation');
+  assert.ok(p >= 0.90 && p <= 1.20, 'Pro must provide high-rpm competitive challenge');
+});
+
+test('applyTurntableSurfaceInteraction applies physical tangential dragging and yaw torque when on turntable', () => {
+  const turntable = {
+    centerX: 10.65,
+    centerZ: 0.1,
+    radius: 2.45,
+    omega: 0.50, // rad/s CCW
+  };
+  const scale = 1.3;
+  const worldCenterX = turntable.centerX * scale;
+  const worldCenterZ = turntable.centerZ * scale;
+
+  // 1. Robot stationary on the eastern sector of the turntable (+X from center)
+  // At (+dx, 0): deck surface moves south (-Z in Three.js convention: vSurfZ = -omega * dx)
+  const robotX = worldCenterX + 1.2;
+  const robotZ = worldCenterZ;
+  let vx = 0;
+  let vz = 0;
+  let yaw = 0;
+  let yawRate = 0;
+
+  // Step 30 frames at 60Hz
+  for (let step = 0; step < 30; step++) {
+    const res = applyTurntableSurfaceInteraction(
+      robotX, robotZ, vx, vz, yaw, yawRate,
+      turntable, 0.95, 1 / 60, scale
+    );
+    assert.equal(res.onTurntable, true);
+    vx = res.vx;
+    vz = res.vz;
+    yaw = res.yaw;
+    yawRate = res.yawRate;
+  }
+
+  // Robot must have acquired negative Z tangential velocity and positive yaw rate
+  assert.ok(vz < -0.20, `expected negative Z tangential drag, got vz=${vz}`);
+  assert.ok(yawRate > 0.20, `expected positive yawRate coupling from CCW turntable, got ${yawRate}`);
+  assert.ok(yaw > 0.05, `expected positive yaw advancement from CCW rotation, got ${yaw}`);
+
+  // 2. Robot located outside the turntable radius: must remain completely unaffected
+  const outsideX = worldCenterX + 10.0;
+  const outsideZ = worldCenterZ;
+  const outsideRes = applyTurntableSurfaceInteraction(
+    outsideX, outsideZ, 1.5, 0.0, 0.2, 0.0,
+    turntable, 0.95, 1 / 60, scale
+  );
+  assert.equal(outsideRes.onTurntable, false);
+  assert.equal(outsideRes.vx, 1.5);
+  assert.equal(outsideRes.vz, 0.0);
+  assert.equal(outsideRes.yaw, 0.2);
+  assert.equal(outsideRes.yawRate, 0.0);
+});
+
+test('turntable road envelope provides >= 2.5x robot width clearance', () => {
+  const turntableRadius = 2.45;
+  const scale = 1.3;
+  const worldDiameter = turntableRadius * 2 * scale;
+  const robotWidth = ROBOT_HALF_WIDTH * 2;
+
+  const clearanceRatio = worldDiameter / robotWidth;
+  assert.ok(
+    clearanceRatio >= 2.5 && clearanceRatio <= 3.5,
+    `turntable clearance ratio should be 2.5-3.5x robot width, got ${clearanceRatio.toFixed(2)}x`
+  );
 });

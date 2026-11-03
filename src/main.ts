@@ -16,6 +16,8 @@ import {
   getFootprintAabbHalfExtents,
   getContactPatches,
   vehicleBarrierPenetration,
+  getTurntableOmega,
+  applyTurntableSurfaceInteraction,
 } from './vehicleDynamics';
 import {
   createInitialSubsystems,
@@ -39,6 +41,8 @@ import {
   HILL_ENTRY_LINK,
   HILL_EXIT_LINK,
   PARALLEL_PLANK_CENTERS,
+  TURNTABLE_CENTER,
+  TURNTABLE_RADIUS,
   CHECKPOINTS,
   SLALOM_BLOCKS,
   SPEED_BREAKER_XS,
@@ -318,6 +322,7 @@ const mats = {
   black: new THREE.MeshStandardMaterial({ color: '#141618', roughness: 0.75, metalness: 0.15 }),
   rubber: new THREE.MeshStandardMaterial({ color: '#161917', roughness: 0.95, map: generateSurfaceTexture('#161917', ['#242926', '#101211'], 'chevron') }),
   metal: new THREE.MeshStandardMaterial({ color: '#5a646a', roughness: 0.35, metalness: 0.82 }),
+  chrome: new THREE.MeshStandardMaterial({ color: '#f8f9fa', roughness: 0.12, metalness: 0.98 }),
   wheel: new THREE.MeshStandardMaterial({ color: '#c8c5ba', roughness: 0.50, metalness: 0.45 }),
   wood: new THREE.MeshStandardMaterial({ color: '#7a5e42', roughness: 0.85, map: generateSurfaceTexture('#7a5e42', ['#8c6e4e', '#614831'], 'wood') }),
   red: new THREE.MeshStandardMaterial({ color: '#c82e25', roughness: 0.58 }),
@@ -705,7 +710,7 @@ function createRouteRibbon(
 
     // Centerline elevation governs the cross-section height uniformly
     // Suppress highway road markings inside off-road rock quarry, hazard zones, motorized turntable, and marble pit
-    const inTurntable = Math.hypot(p.x - 10.65, p.z - 0.1) <= 1.65;
+    const inTurntable = Math.hypot(p.x - TURNTABLE_CENTER.x, p.z - TURNTABLE_CENTER.z) <= TURNTABLE_RADIUS + 0.15;
     const inRockField = p.x >= 1.40 && p.x <= 4.60 && Math.abs(p.z) <= 1.35;
     const inHazardZone = p.x >= -10.6 && p.x <= -1.7 && Math.abs(p.z - (-4.0)) <= 1.8;
     const inMarblePit = p.x >= 11.8 && p.x <= 15.1 && p.z >= 2.8 && p.z <= 6.3;
@@ -1074,55 +1079,126 @@ for (const ox of [8.3, 9.6, 10.9]) {
 // CHECKPOINT 7: Motorized Industrial Turntable at x = 10.65, z = 0.1 (Ultra-Real 3D + 4D)
 // ---------------------------------------------------------------------------
 // 1. Monolithic Stationary Steel Pit Basin & Mounting Collar (Recessed into Apron)
-box(course, mats.concretePier, V(10.65, ROUTE_DECK_HEIGHT - 0.08, 0.1), V(3.3, 0.16, 3.3));
-// Outer machined steel coaming flange ring
-cyl(course, mats.metal, V(10.65, ROUTE_DECK_HEIGHT + 0.018, 0.1), 1.54, 0.05, 'y', 48);
+// Heavy reinforced concrete pit foundation pad supporting the widened 4.90m turntable
+box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT - 0.10, TURNTABLE_CENTER.z), V(5.6, 0.20, 5.6));
+// Outer machined steel coaming flange ring (outer rim diameter 5.24m, R = 2.62m)
+cyl(course, mats.metal, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.018, TURNTABLE_CENTER.z), 2.62, 0.055, 'y', 64);
 // Inner roller-bearing raceway ring
-cyl(course, mats.black, V(10.65, ROUTE_DECK_HEIGHT + 0.012, 0.1), 1.46, 0.045, 'y', 48);
+cyl(course, mats.black, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.012, TURNTABLE_CENTER.z), 2.52, 0.048, 'y', 64);
 // Beveled hazard transition rim
-cyl(course, mats.yellow, V(10.65, ROUTE_DECK_HEIGHT + 0.022, 0.1), 1.58, 0.015, 'y', 48);
+cyl(course, mats.yellow, V(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.022, TURNTABLE_CENTER.z), 2.68, 0.018, 'y', 64);
+
+// 32 Precision Chrome Roller Bearings seated inside the perimeter raceway trough
+const racewayBallGeo = new THREE.SphereGeometry(0.045, 12, 12);
+for (let b = 0; b < 32; b++) {
+  const theta = (b * Math.PI * 2) / 32;
+  const bx = TURNTABLE_CENTER.x + 2.52 * Math.cos(theta);
+  const bz = TURNTABLE_CENTER.z + 2.52 * Math.sin(theta);
+  const ballMesh = new THREE.Mesh(racewayBallGeo, mats.chrome);
+  ballMesh.position.set(bx, ROUTE_DECK_HEIGHT + 0.032, bz);
+  ballMesh.castShadow = true;
+  course.add(ballMesh);
+}
+
+// Perimeter 32 alternating yellow and black hazard marking segments on pit rim
+for (let h = 0; h < 32; h++) {
+  const theta = (h * Math.PI * 2) / 32;
+  const hx = TURNTABLE_CENTER.x + 2.65 * Math.cos(theta);
+  const hz = TURNTABLE_CENTER.z + 2.65 * Math.sin(theta);
+  box(course, h % 2 === 0 ? mats.yellow : mats.black, V(hx, ROUTE_DECK_HEIGHT + 0.035, hz), V(0.18, 0.012, 0.48), theta, false);
+}
+
+// Heavy electric motor drive pod mounted on stationary coaming (east rim)
+box(course, mats.charcoal, V(TURNTABLE_CENTER.x + 2.74, ROUTE_DECK_HEIGHT + 0.22, TURNTABLE_CENTER.z), V(0.55, 0.44, 0.45));
+cyl(course, mats.metal, V(TURNTABLE_CENTER.x + 2.50, ROUTE_DECK_HEIGHT + 0.12, TURNTABLE_CENTER.z), 0.16, 0.18, 'y', 16);
+box(course, mats.yellow, V(TURNTABLE_CENTER.x + 2.74, ROUTE_DECK_HEIGHT + 0.46, TURNTABLE_CENTER.z), V(0.40, 0.04, 0.35), 0, false);
 
 // 2. Rotating Turntable Platter (inside discGroup)
 const discGroup = new THREE.Group();
-discGroup.position.set(10.65, ROUTE_DECK_HEIGHT + 0.025, 0.1);
+discGroup.position.set(TURNTABLE_CENTER.x, ROUTE_DECK_HEIGHT + 0.025, TURNTABLE_CENTER.z);
 course.add(discGroup);
 
-// Main heavy industrial diamond-plate steel platter (diameter 2.8m, flush with track surface)
-cyl(discGroup, mats.diamondPlate, V(0, 0.018, 0), 1.40, 0.045, 'y', 48);
-// Machined steel perimeter drive gear rim
-cyl(discGroup, mats.metal, V(0, 0.010, 0), 1.43, 0.038, 'y', 48);
+// Main heavy industrial diamond-plate steel platter (diameter 4.90m, R = 2.45m, flush with track surface)
+cyl(discGroup, mats.diamondPlate, V(0, 0.020, 0), TURNTABLE_RADIUS - 0.01, 0.048, 'y', 64);
+// Machined steel perimeter drive gear rim with teeth
+cyl(discGroup, mats.metal, V(0, 0.010, 0), TURNTABLE_RADIUS + 0.02, 0.040, 'y', 64);
 
-// 16 Bold Alternating Industrial Hazard Wedges (High-visibility warning spinner)
+// 64 Machined gear teeth around perimeter rim
+const toothGeo = new THREE.BoxGeometry(0.04, 0.035, 0.06);
+for (let gt = 0; gt < 64; gt++) {
+  const gAngle = (gt * Math.PI * 2) / 64;
+  const toothMesh = new THREE.Mesh(toothGeo, mats.metal);
+  toothMesh.position.set((TURNTABLE_RADIUS + 0.02) * Math.cos(gAngle), 0.018, (TURNTABLE_RADIUS + 0.02) * Math.sin(gAngle));
+  toothMesh.rotation.y = -gAngle;
+  discGroup.add(toothMesh);
+}
+
+// 16 Bold Alternating Industrial Hazard Wedges (High-visibility warning spinner spanning R=0.65m to 2.36m)
 for (let a = 0; a < 16; a++) {
   const t = a * Math.PI / 8;
-  box(discGroup, a % 2 ? mats.black : mats.yellow, V(Math.sin(t) * 0.88, 0.044, Math.cos(t) * 0.88), V(0.22, 0.008, 0.94), t, false);
+  const wedgeDist = 1.48;
+  box(discGroup, a % 2 ? mats.black : mats.yellow, V(Math.sin(t) * wedgeDist, 0.046, Math.cos(t) * wedgeDist), V(0.38, 0.008, 1.74), t, false);
+}
+
+// 8 Radial structural steel stiffener ribs radiating from hub to outer rim
+for (let r = 0; r < 8; r++) {
+  const rt = r * Math.PI / 4;
+  box(discGroup, mats.metal, V(Math.sin(rt) * 1.45, 0.048, Math.cos(rt) * 1.45), V(0.05, 0.014, 1.80), rt, false);
+}
+
+// 8 Directional amber warning chevrons / arrows on deck showing spin direction
+for (let ar = 0; ar < 8; ar++) {
+  const at = ar * Math.PI / 4 + Math.PI / 8;
+  const ax = 1.95 * Math.sin(at);
+  const az = 1.95 * Math.cos(at);
+  const arrowMesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.32, 3), mats.beaconAmber);
+  arrowMesh.position.set(ax, 0.052, az);
+  arrowMesh.rotation.x = Math.PI / 2;
+  arrowMesh.rotation.z = -at + Math.PI / 2;
+  discGroup.add(arrowMesh);
 }
 
 // 3. Heavy Industrial Center Bearing Spindle Hub
-cyl(discGroup, mats.metal, V(0, 0.050, 0), 0.36, 0.035, 'y', 32);
-cyl(discGroup, mats.wheel, V(0, 0.072, 0), 0.20, 0.025, 'y', 24);
-// 12 Chrome hex bolts in bolt circle
-for (let b = 0; b < 12; b++) {
-  const bt = b * Math.PI / 6;
-  cyl(discGroup, mats.metal, V(Math.sin(bt) * 0.28, 0.070, Math.cos(bt) * 0.28), 0.022, 0.02, 'y', 8);
+cyl(discGroup, mats.metal, V(0, 0.055, 0), 0.55, 0.042, 'y', 36);
+cyl(discGroup, mats.chrome, V(0, 0.082, 0), 0.38, 0.035, 'y', 32);
+cyl(discGroup, mats.wheel, V(0, 0.105, 0), 0.24, 0.030, 'y', 24);
+// 16 Chrome hex bolts in bolt circle (R = 0.44m)
+for (let b = 0; b < 16; b++) {
+  const bt = b * Math.PI / 8;
+  cyl(discGroup, mats.metal, V(Math.sin(bt) * 0.44, 0.085, Math.cos(bt) * 0.44), 0.026, 0.03, 'y', 8);
 }
-// 4 Embedded rotating amber navigation markers at platter perimeter
-for (let m = 0; m < 4; m++) {
-  const mt = m * Math.PI / 2;
-  cyl(discGroup, mats.beaconAmber, V(Math.sin(mt) * 1.25, 0.045, Math.cos(mt) * 1.25), 0.045, 0.020, 'y', 12);
+// Central rotary slip-ring beacon housing
+cyl(discGroup, mats.metal, V(0, 0.135, 0), 0.12, 0.05, 'y', 16);
+const discCenterBeacon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.10, 16), mats.beaconAmber);
+discCenterBeacon.position.set(0, 0.19, 0);
+discGroup.add(discCenterBeacon);
+
+// 8 Embedded rotating amber navigation markers at platter perimeter (R = 2.32m)
+for (let m = 0; m < 8; m++) {
+  const mt = m * Math.PI / 4;
+  cyl(discGroup, mats.beaconAmber, V(Math.sin(mt) * 2.32, 0.048, Math.cos(mt) * 2.32), 0.055, 0.022, 'y', 12);
 }
 
 // 4. Heavy Structural Pier Bent Anchored to Arena Floor
 const discLegHeight = ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT;
-cyl(course, mats.metal, V(10.65, ARENA_FLOOR_HEIGHT + discLegHeight / 2, 0.1), 0.50, discLegHeight, 'y', 24);
-box(course, mats.concretePier, V(10.65, ARENA_FLOOR_HEIGHT + 0.25, 0.1), V(1.4, 0.5, 1.4));
+// Massive central reinforced concrete support column
+cyl(course, mats.concretePier, V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + discLegHeight / 2, TURNTABLE_CENTER.z), 0.75, discLegHeight, 'y', 32);
+// Octagonal footing base pad on arena floor
+box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + 0.25, TURNTABLE_CENTER.z), V(2.2, 0.5, 2.2));
+// 4 Diagonal structural steel outrigger cantilever struts supporting outer pit rim
+for (let o = 0; o < 4; o++) {
+  const oAngle = o * Math.PI / 2 + Math.PI / 4;
+  const oRimX = TURNTABLE_CENTER.x + 2.30 * Math.cos(oAngle);
+  const oRimZ = TURNTABLE_CENTER.z + 2.30 * Math.sin(oAngle);
+  tubeBetween(V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + 0.40, TURNTABLE_CENTER.z), V(oRimX, ROUTE_DECK_HEIGHT - 0.08, oRimZ), 0.10, mats.metal);
+}
 
 // ---------------------------------------------------------------------------
 // CHECKPOINT 6: Marble Chicane, Stepping Platforms & Turn Shelf (Ultra-Real 3D + 4D)
 // ---------------------------------------------------------------------------
 // 0. Monolithic Engineered Concrete Turn Plaza Deck (seals CP5 Bridge Descent to CP6 and CP7 Turntable)
-const apronX0 = 9.8, apronX1 = 17.2;
-const apronZ0 = -2.0, apronZ1 = 11.0;
+const apronX0 = 7.6, apronX1 = 17.5;
+const apronZ0 = -3.2, apronZ1 = 11.0;
 const apronW = apronX1 - apronX0;
 const apronD = apronZ1 - apronZ0;
 const apronCenterX = (apronX0 + apronX1) / 2;
@@ -1138,9 +1214,9 @@ const apronWallArc = [
   { x: 15.6, z: 9.6 },
   { x: 16.8, z: 6.8 },
   { x: 16.8, z: 2.8 },
-  { x: 15.8, z: 0.2 },
-  { x: 13.8, z: -1.8 },
-  { x: 10.5, z: -1.8 },
+  { x: 16.0, z: -0.5 },
+  { x: 14.5, z: -3.2 },
+  { x: 7.6, z: -3.2 },
 ];
 for (let w = 0; w < apronWallArc.length - 1; w++) {
   const wa = apronWallArc[w], wb = apronWallArc[w + 1];
@@ -2035,8 +2111,9 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   // Standardized proportional gantry spans tailored to exact corridor widths
   // Gates 01, 02, 03, 04, 05, 08, 09, 11 span the 6.0m roadway: 6.6m span
   // Gate 06 (Marble Pit Turn): 7.4m span to clear the full diagonal turn envelope
-  // Gate 07 (Turntable) & Gate 10 (Parallel Planks): 4.4m span
-  const gantrySpan = (i === 6 || i === 9) ? 4.4 : (i === 5 ? 7.4 : 6.6);
+  // Gate 07 (Turntable): 7.2m span to clear the enlarged 4.9m rotating deck and corridor
+  // Gate 10 (Parallel Planks): 4.4m span
+  const gantrySpan = i === 6 ? 7.2 : (i === 9 ? 4.4 : (i === 5 ? 7.4 : 6.6));
   const halfSpan = gantrySpan / 2;
   const towerH = 2.85;
   for (const side of [-1, 1]) {
@@ -2461,6 +2538,7 @@ let raceState: 'menu' | 'countdown' | 'racing' | 'paused' | 'finished' | 'failed
 let elapsed = 0;
 let penaltyTime = 0;
 let countdown = 0;
+let turntableCurrentOmega = 0.48; // rad/s mechanical turntable rotation speed
 let currentCheckpoint = 0;
 let cameraMode = 0; // Selected home view; free-look is available in every view.
 let cameraOrbitYaw = pose.yaw + Math.PI;
@@ -3286,6 +3364,11 @@ function collidesWithBarrier(x: number, z: number, y: number) {
 };
 
 function stepPhysics(dt: number) {
+  // Continuous smooth mechanical turntable rotation (configurable by race difficulty)
+  const targetTurntableOmega = getTurntableOmega(config.difficulty as 'Beginner' | 'Intermediate' | 'Advanced' | 'Pro');
+  turntableCurrentOmega += (targetTurntableOmega - turntableCurrentOmega) * (1 - Math.exp(-dt * 3.5));
+  discGroup.rotation.y += turntableCurrentOmega * dt;
+
   // Debug hook for automated verification
   (window as unknown as Record<string, unknown>).__gameDebug = {
     raceState,
@@ -3297,6 +3380,8 @@ function stepPhysics(dt: number) {
     routeClearanceAudit,
     slalomClearanceAudit,
     lastBarrierCollision,
+    turntableOmega: turntableCurrentOmega,
+    turntableRadius: TURNTABLE_RADIUS,
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
@@ -3376,6 +3461,38 @@ function stepPhysics(dt: number) {
     const obstacleTwistRate = -Math.sign(driveResult.longitudinalSpeed) * rockDiffH * 2.8;
     motionState.angular += (obstacleTwistRate - motionState.angular) * (1 - Math.exp(-dt * 6.0));
     motionState.yaw += obstacleTwistRate * dt;
+  }
+
+  // Genuine Motorized Mechanical Turntable Surface Interaction
+  // (transfers tangential deck velocity, yaw torque, and centrifugal drift to robot tracks)
+  if (!pose.isFlipped) {
+    const ttResult = applyTurntableSurfaceInteraction(
+      motionState.x,
+      motionState.z,
+      motionState.vx,
+      motionState.vz,
+      motionState.yaw,
+      motionState.angular,
+      {
+        centerX: TURNTABLE_CENTER.x,
+        centerZ: TURNTABLE_CENTER.z,
+        radius: TURNTABLE_RADIUS,
+        omega: turntableCurrentOmega,
+      },
+      effectiveGrip,
+      dt,
+      MAP_SCALE
+    );
+    if (ttResult.onTurntable) {
+      motionState.vx = ttResult.vx;
+      motionState.vz = ttResult.vz;
+      motionState.yaw = ttResult.yaw;
+      motionState.angular = ttResult.yawRate;
+      pose.vx = ttResult.vx;
+      pose.vz = ttResult.vz;
+      pose.yaw = ttResult.yaw;
+      pose.yawRate = ttResult.yawRate;
+    }
   }
 
   // Synchronize pose with planar motion
@@ -3480,6 +3597,8 @@ function stepPhysics(dt: number) {
     routeClearanceAudit,
     slalomClearanceAudit,
     lastBarrierCollision,
+    turntableOmega: turntableCurrentOmega,
+    turntableRadius: TURNTABLE_RADIUS,
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
       supportY: supportGroundY,
@@ -3812,9 +3931,6 @@ function animate() {
     stepPhysics(FIXED_DT);
     accumulator -= FIXED_DT;
   }
-
-  // Animate disc turntable
-  discGroup.rotation.y += frameTime * 0.45;
 
   const tSec = now * 0.001;
 
