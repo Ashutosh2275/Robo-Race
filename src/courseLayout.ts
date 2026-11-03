@@ -76,11 +76,16 @@ export const DRIVE_ROUTE: CoursePoint[] = [
   { x: 13.2, z: 0.9 },
   { x: 12.1, z: 0.1 },
   { x: 10.65, z: 0.1 }, // rotating disc
-  { x: 1.4, z: 0.0 },  // mixed terrain
+  { x: 4.0, z: 0.0 },   // rock field approach
+  { x: 1.4, z: 0.0 },   // rock field exit
+  { x: 0.4, z: -1.33 }, // sloped connecting platform
+  { x: -0.4, z: -2.67 }, // sloped connecting platform
+  { x: -1.2, z: -4.0 }, // fire entrance
   { x: -3.1, z: -4.0 }, // fire
-  { x: -4.8, z: -4.0 }, // short fire-to-water cooling crossing
-  { x: -7.0, z: -4.0 }, // narrow raised single-plank bridge
-  { x: -10.0, z: -4.0 }, // oil exit
+  { x: -4.4, z: -4.0 }, // short fire-to-water cooling crossing
+  { x: -7.4, z: -4.0 }, // deep water pool
+  { x: -10.4, z: -4.0 }, // water exit ramp
+  { x: -11.8, z: -4.0 }, // oil skid pad
   { x: -13.2, z: -4.0 },
   // Smooth U-turn shelf at radius 2m connects the oil lane to the twin planks.
   ...circularArc(-13.2, -6.0, 2.0, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
@@ -380,38 +385,52 @@ export type StoneData = {
 };
 
 /**
- * Generates stones bounded STRICTLY within designated rock field regions.
+ * Generates stones distributed across the entire usable width of the rock platform.
+ * Eliminates side empty strips by seeding stones in left, center, and right bands as well
+ * as across the general field, ensuring realistic, varied irregular geometry and passable paths.
  */
 export function generateRockFieldStones(seed = 20261027): StoneData[] {
   const rng = createDeterministicRNG(seed);
   const stones: StoneData[] = [];
 
-  // Designated rock field bounds: x in [1.5, 4.5], z in [-1.2, 1.2]
-  const count = 75;
-  for (let i = 0; i < count; i++) {
-    const x = 1.6 + rng() * 2.8;
-    const z = -1.1 + rng() * 2.2;
-    const sizeCategory = rng();
-    let s = 0.08;
-    if (sizeCategory > 0.7) {
-      s = 0.18 + rng() * 0.08; // large
-    } else if (sizeCategory > 0.35) {
-      s = 0.12 + rng() * 0.05; // medium
-    } else {
-      s = 0.06 + rng() * 0.04; // small
-    }
+  // Total 140 boulders distributed across usable width z in [-2.65, 2.65], x in [1.45, 4.55]
+  // Zone 1: Left lane and shoulder (z in [-2.65, -0.90]) - 35 stones
+  // Zone 2: Central corridor (z in [-1.00, 1.00]) - 40 stones
+  // Zone 3: Right lane and shoulder (z in [0.90, 2.65]) - 35 stones
+  // Zone 4: General uniform fill across full envelope - 30 stones
+  const zoneSpecs = [
+    { count: 35, zMin: -2.65, zMax: -0.90 },
+    { count: 40, zMin: -1.00, zMax: 1.00 },
+    { count: 35, zMin: 0.90, zMax: 2.65 },
+    { count: 30, zMin: -2.60, zMax: 2.60 },
+  ];
 
-    stones.push({
-      x,
-      y: 0.04 + s * 0.35,
-      z,
-      scaleX: s * (0.8 + rng() * 0.4),
-      scaleY: s * (0.6 + rng() * 0.5),
-      scaleZ: s * (0.8 + rng() * 0.4),
-      rotX: rng() * Math.PI,
-      rotY: rng() * Math.PI * 2,
-      rotZ: rng() * Math.PI,
-    });
+  for (const zone of zoneSpecs) {
+    for (let i = 0; i < zone.count; i++) {
+      const x = 1.45 + rng() * 3.10;
+      const z = zone.zMin + rng() * (zone.zMax - zone.zMin);
+      const sizeCategory = rng();
+      let s = 0.08;
+      if (sizeCategory > 0.72) {
+        s = 0.18 + rng() * 0.09; // large anchor boulder
+      } else if (sizeCategory > 0.35) {
+        s = 0.12 + rng() * 0.05; // medium obstacle stone
+      } else {
+        s = 0.06 + rng() * 0.04; // small embedded stone
+      }
+
+      stones.push({
+        x,
+        y: 0.035 + s * 0.35,
+        z,
+        scaleX: s * (0.8 + rng() * 0.4),
+        scaleY: s * (0.6 + rng() * 0.5),
+        scaleZ: s * (0.8 + rng() * 0.4),
+        rotX: rng() * Math.PI,
+        rotY: rng() * Math.PI * 2,
+        rotZ: rng() * Math.PI,
+      });
+    }
   }
 
   return stones;
@@ -424,7 +443,7 @@ export const ROCK_FIELD_STONES: StoneData[] = generateRockFieldStones(20261027);
  * Returns smooth parabolic dome height above route deck level at (x, z).
  */
 export function evaluateRockHeight(x: number, z: number): number {
-  if (x < 1.45 || x > 4.55 || z < -1.25 || z > 1.25) return 0;
+  if (x < 1.35 || x > 4.65 || Math.abs(z) > 2.75) return 0;
   let maxH = 0;
   for (let i = 0; i < ROCK_FIELD_STONES.length; i++) {
     const s = ROCK_FIELD_STONES[i];
@@ -446,9 +465,9 @@ export function evaluateRockHeight(x: number, z: number): number {
  * Evaluates course ground height at unscaled world coordinates.
  */
 export function evaluateCourseHeight(x: number, z: number): number {
-  // Natural Rock Field obstacle at x in [1.45, 4.55], z in [-1.25, 1.25]
+  // Natural Rock Field obstacle at x in [1.35, 4.65], z in [-2.75, 2.75]
   // Physical boulder heights create real roll tilt, pitch rise, and asymmetric drag yaw twist
-  if (x >= 1.45 && x <= 4.55 && Math.abs(z) <= 1.25) {
+  if (x >= 1.35 && x <= 4.65 && Math.abs(z) <= 2.75) {
     const rockH = evaluateRockHeight(x, z);
     return ROUTE_DECK_HEIGHT + rockH;
   }
@@ -532,14 +551,14 @@ export function evaluateCourseHeight(x: number, z: number): number {
   }
 
   // ---------------------------------------------------------------------------
-  // 45-DEGREE DESCENT RAMP: From elevated rock field exit to ground-level hazards
+  // ELEVATED SLOPED CONNECTING VIADUCT: Direct connection Rock Field -> Fire Obstacle
   // ---------------------------------------------------------------------------
-  // Connects the high-elevation viaduct (ROUTE_DECK_HEIGHT) to the arena floor (ARENA_FLOOR_HEIGHT).
-  // Real physics (gravity acceleration, pitch tilt, normal traction) applies on this steep slope.
+  // Connects rock field exit (via level transition deck) directly to elevated fire obstacle
+  // entrance (-1.2, -4.0) at fire platform height (0.38m).
+  // Zero disconnected gaps, zero floating meshes, and traversable engineered grade (~4.6 deg).
   {
-    // Direction vector from rock field exit (1.4, 0.0) to fire approach (-1.8, -4.0)
-    const ax = 1.4, az = 0.0;
-    const bx = -1.8, bz = -4.0;
+    const ax = 0.60, az = -0.90;
+    const bx = -1.20, bz = -4.00;
     const dx = bx - ax, dz = bz - az;
     const len = Math.hypot(dx, dz);
     const ux = dx / len, uz = dz / len;
@@ -547,39 +566,42 @@ export function evaluateCourseHeight(x: number, z: number): number {
     const dLat = Math.abs((x - ax) * (-uz) + (z - az) * ux);
 
     if (dLat <= DRIVE_ROUTE_WIDTH / 2) {
-      if (s >= 1.40 && s <= 2.45) {
-        // 45-degree descent ramp zone (length 1.05m, vertical drop 1.00m => ~45 degree peak grade)
-        const u = (s - 1.40) / 1.05;
+      if (s >= 0 && s <= len) {
+        const u = s / len;
         const eased = u * u * (3 - 2 * u);
-        return ROUTE_DECK_HEIGHT + (ARENA_FLOOR_HEIGHT - ROUTE_DECK_HEIGHT) * eased;
-      }
-      if (s > 2.45 && x > -1.8) {
-        // Bottom landing before fire zone on ground
-        return ARENA_FLOOR_HEIGHT;
+        return ROUTE_DECK_HEIGHT + (0.38 - ROUTE_DECK_HEIGHT) * eased;
       }
     }
   }
 
   // ---------------------------------------------------------------------------
-  // GROUND-LEVEL HAZARDS: Fire zone & Water basket touching the arena floor
+  // ELEVATED FIRE-RESISTANT PLATFORM & COOLING TRANSITION (x in [-4.4, -1.2])
   // ---------------------------------------------------------------------------
-  // 1. Fire Zone on the ground: x in [-3.8, -1.8], z in [-4.0 - width/2, -4.0 + width/2]
-  if (x >= -3.8 && x <= -1.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    return ARENA_FLOOR_HEIGHT + 0.02;
+  // Elevated refractory ceramic deck at y = 0.38m with heavy concrete piers
+  if (x >= -4.4 && x <= -1.2 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    return 0.38;
   }
 
-  // 2. Water Basket on the ground: x in [-5.8, -3.8], z in [-4.0 - width/2, -4.0 + width/2]
-  // Deep 0.5m industrial containment basket touching the ground bed; robot tracks roll firmly on floor
-  if (x >= -5.8 && x <= -3.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    return ARENA_FLOOR_HEIGHT + 0.02;
-  }
-
-  // 3. Exit Climb Ramp out of Water Basket: x in [-7.0, -5.8]
-  // Climbs from ground-level water bed up to elevated viaduct deck (ROUTE_DECK_HEIGHT)
-  if (x >= -7.0 && x < -5.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    const u = Math.max(0, Math.min(1, (-5.8 - x) / 1.20));
+  // ---------------------------------------------------------------------------
+  // DEEP WATER BASIN & ARCHIMEDES BUOYANCY POOL: x in [-10.4, -4.4], z ~ -4.0
+  // ---------------------------------------------------------------------------
+  // 1. Gradual Entry Ramp: x in [-5.4, -4.4] (slopes smoothly from 0.38m down into pool bed at -0.30m)
+  if (x >= -5.4 && x < -4.4 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    const u = Math.max(0, Math.min(1, (-4.4 - x) / 1.0));
     const eased = u * u * (3 - 2 * u);
-    return (ARENA_FLOOR_HEIGHT + 0.02) + (ROUTE_DECK_HEIGHT - (ARENA_FLOOR_HEIGHT + 0.02)) * eased;
+    return 0.38 + (-0.30 - 0.38) * eased;
+  }
+
+  // 2. Deep Central Pool Bed: x in [-9.0, -5.4] (floor at -0.30m, water surface at 0.16m => 0.46m water depth)
+  if (x >= -9.0 && x < -5.4 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    return -0.30;
+  }
+
+  // 3. Gradual Exit Climb Ramp: x in [-10.4, -9.0] (slopes from -0.30m up to viaduct deck ROUTE_DECK_HEIGHT 0.67m)
+  if (x >= -10.4 && x < -9.0 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    const u = Math.max(0, Math.min(1, (-9.0 - x) / 1.4));
+    const eased = u * u * (3 - 2 * u);
+    return -0.30 + (ROUTE_DECK_HEIGHT - (-0.30)) * eased;
   }
 
   // Sand / Marble pit recess at x in [11.9, 15.0], z in [2.9, 6.2]
@@ -587,15 +609,19 @@ export function evaluateCourseHeight(x: number, z: number): number {
     return ROUTE_DECK_HEIGHT + 0.02;
   }
 
-  // Oil is a very thin surface treatment, not a floating physics layer.
-  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
+  // High-Gloss Iridescent Oil Skid Pad (x in [-12.4, -10.4])
+  if (x >= -12.4 && x <= -10.4 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
     return ROUTE_DECK_HEIGHT + 0.02;
   }
 
   // Continuous solid turning apron connecting bridge descent (Checkpoint 5)
   // to marble pit (Checkpoint 6) and rotating disc platform (Checkpoint 7).
-  // Prevents inside-apex wheel drops and vehicle rollover.
-  if (x >= 9.8 && x <= 14.2 && z >= -0.2 && z <= 8.2) {
+  // Sweeps from x in [7.6, 17.2], z in [-3.2, 10.8] matching 3D concrete apron.
+  // Prevents inside-apex and outside-apex wheel drops and vehicle rollover.
+  if (x >= 7.6 && x <= 17.2 && z >= -3.2 && z <= 10.8) {
+    if (x >= 11.95 && x <= 14.85 && z >= 3.05 && z <= 5.95) {
+      return ROUTE_DECK_HEIGHT - 0.015;
+    }
     return ROUTE_DECK_HEIGHT;
   }
 
@@ -630,22 +656,23 @@ export function evaluateCourseSurface(x: number, z: number): SurfaceProperties {
   }
 
   // Mandatory Environmental Hazard Sequence: Fire -> Transition -> Water -> Oil
-  // 1. Fire Zone: x in [-3.8, -1.8], z in [-4.8, -3.2]
-  if (x >= -3.8 && x <= -1.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
+  // 1. Fire Zone: Elevated refractory hearth at x in [-3.6, -1.2], z in [-4.0 - width/2, -4.0 + width/2]
+  if (x >= -3.6 && x <= -1.2 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
     return { grip: 0.90, rollingResistance: 0.35, hazard: 'fire' };
   }
 
-  // 2. Water Zone: immediately after the fire, spanning the full driving lane.
-  if (x >= -5.8 && x <= -3.8 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
-    return { grip: 0.58, rollingResistance: 0.65, hazard: 'water' };
+  // Short Heat-Shield Cooling Bridge between fire exit and water entrance
+  if (x >= -4.4 && x < -3.6 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    return { grip: 0.88, rollingResistance: 0.32, hazard: 'none' };
   }
 
-  if (x >= -7.95 && x <= -6.05 && Math.abs(z - (-4.0)) <= 1.2) {
-    return { grip: 0.82, rollingResistance: 0.52, hazard: 'none' };
+  // 2. Deep Water Basin (Entry Ramp, 0.46m Deep Pool, and Exit Ramp): x in [-10.4, -4.4], z ~ -4.0
+  if (x >= -10.4 && x < -4.4 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
+    return { grip: 0.52, rollingResistance: 0.75, hazard: 'water' };
   }
 
-  // 3. Oil Slicks: x in [-10.5, -8.0], z in [-4.8, -3.2]
-  if (x >= -10.5 && x <= -8.0 && Math.abs(z - (-4.0)) < DRIVE_ROUTE_WIDTH / 2) {
+  // 3. Oil Slicks Pad: x in [-12.4, -10.4], z in [-4.0 - width/2, -4.0 + width/2]
+  if (x >= -12.4 && x < -10.4 && Math.abs(z - (-4.0)) <= DRIVE_ROUTE_WIDTH / 2) {
     return { grip: 0.18, rollingResistance: 0.12, hazard: 'oil' };
   }
 
@@ -694,7 +721,7 @@ export const CHECKPOINTS: CheckpointGate[] = [
   { id: 3, label: 'Gate 03 - Breakers Clear', x: 3.2, z: 8.0, yaw: Math.PI / 2, width: 6.4 },
   { id: 4, label: 'Gate 04 - Ramp Approach', x: 4.4, z: 8.0, yaw: Math.PI / 2, width: 6.4 },
   { id: 5, label: 'Gate 05 - Bridge Crest', x: 9.6, z: 8.0, yaw: Math.PI / 2, width: 6.4 },
-  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.atan2(1.5, -4.5), width: 7.0 },
+  { id: 6, label: 'Gate 06 - Marble Pit Turn', x: 13.2, z: 4.7, yaw: Math.PI, width: 7.0 },
   { id: 7, label: 'Gate 07 - Rotating Platform', x: 10.65, z: 0.1, yaw: -Math.PI / 2, width: 7.2 },
   { id: 8, label: 'Gate 08 - Mixed Terrain', x: 1.4, z: 0.0, yaw: -Math.PI / 2, width: 6.4 },
   { id: 9, label: 'Gate 09 - Hazard Sequence', x: -3.1, z: -4.0, yaw: -Math.PI / 2, width: 6.4 },

@@ -18,6 +18,7 @@ import {
   vehicleBarrierPenetration,
   getTurntableOmega,
   applyTurntableSurfaceInteraction,
+  evaluateWaterBuoyancy,
 } from './vehicleDynamics';
 import {
   createInitialSubsystems,
@@ -340,18 +341,15 @@ const mats = {
   trussWhite: new THREE.MeshStandardMaterial({ color: '#f1f3f5', roughness: 0.40, metalness: 0.60 }),
   concretePier: new THREE.MeshStandardMaterial({ color: '#52585c', roughness: 0.92, map: generateSurfaceTexture('#52585c', ['#60666a', '#44494c'], 'stone') }),
   oil: new THREE.MeshStandardMaterial({ color: '#0d1318', roughness: 0.08, metalness: 0.88, map: oilSlickTexture }),
-  water: new THREE.MeshPhysicalMaterial({
-    color: '#095568',
-    emissive: '#021820',
-    roughness: 0.005,
-    metalness: 0.02,
-    transmission: 0.92,
-    ior: 1.333,
+  water: new THREE.MeshStandardMaterial({
+    color: '#0e7e9e',
+    emissive: '#04222c',
+    roughness: 0.04,
+    metalness: 0.16,
     transparent: true,
-    opacity: 0.88,
-    reflectivity: 0.99,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.01,
+    opacity: 0.78,
+    depthWrite: false,
+    side: THREE.DoubleSide,
   }),
   waterFoam: new THREE.MeshStandardMaterial({
     color: '#e0f7fa',
@@ -781,10 +779,9 @@ function createRouteRibbon(
 // By segmenting the visual circuit into continuous linear corridors and terminating
 // each leg before the 180° hairpin turn plazas, we eliminate inverted miter normals,
 // self-intersecting polygon fans, and folded origami pleats completely.
-// Corridor 1: Start gate along Lane 1 through Slalom, Breakers, Curved Ramp, Bridge, Marble Pit, Turntable, and Rock Field to the crest of the 45-degree descent ramp
+// Corridor 1: Start gate along Lane 1 through Slalom, Breakers, Curved Ramp, Bridge, Marble Pit, Turntable, and Rock Field to the rock field exit (1.4, 0.0)
 const corridor1: CoursePoint[] = [
   ...DRIVE_ROUTE.slice(0, 15),
-  { x: 0.52, z: -1.09 },
 ];
 // Corridor 2b: From the top of the water basket exit climb ramp through oil hazard to Hairpin 1
 const corridor2b: CoursePoint[] = [
@@ -1421,7 +1418,7 @@ const rockMats = [mats.granite, mats.basalt, mats.riverStone, mats.limestone, ma
 
 // Natural Boulder Quarry Bed & Substrate Base along z ~ 0 (x in [1.35, 4.65])
 // Monolithic dark crushed aggregate bed eliminating harsh seam cuts and covering asphalt completely
-box(course, mats.gravelBed, V(3.0, ROUTE_DECK_HEIGHT + 0.025, 0), V(3.3, 0.045, DRIVE_ROUTE_WIDTH - 0.15));
+box(course, mats.gravelBed, V(3.0, ROUTE_DECK_HEIGHT + 0.025, 0), V(3.4, 0.045, DRIVE_ROUTE_WIDTH - 0.15));
 
 // Smooth bevelled crushed stone lead-in and exit ramps (eliminates harsh box-cut seams)
 slopedDeck('rock_bed_entry_ramp', 1.20, 1.40, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT + 0.035, 0.03, mats.gravelBed);
@@ -1430,10 +1427,20 @@ slopedDeck('rock_bed_exit_ramp', 4.60, 4.80, 0, DRIVE_ROUTE_WIDTH - 0.20, ROUTE_
 // Natural weathered granite retaining rock kerbs along both shoulders
 for (const side of [-1, 1]) {
   const zCurb = side * (DRIVE_ROUTE_WIDTH / 2 - 0.18);
-  box(course, mats.granite, V(3.0, ROUTE_DECK_HEIGHT + 0.07, zCurb), V(3.4, 0.14, 0.26));
+  box(course, mats.granite, V(3.0, ROUTE_DECK_HEIGHT + 0.08, zCurb), V(3.4, 0.16, 0.28));
+  box(course, mats.yellow, V(3.0, ROUTE_DECK_HEIGHT + 0.17, zCurb), V(3.4, 0.02, 0.24), 0, false);
 }
 
-// 75 Realistic Sculpted Natural Boulders with Physical Heights in evaluateCourseHeight
+// Concrete pier bents supporting the rock field viaduct platform above arena floor
+const rockPierH = ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT;
+for (const px of [1.6, 3.0, 4.4]) {
+  for (const side of [-1, 1]) {
+    cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + rockPierH / 2, side * 2.6), 0.22, rockPierH, 'y', 20);
+  }
+}
+
+// 140 Realistic Sculpted Natural Boulders Distributed across the FULL Usable Road Width (z in [-2.65, 2.65])
+// Eliminates empty side strips and establishes genuine uneven terrain across the entire road envelope
 for (let i = 0; i < ROCK_FIELD_STONES.length; i++) {
   const rk = ROCK_FIELD_STONES[i];
   const geo = rockGeos[i % rockGeos.length];
@@ -1447,11 +1454,11 @@ for (let i = 0; i < ROCK_FIELD_STONES.length; i++) {
   course.add(rockMesh);
 }
 
-// 80 Scattered Scree Pebbles & Gravel Clusters embedded between boulders
+// 120 Scattered Scree Pebbles & Gravel Clusters across the full road width
 const screeRng = createDeterministicRNG(4321);
-for (let i = 0; i < 80; i++) {
-  const sx = 1.55 + screeRng() * 2.9;
-  const sz = -1.15 + screeRng() * 2.3;
+for (let i = 0; i < 120; i++) {
+  const sx = 1.45 + screeRng() * 3.10;
+  const sz = -2.60 + screeRng() * 5.20;
   const sSize = 0.025 + screeRng() * 0.038;
   const sMesh = new THREE.Mesh(screeGeo, i % 2 === 0 ? mats.granite : mats.basalt);
   sMesh.position.set(sx, ROUTE_DECK_HEIGHT + 0.038 + sSize * 0.4, sz);
@@ -1462,98 +1469,117 @@ for (let i = 0; i < 80; i++) {
 }
 
 // ---------------------------------------------------------------------------
-// 45-DEGREE DESCENT RAMP: From elevated rock field exit to ground-level hazards
+// 2. ELEVATED SLOPED CONNECTING VIADUCT: Direct Connection Rock Field -> Fire Obstacle
 // ---------------------------------------------------------------------------
-// Lifts vehicle from high-elevation viaduct (ROUTE_DECK_HEIGHT = 0.67) down to ground level (ARENA_FLOOR_HEIGHT = -0.33).
-// Under real physics, gravity accelerates the robot downhill with steep forward pitch.
-const rampP0: CoursePoint = { x: 0.52, z: -1.09 };
-const rampP1: CoursePoint = { x: -0.13, z: -1.91 };
-slopedDeckSegment('descent_ramp_45_deck', rampP0, rampP1, DRIVE_ROUTE_WIDTH, ROUTE_DECK_HEIGHT, ARENA_FLOOR_HEIGHT, 0.18, mats.asphalt);
+// Directly connects rock field exit (1.4, 0.0) to elevated fire platform entrance (-1.2, -4.0)
+// Smooth continuous multi-segment viaduct with heavy concrete piers and zero disconnected gaps.
+const viaductNodes = [
+  { pt: { x: 1.40, z: 0.00 }, y: ROUTE_DECK_HEIGHT },
+  { pt: { x: 0.60, z: -0.90 }, y: ROUTE_DECK_HEIGHT },
+  { pt: { x: -0.30, z: -2.45 }, y: 0.52 },
+  { pt: { x: -1.20, z: -4.00 }, y: 0.38 },
+];
+
+for (let i = 0; i < viaductNodes.length - 1; i++) {
+  const n0 = viaductNodes[i];
+  const n1 = viaductNodes[i + 1];
+  const segId = `rock_fire_viaduct_seg_${i}`;
+
+  // Continuous viaduct deck
+  slopedDeckSegment(segId, n0.pt, n1.pt, DRIVE_ROUTE_WIDTH, n0.y, n1.y, 0.18, mats.asphalt);
+
+  const dx = n1.pt.x - n0.pt.x;
+  const dz = n1.pt.z - n0.pt.z;
+  const len = Math.hypot(dx, dz);
+  const midX = (n0.pt.x + n1.pt.x) / 2;
+  const midZ = (n0.pt.z + n1.pt.z) / 2;
+  const midY = (n0.y + n1.y) / 2;
+  const rot = Math.atan2(dz, dx) + Math.PI / 2;
+
+  colliders.push({
+    id: segId,
+    x: midX,
+    z: midZ,
+    hx: len / 2,
+    hz: DRIVE_ROUTE_WIDTH / 2,
+    y: midY,
+    height: Math.abs(n0.y - n1.y) + 0.18,
+    rot,
+    walkable: true,
+  });
+
+  // Supporting reinforced concrete pier bents beneath each segment midpoint
+  // Deck slab has thickness 0.18m; piers seat cleanly against the underside without poking through deck
+  const deckUnderY = midY - 0.18;
+  const segPierH = Math.max(0.12, deckUnderY - ARENA_FLOOR_HEIGHT);
+  const normX = -dz / len;
+  const normZ = dx / len;
+  for (const side of [-1, 1]) {
+    const px = midX + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55) * normX;
+    const pz = midZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55) * normZ;
+    cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + segPierH / 2, pz), 0.22, segPierH, 'y', 20);
+  }
+
+  // Parapet safety barriers along both outer shoulders with yellow hazard coping
+  for (const side of [-1, 1]) {
+    const wSide = side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
+    const wp0: CoursePoint = { x: n0.pt.x + wSide * normX, z: n0.pt.z + wSide * normZ };
+    const wp1: CoursePoint = { x: n1.pt.x + wSide * normX, z: n1.pt.z + wSide * normZ };
+    slopedDeckSegment(`${segId}_parapet_${side}`, wp0, wp1, 0.24, n0.y + 0.36, n1.y + 0.36, 0.36, mats.concretePier);
+    slopedDeckSegment(`${segId}_coping_${side}`, wp0, wp1, 0.28, n0.y + 0.38, n1.y + 0.38, 0.04, mats.yellow);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3. ELEVATED FIRE-RESISTANT OBSTACLE PLATFORM (x in [-3.6, -1.2], z ~ -4.0, y = 0.38m)
+// ---------------------------------------------------------------------------
+// Heavy refractory ceramic viaduct foundation at y = 0.38m
+const firePlatLen = 2.40;
+const firePlatMidX = -2.40;
+const firePlatElevY = 0.38;
+
+// Primary reinforced concrete deck slab
+box(course, mats.concretePier, V(firePlatMidX, firePlatElevY - 0.06, -4.0), V(firePlatLen, 0.12, DRIVE_ROUTE_WIDTH));
+box(course, mats.black, V(firePlatMidX, firePlatElevY + 0.015, -4.0), V(firePlatLen - 0.05, 0.03, DRIVE_ROUTE_WIDTH - 0.28));
+
 colliders.push({
-  id: 'descent_ramp_45',
-  x: (rampP0.x + rampP1.x) / 2,
-  z: (rampP0.z + rampP1.z) / 2,
-  hx: 0.65,
+  id: 'elevated_fire_platform',
+  x: firePlatMidX,
+  z: -4.0,
+  hx: firePlatLen / 2,
   hz: DRIVE_ROUTE_WIDTH / 2,
-  y: (ROUTE_DECK_HEIGHT + ARENA_FLOOR_HEIGHT) / 2,
-  height: ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT,
-  rot: Math.atan2(rampP1.z - rampP0.z, rampP1.x - rampP0.x) + Math.PI / 2,
+  y: firePlatElevY,
+  height: 0.18,
+  rot: 0,
   walkable: true,
 });
 
-// Structural concrete pier bents supporting the elevated crest at rampP0
-const rampPierH = (ROUTE_DECK_HEIGHT - 0.18) - ARENA_FLOOR_HEIGHT;
-for (const side of [-1, 1]) {
-  const normX = (-1.09 - (-1.91)) / 1.05;
-  const normZ = -(0.52 - (-0.13)) / 1.05;
-  const pzX = rampP0.x + side * (DRIVE_ROUTE_WIDTH / 2 - 0.6) * normX;
-  const pzZ = rampP0.z + side * (DRIVE_ROUTE_WIDTH / 2 - 0.6) * normZ;
-  cyl(course, mats.concretePier, V(pzX, ARENA_FLOOR_HEIGHT + rampPierH / 2, pzZ), 0.22, rampPierH, 'y', 20);
+// Structural concrete pier bents supporting fire platform above arena floor
+const firePierH = firePlatElevY - ARENA_FLOOR_HEIGHT;
+for (const fx of [-1.6, -2.4, -3.2]) {
+  for (const side of [-1, 1]) {
+    cyl(course, mats.concretePier, V(fx, ARENA_FLOOR_HEIGHT + firePierH / 2, -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.55)), 0.22, firePierH, 'y', 20);
+  }
 }
-
-// Parapet side barriers along the 45-degree descent slope
-for (const side of [-1, 1]) {
-  const normX = (-1.09 - (-1.91)) / 1.05;
-  const normZ = -(0.52 - (-0.13)) / 1.05;
-  const wSide = side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
-  const wp0: CoursePoint = { x: rampP0.x + wSide * normX, z: rampP0.z + wSide * normZ };
-  const wp1: CoursePoint = { x: rampP1.x + wSide * normX, z: rampP1.z + wSide * normZ };
-  slopedDeckSegment(`descent_ramp_parapet_${side}`, wp0, wp1, 0.24, ROUTE_DECK_HEIGHT + 0.36, ARENA_FLOOR_HEIGHT + 0.36, 0.36, mats.concretePier);
-  const cux = (wp1.x - wp0.x) / 1.05, cuz = (wp1.z - wp0.z) / 1.05;
-  const wp1Dock: CoursePoint = { x: wp1.x - 0.16 * cux, z: wp1.z - 0.16 * cuz };
-  slopedDeckSegment(`descent_ramp_coping_${side}`, wp0, wp1Dock, 0.28, ROUTE_DECK_HEIGHT + 0.38, ARENA_FLOOR_HEIGHT + 0.38, 0.04, mats.yellow);
-}
-
-// Ground-level transition runout connecting the foot of the 45-degree ramp to the fire hearth
-const runoutP0 = rampP1;
-const runoutP1 = { x: -1.8, z: -4.0 };
-slopedDeckSegment('descent_ground_runout', runoutP0, runoutP1, DRIVE_ROUTE_WIDTH, ARENA_FLOOR_HEIGHT, ARENA_FLOOR_HEIGHT, 0.12, mats.asphalt);
-
-// Parapet side barriers along the ground runout to fire hearth
-const roDx = runoutP1.x - runoutP0.x;
-const roDz = runoutP1.z - runoutP0.z;
-const roLen = Math.hypot(roDx, roDz);
-const roNormX = -roDz / roLen;
-const roNormZ = roDx / roLen;
-for (const side of [-1, 1]) {
-  const normX = (-1.09 - (-1.91)) / 1.05;
-  const normZ = -(0.52 - (-0.13)) / 1.05;
-  const wSide = side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
-  const roW0: CoursePoint = { x: rampP1.x + wSide * normX, z: rampP1.z + wSide * normZ };
-  const roW1: CoursePoint = { x: runoutP1.x + wSide * roNormX, z: runoutP1.z + wSide * roNormZ };
-  slopedDeckSegment(`runout_parapet_${side}`, roW0, roW1, 0.24, ARENA_FLOOR_HEIGHT + 0.36, ARENA_FLOOR_HEIGHT + 0.36, 0.36, mats.concretePier);
-  const roW0Dock: CoursePoint = { x: roW0.x + 0.16 * (roDx / roLen), z: roW0.z + 0.16 * (roDz / roLen) };
-  slopedDeckSegment(`runout_coping_${side}`, roW0Dock, roW1, 0.28, ARENA_FLOOR_HEIGHT + 0.38, ARENA_FLOOR_HEIGHT + 0.38, 0.04, mats.yellow);
-  // Heavy reinforced concrete transition anchor pylon terminating the slope
-  box(course, mats.concretePier, V(roW0.x, ARENA_FLOOR_HEIGHT + 0.22, roW0.z), V(0.42, 0.44, 0.42));
-  box(course, mats.yellow, V(roW0.x, ARENA_FLOOR_HEIGHT + 0.46, roW0.z), V(0.46, 0.06, 0.46), 0, false);
-}
-
-// -------------------------------------------------------------
-// 3. Mandatory Environmental Hazards: Fire -> Water -> Oil (Blender-Grade 3D & 4D)
-// -------------------------------------------------------------
-// Hazard 1: Industrial Refractory-Brick Fire Hearth (x in [-3.8, -1.8], z in [-4.8, -3.2]) on Ground Level
-box(course, mats.concretePier, V(-2.8, ARENA_FLOOR_HEIGHT - 0.05, -4.0), V(2.4, 0.10, DRIVE_ROUTE_WIDTH));
-box(course, mats.black, V(-2.8, ARENA_FLOOR_HEIGHT + 0.015, -4.0), V(2.2, 0.03, DRIVE_ROUTE_WIDTH - 0.30));
 
 // Incandescent Magma Fissure Underbed
-box(course, mats.magmaBed, V(-2.8, ARENA_FLOOR_HEIGHT + 0.022, -4.0), V(2.15, 0.018, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.magmaBed, V(firePlatMidX, firePlatElevY + 0.022, -4.0), V(firePlatLen - 0.10, 0.018, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
 
 // Heavy refractory brick borders along both shoulders with hazard coping
 for (const side of [-1, 1]) {
   const zCurb = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
-  box(course, mats.slalomBrick, V(-2.8, ARENA_FLOOR_HEIGHT + 0.12, zCurb), V(2.2, 0.22, 0.32));
-  box(course, mats.yellow, V(-2.8, ARENA_FLOOR_HEIGHT + 0.24, zCurb), V(2.2, 0.04, 0.34), 0, false);
+  box(course, mats.slalomBrick, V(firePlatMidX, firePlatElevY + 0.12, zCurb), V(firePlatLen, 0.22, 0.32));
+  box(course, mats.yellow, V(firePlatMidX, firePlatElevY + 0.24, zCurb), V(firePlatLen, 0.04, 0.34), 0, false);
 }
 
 // 36 Sculpted Basalt Charcoal Rocks with Glowing Lava Fissures
 const charRNG = createDeterministicRNG(1984);
 for (let c = 0; c < 36; c++) {
-  const cx = -3.65 + charRNG() * 1.7;
+  const cx = -3.55 + charRNG() * 2.30;
   const cz = -4.0 + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 0.85);
   const cr = 0.09 + charRNG() * 0.11;
   const rock = new THREE.Mesh(basaltGeo, mats.charcoal);
-  rock.position.set(cx, ARENA_FLOOR_HEIGHT + 0.03 + cr * 0.45, cz);
+  rock.position.set(cx, firePlatElevY + 0.03 + cr * 0.45, cz);
   rock.scale.set(cr * (1.1 + charRNG() * 0.5), cr * (0.6 + charRNG() * 0.4), cr * (1.1 + charRNG() * 0.5));
   rock.rotation.set(charRNG() * Math.PI, charRNG() * Math.PI, charRNG() * Math.PI);
   rock.castShadow = true;
@@ -1561,7 +1587,6 @@ for (let c = 0; c < 36; c++) {
 }
 
 // Ultra-Realistic Additive Curved Flame Tongues (Blender / AAA Video Grade)
-// Crossed curving parametric flame ribbons with organic S-curve silhouettes
 function createFlameTongueGeometry(height: number, width: number): THREE.BufferGeometry {
   const slices = 10;
   const positions: number[] = [];
@@ -1594,8 +1619,8 @@ function createFlameTongueGeometry(height: number, width: number): THREE.BufferG
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
@@ -1616,10 +1641,10 @@ const ultraRealFlames: UltraRealFlame[] = [];
 const flameGeom = createFlameTongueGeometry(1.25, 0.42);
 
 for (let f = 0; f < 28; f++) {
-  const fx = -3.65 + (f % 7) * 0.26 + (f % 2 ? 0.06 : -0.06);
+  const fx = -3.55 + (f % 7) * 0.34 + (f % 2 ? 0.06 : -0.06);
   const fz = -4.0 + (Math.floor(f / 7) - 1.5) * 1.15 + ((f * 3) % 5 - 2.0) * 0.22;
   const flameMesh = new THREE.Mesh(flameGeom, mats.flameTongue);
-  flameMesh.position.set(fx, ARENA_FLOOR_HEIGHT + 0.05, fz);
+  flameMesh.position.set(fx, firePlatElevY + 0.04, fz);
   const sXZ = 0.75 + (f % 3) * 0.22;
   const sY = 0.85 + ((f * 5) % 4) * 0.20;
   flameMesh.scale.set(sXZ, sY, sXZ);
@@ -1652,13 +1677,13 @@ interface FireEmber {
 const fireEmbers: FireEmber[] = [];
 for (let i = 0; i < 72; i++) {
   const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.024, 0), mats.ember);
-  const baseX = -3.65 + charRNG() * 1.7;
+  const baseX = -3.55 + charRNG() * 2.30;
   const baseZ = -4.0 + (charRNG() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
   const ember: FireEmber = {
     mesh,
     baseX,
     baseZ,
-    y: ARENA_FLOOR_HEIGHT + 0.12 + charRNG() * 1.8,
+    y: firePlatElevY + 0.12 + charRNG() * 1.8,
     vy: 1.4 + charRNG() * 1.8,
     omega: 3.5 + charRNG() * 4.5,
     swirlRadius: 0.06 + charRNG() * 0.22,
@@ -1671,11 +1696,11 @@ for (let i = 0; i < 72; i++) {
 
 // Dual Chaotic Dynamic Firelights (Core Radiant + Turbulent Jitter)
 const fireLightCore = new THREE.PointLight('#ff7700', 18, 8.5, 1.4);
-fireLightCore.position.set(-2.8, ARENA_FLOOR_HEIGHT + 0.95, -4.0);
+fireLightCore.position.set(-2.4, firePlatElevY + 1.1, -4.0);
 scene.add(fireLightCore);
 
 const fireLightFlicker = new THREE.PointLight('#ff2200', 12, 6.5, 1.6);
-fireLightFlicker.position.set(-2.8, ARENA_FLOOR_HEIGHT + 1.35, -4.0);
+fireLightFlicker.position.set(-2.4, firePlatElevY + 1.5, -4.0);
 scene.add(fireLightFlicker);
 
 // Dynamic billowing smoke particles
@@ -1693,59 +1718,121 @@ const smokeMaterial = new THREE.SpriteMaterial({ map: smokeTexture, transparent:
 const fireSmoke: THREE.Sprite[] = [];
 for (let i = 0; i < 12; i++) {
   const smoke = new THREE.Sprite(smokeMaterial.clone());
-  smoke.position.set(-3.6 + i * 0.14, ARENA_FLOOR_HEIGHT + 0.85 + (i % 3) * 0.14, -4.0 + ((i % 4) - 1.5) * 0.65);
+  smoke.position.set(-3.5 + i * 0.18, firePlatElevY + 0.95 + (i % 3) * 0.14, -4.0 + ((i % 4) - 1.5) * 0.65);
   smoke.scale.set(0.65, 1.05, 1);
   course.add(smoke);
   fireSmoke.push(smoke);
 }
 
 // ---------------------------------------------------------------------------
-// Hazard 2: Heavy Industrial Water Cooling Basket (0.5m Deep, Ground Bed)
+// 4. SHORT COOLING TRANSITION VIADUCT (x in [-4.4, -3.6], z ~ -4.0, y = 0.38m)
 // ---------------------------------------------------------------------------
-// Heavy concrete foundation seated at arena floor level
-box(course, mats.concretePier, V(-4.8, ARENA_FLOOR_HEIGHT - 0.08, -4.0), V(2.2, 0.16, DRIVE_ROUTE_WIDTH));
-box(course, mats.metal, V(-4.8, ARENA_FLOOR_HEIGHT + 0.01, -4.0), V(2.05, 0.04, DRIVE_ROUTE_WIDTH - 0.12));
-
-// Deep 0.50m Stainless Steel Basket Enclosure Walls (Left & Right Shoulders)
-const basketWallHeight = 0.50;
+// Heat-shield transition deck connecting elevated fire platform exit to water basin entry
+box(course, mats.concretePier, V(-4.0, firePlatElevY - 0.06, -4.0), V(0.80, 0.12, DRIVE_ROUTE_WIDTH));
+box(course, mats.diamondPlate, V(-4.0, firePlatElevY + 0.015, -4.0), V(0.80, 0.03, DRIVE_ROUTE_WIDTH - 0.24));
+colliders.push({
+  id: 'cooling_transition_deck',
+  x: -4.0,
+  z: -4.0,
+  hx: 0.40,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: firePlatElevY,
+  height: 0.18,
+  rot: 0,
+  walkable: true,
+});
 for (const side of [-1, 1]) {
-  const zCoam = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  // Heavy solid steel containment wall of height 0.5m
-  box(course, mats.metal, V(-4.8, ARENA_FLOOR_HEIGHT + basketWallHeight / 2, zCoam), V(2.1, basketWallHeight, 0.28));
-  // Industrial yellow hazard warning coping along top rim
-  box(course, mats.yellow, V(-4.8, ARENA_FLOOR_HEIGHT + basketWallHeight + 0.02, zCoam), V(2.1, 0.04, 0.32), 0, false);
-  // Structural vertical stiffeners (ribs) spaced along the basket walls
-  for (const sx of [-0.8, -0.4, 0, 0.4, 0.8]) {
-    box(course, mats.metal, V(-4.8 + sx, ARENA_FLOOR_HEIGHT + basketWallHeight / 2, zCoam + side * 0.16), V(0.08, basketWallHeight, 0.08));
-    box(course, mats.black, V(-4.8 + sx, ARENA_FLOOR_HEIGHT + basketWallHeight * 0.6, zCoam + side * 0.18), V(0.06, 0.06, 0.06), 0, false);
+  const zCurb = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
+  box(course, mats.concretePier, V(-4.0, firePlatElevY + 0.18, zCurb), V(0.80, 0.36, 0.28));
+  box(course, mats.yellow, V(-4.0, firePlatElevY + 0.38, zCurb), V(0.80, 0.04, 0.30), 0, false);
+}
+
+// ---------------------------------------------------------------------------
+// 5. DEEP WATER BASIN WITH ARCHIMEDES BUOYANCY (x in [-10.4, -4.4], z ~ -4.0)
+// ---------------------------------------------------------------------------
+// Heavy watertight containment basin: 6.0m length, full road width (6.0m), depth 0.46m
+const waterBedY = -0.30;
+const waterSurfaceY = 0.16; // 0.46m water depth
+const waterTankWallH = 0.72; // Rises to y = 0.42m (freeboard 0.26m above water surface)
+
+// Concrete foundation pad beneath the basin
+box(course, mats.concretePier, V(-7.4, ARENA_FLOOR_HEIGHT - 0.05, -4.0), V(6.2, 0.12, DRIVE_ROUTE_WIDTH + 0.20));
+
+// Watertight Stainless Steel Containment Sidewalls along Left and Right shoulders
+for (const side of [-1, 1]) {
+  const zWall = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
+  box(course, mats.metal, V(-7.4, waterBedY + waterTankWallH / 2, zWall), V(6.1, waterTankWallH, 0.28));
+  box(course, mats.yellow, V(-7.4, waterBedY + waterTankWallH + 0.02, zWall), V(6.1, 0.04, 0.32), 0, false);
+  // Heavy structural vertical stiffening ribs
+  for (let rx = -10.0; rx <= -4.8; rx += 0.85) {
+    box(course, mats.metal, V(rx, waterBedY + waterTankWallH / 2, zWall + side * 0.16), V(0.10, waterTankWallH, 0.08));
+    box(course, mats.black, V(rx, waterBedY + waterTankWallH * 0.7, zWall + side * 0.18), V(0.06, 0.06, 0.06), 0, false);
   }
 }
 
-// Submerged Dual Diamond-Plate Traction Runner Tracks (Gauge 1.58m)
-// Tracks touch the solid floor bed directly; robot does not float away
-box(course, mats.diamondPlate, V(-4.8, ARENA_FLOOR_HEIGHT + 0.02, -4.0 - 0.79), V(2.0, 0.02, 0.45), 0, false);
-box(course, mats.diamondPlate, V(-4.8, ARENA_FLOOR_HEIGHT + 0.02, -4.0 + 0.79), V(2.0, 0.02, 0.45), 0, false);
-// Transverse drainage rungs along basket floor
-for (let gx = -5.6; gx <= -4.0; gx += 0.32) {
-  box(course, mats.metal, V(gx, ARENA_FLOOR_HEIGHT + 0.025, -4.0), V(0.04, 0.015, DRIVE_ROUTE_WIDTH - 0.48), 0, false);
-}
+// Zone A: Gradual Entry Ramp (x in [-5.4, -4.4], slopes from y = 0.38m down to waterBedY = -0.30m)
+slopedDeck('water_pool_entry_ramp', -5.4, -4.4, -4.0, DRIVE_ROUTE_WIDTH - 0.28, waterBedY, 0.38, 0.14, mats.diamondPlate);
+colliders.push({
+  id: 'water_pool_entry_ramp',
+  x: -4.9,
+  z: -4.0,
+  hx: 0.50,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: (0.38 + waterBedY) / 2,
+  height: 0.38 - waterBedY + 0.14,
+  rot: 0,
+  walkable: true,
+});
 
-// Ultra-Realistic STILL Water Surface (Tranquil Mirror Glass Surface)
-// Filled to depth ~0.34m inside the 0.50m basket (leaves 0.16m freeboard to rim)
-const stillWaterLevel = ARENA_FLOOR_HEIGHT + 0.34;
-const hazardWaterGeom = new THREE.PlaneGeometry(2.0, DRIVE_ROUTE_WIDTH - 0.28, 1, 1);
+// Zone B: Deep Central Pool Floor (x in [-9.0, -5.4], y = -0.30m, length 3.6m)
+box(course, mats.metal, V(-7.2, waterBedY - 0.04, -4.0), V(3.65, 0.08, DRIVE_ROUTE_WIDTH - 0.28));
+// Submerged diamond-plate runner strips under robot tracks
+box(course, mats.diamondPlate, V(-7.2, waterBedY + 0.01, -4.0 - 0.79), V(3.6, 0.02, 0.50), 0, false);
+box(course, mats.diamondPlate, V(-7.2, waterBedY + 0.01, -4.0 + 0.79), V(3.6, 0.02, 0.50), 0, false);
+// Transverse drainage and sediment grates along pool bed
+for (let gx = -8.8; gx <= -5.6; gx += 0.40) {
+  box(course, mats.metal, V(gx, waterBedY + 0.015, -4.0), V(0.04, 0.012, DRIVE_ROUTE_WIDTH - 0.48), 0, false);
+}
+colliders.push({
+  id: 'water_pool_deep_bed',
+  x: -7.2,
+  z: -4.0,
+  hx: 1.80,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: waterBedY,
+  height: 0.14,
+  rot: 0,
+  walkable: true,
+});
+
+// Zone C: Gradual Exit Climb Ramp (x in [-10.4, -9.0], slopes from waterBedY = -0.30m up to ROUTE_DECK_HEIGHT = 0.67m)
+slopedDeck('water_pool_exit_ramp', -10.4, -9.0, -4.0, DRIVE_ROUTE_WIDTH - 0.28, ROUTE_DECK_HEIGHT, waterBedY, 0.16, mats.diamondPlate);
+colliders.push({
+  id: 'water_pool_exit_ramp',
+  x: -9.7,
+  z: -4.0,
+  hx: 0.70,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: (ROUTE_DECK_HEIGHT + waterBedY) / 2,
+  height: ROUTE_DECK_HEIGHT - waterBedY + 0.16,
+  rot: 0,
+  walkable: true,
+});
+
+// Ultra-Realistic 3D Water Volume & Surface (Tranquil Mirror Surface, 0.46m Depth)
+const hazardWaterGeom = new THREE.PlaneGeometry(5.95, DRIVE_ROUTE_WIDTH - 0.28, 16, 16);
 const hazardWaterMesh = new THREE.Mesh(hazardWaterGeom, mats.water);
 hazardWaterMesh.rotation.x = -Math.PI / 2;
-hazardWaterMesh.position.set(-4.8, stillWaterLevel, -4.0);
+hazardWaterMesh.position.set(-7.4, waterSurfaceY, -4.0);
 hazardWaterMesh.receiveShadow = true;
 course.add(hazardWaterMesh);
 
-// Shoreline froth & meniscus strips along all four basket tank walls
+// Shoreline froth & meniscus strips along the basin tank walls
 for (const side of [-1, 1]) {
-  box(course, mats.waterFoam, V(-4.8, stillWaterLevel + 0.005, -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.22)), V(2.0, 0.015, 0.10), 0, false);
+  box(course, mats.waterFoam, V(-7.4, waterSurfaceY + 0.005, -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.22)), V(5.9, 0.015, 0.12), 0, false);
 }
-box(course, mats.waterFoam, V(-5.78, stillWaterLevel + 0.005, -4.0), V(0.06, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
-box(course, mats.waterFoam, V(-3.82, stillWaterLevel + 0.005, -4.0), V(0.06, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.waterFoam, V(-10.36, waterSurfaceY + 0.005, -4.0), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+box(course, mats.waterFoam, V(-4.44, waterSurfaceY + 0.005, -4.0), V(0.08, 0.015, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
 
 // Interactive Vehicle Water Splashes (particle pool for track spray)
 interface WaterSplashParticle {
@@ -1766,36 +1853,35 @@ for (let i = 0; i < 48; i++) {
 }
 
 const hazardWaterRipples: THREE.Mesh[] = [];
-for (let i = 0; i < 6; i++) {
-  const ripple = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.26, 28), new THREE.MeshBasicMaterial({ color: '#8dd9e8', transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false }));
+for (let i = 0; i < 8; i++) {
+  const ripple = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.30, 28), new THREE.MeshBasicMaterial({ color: '#8dd9e8', transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false }));
   ripple.rotation.x = -Math.PI / 2;
-  ripple.position.set(-5.6 + i * 0.30, stillWaterLevel + 0.008, -4.0 + (i % 2 ? 0.8 : -0.8));
+  ripple.position.set(-9.2 + i * 0.55, waterSurfaceY + 0.008, -4.0 + (i % 2 ? 0.9 : -0.9));
   course.add(ripple);
   hazardWaterRipples.push(ripple);
 }
 
 // ---------------------------------------------------------------------------
-// Exit Climb Ramp out of Water Basket: x in [-7.0, -5.8]
+// 6. HIGH-GLOSS IRIDESCENT OIL SKID PAD (x in [-12.4, -10.4], z ~ -4.0)
 // ---------------------------------------------------------------------------
-// Climbs from ground-level water bed up to elevated viaduct deck (ROUTE_DECK_HEIGHT)
-slopedDeck('water_basket_exit_ramp', -7.0, -5.8, -4.0, DRIVE_ROUTE_WIDTH - 0.24,
-  ROUTE_DECK_HEIGHT, ARENA_FLOOR_HEIGHT + 0.02, 0.16, mats.diamondPlate);
-colliders.push({ id: 'water_basket_exit_ramp', x: -6.4, z: -4.0, hx: 0.6, hz: DRIVE_ROUTE_WIDTH / 2, y: (ARENA_FLOOR_HEIGHT + 0.02 + ROUTE_DECK_HEIGHT) / 2, height: ROUTE_DECK_HEIGHT - ARENA_FLOOR_HEIGHT, rot: 0, walkable: true });
-// Parapets along the climb
-for (const side of [-1, 1]) {
-  const zWall = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.15);
-  box(course, mats.metal, V(-6.4, (ARENA_FLOOR_HEIGHT + ROUTE_DECK_HEIGHT) / 2 + 0.28, zWall), V(1.25, 0.35, 0.24));
-  box(course, mats.yellow, V(-6.4, (ARENA_FLOOR_HEIGHT + ROUTE_DECK_HEIGHT) / 2 + 0.48, zWall), V(1.25, 0.04, 0.26), 0, false);
-}
-
-// Hazard 3: High-Gloss Iridescent Oil Skid Pad (x in [-10.5, -8.0])
-box(course, mats.concretePier, V(-9.25, ROUTE_DECK_HEIGHT - 0.08, -4.0), V(2.6, 0.18, DRIVE_ROUTE_WIDTH));
-box(course, mats.oil, V(-9.25, ROUTE_DECK_HEIGHT + 0.038, -4.0), V(2.55, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
+box(course, mats.concretePier, V(-11.4, ROUTE_DECK_HEIGHT - 0.08, -4.0), V(2.0, 0.18, DRIVE_ROUTE_WIDTH));
+box(course, mats.oil, V(-11.4, ROUTE_DECK_HEIGHT + 0.038, -4.0), V(1.95, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
+colliders.push({
+  id: 'oil_skid_pad',
+  x: -11.4,
+  z: -4.0,
+  hx: 1.0,
+  hz: DRIVE_ROUTE_WIDTH / 2,
+  y: ROUTE_DECK_HEIGHT,
+  height: 0.18,
+  rot: 0,
+  walkable: true,
+});
 // Containment curbs with yellow/black hazard chevron warnings
 for (const side of [-1, 1]) {
   const zCurb = -4.0 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.15);
-  box(course, mats.barrier, V(-9.25, ROUTE_DECK_HEIGHT + 0.12, zCurb), V(2.55, 0.22, 0.30));
-  box(course, mats.yellow, V(-9.25, ROUTE_DECK_HEIGHT + 0.23, zCurb), V(2.55, 0.04, 0.32), 0, false);
+  box(course, mats.barrier, V(-11.4, ROUTE_DECK_HEIGHT + 0.12, zCurb), V(2.0, 0.22, 0.30));
+  box(course, mats.yellow, V(-11.4, ROUTE_DECK_HEIGHT + 0.23, zCurb), V(2.0, 0.04, 0.32), 0, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -3356,6 +3442,8 @@ function collidesWithBarrier(x: number, z: number, y: number) {
   pose.x = x;
   pose.z = z;
   pose.yaw = yaw;
+  const groundY = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE);
+  pose.y = groundY - 0.05;
   pose.vx = 0;
   pose.vz = 0;
   pose.yawRate = 0;
@@ -3495,6 +3583,27 @@ function stepPhysics(dt: number) {
     }
   }
 
+  // Authentic Archimedes Buoyancy, Hydrodynamic Drag, and Track Paddle Propulsion
+  const waterBuoyancy = evaluateWaterBuoyancy(
+    motionState.x,
+    motionState.z,
+    pose.y,
+    motionState.yaw,
+    motionState.vx,
+    motionState.vz,
+    driveResult.trackSpeedLeft,
+    driveResult.trackSpeedRight,
+    effectiveGrip,
+    MAP_SCALE
+  );
+  if (waterBuoyancy.inWater) {
+    // Apply hydrodynamic drag and track paddle thrust to planar velocities
+    motionState.vx += (waterBuoyancy.waterDragX + waterBuoyancy.paddleThrustX) * dt;
+    motionState.vz += (waterBuoyancy.waterDragZ + waterBuoyancy.paddleThrustZ) * dt;
+    pose.vx = motionState.vx;
+    pose.vz = motionState.vz;
+  }
+
   // Synchronize pose with planar motion
   pose.x = motionState.x;
   pose.z = motionState.z;
@@ -3532,13 +3641,25 @@ function stepPhysics(dt: number) {
   }
 
   // Step 3D Vehicle Dynamics (pitch, roll, ground contour following, rollover)
+  // When in deep water, Archimedes buoyant equilibrium prevents vehicle from sinking below waterline
   stepVehicle3D(
     pose,
-    (x, z) => evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE),
+    (x, z) => {
+      const gH = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE);
+      if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
+        return Math.max(gH, waterBuoyancy.buoyantWaterlineY + TRACK_CONTACT_OFFSET);
+      }
+      return gH;
+    },
     driveResult.longitudinalSpeed,
     motionState.angular,
     dt
   );
+  if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
+    // Metacentric righting stability while floating in water
+    pose.roll *= Math.exp(-dt * 4.0);
+    pose.pitch *= Math.exp(-dt * 4.0);
+  }
   // Keep planar motion state in strict lockstep with 3D pose yaw
   motionState.yaw = pose.yaw;
 
@@ -3599,6 +3720,7 @@ function stepPhysics(dt: number) {
     lastBarrierCollision,
     turntableOmega: turntableCurrentOmega,
     turntableRadius: TURNTABLE_RADIUS,
+    waterBuoyancy,
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
       supportY: supportGroundY,
@@ -3972,10 +4094,10 @@ function animate() {
   for (let i = 0; i < fireEmbers.length; i++) {
     const em = fireEmbers[i];
     em.y += em.vy * frameTime;
-    const h = em.y - (ARENA_FLOOR_HEIGHT + 0.12);
+    const h = em.y - (0.38 + 0.12);
     if (h > 1.95) {
-      em.y = ARENA_FLOOR_HEIGHT + 0.12;
-      em.baseX = -3.65 + Math.random() * 1.7;
+      em.y = 0.38 + 0.12;
+      em.baseX = -3.55 + Math.random() * 2.30;
       em.baseZ = -4.0 + (Math.random() - 0.5) * (DRIVE_ROUTE_WIDTH - 1.1);
     } else {
       em.mesh.position.x = em.baseX + Math.sin(em.omega * h + em.phase) * (em.swirlRadius * (1 + h * 0.6));
@@ -3987,7 +4109,7 @@ function animate() {
   }
 
   // 6. Interactive Vehicle Water Splash Particles
-  const inWater = (pose.x / MAP_SCALE >= -5.8 && pose.x / MAP_SCALE <= -3.8 && Math.abs(pose.z / MAP_SCALE - (-4.0)) < DRIVE_ROUTE_WIDTH / 2);
+  const inWater = (pose.x / MAP_SCALE >= -10.4 && pose.x / MAP_SCALE <= -4.4 && Math.abs(pose.z / MAP_SCALE - (-4.0)) < DRIVE_ROUTE_WIDTH / 2);
   const robotSpeed = Math.hypot(pose.vx, pose.vz);
   if (inWater && robotSpeed > 0.35) {
     for (let k = 0; k < 2; k++) {
@@ -3996,7 +4118,7 @@ function animate() {
         const side = k === 0 ? -1 : 1;
         p.mesh.position.set(
           pose.x + (Math.random() - 0.5) * 0.4,
-          (ARENA_FLOOR_HEIGHT + 0.35) * MAP_SCALE,
+          0.16 * MAP_SCALE,
           pose.z + side * (TRACK_WIDTH * 0.5 * MAP_SCALE)
         );
         p.vx = (Math.random() - 0.5) * 1.2;
@@ -4015,7 +4137,7 @@ function animate() {
       p.mesh.position.x += p.vx * frameTime;
       p.mesh.position.y += p.vy * frameTime;
       p.mesh.position.z += p.vz * frameTime;
-      if (p.life <= 0 || p.mesh.position.y < (ARENA_FLOOR_HEIGHT + 0.02) * MAP_SCALE) {
+      if (p.life <= 0 || p.mesh.position.y < (-0.30) * MAP_SCALE) {
         p.life = 0;
         p.mesh.visible = false;
       }
@@ -4028,8 +4150,8 @@ function animate() {
   for (let i = 0; i < fireSmoke.length; i++) {
     const phase = (now * 0.00032 + i * 0.15) % 1;
     const smoke = fireSmoke[i];
-    smoke.position.y = 0.52 + phase * 1.35;
-    smoke.position.x = -3.45 + i * 0.22 + Math.sin(now * 0.0012 + i) * phase * 0.28;
+    smoke.position.y = 0.38 + 0.55 + phase * 1.35;
+    smoke.position.x = -3.40 + i * 0.18 + Math.sin(now * 0.0012 + i) * phase * 0.28;
     smoke.scale.set(0.42 + phase * 0.52, 0.56 + phase * 0.74, 1);
     (smoke.material as THREE.SpriteMaterial).opacity = 0.42 * (1 - phase);
   }

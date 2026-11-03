@@ -16,6 +16,7 @@ import {
   vehicleBarrierPenetration,
   getTurntableOmega,
   applyTurntableSurfaceInteraction,
+  evaluateWaterBuoyancy,
 } from './vehicleDynamics.ts';
 
 const flatGround = () => 0.03;
@@ -316,4 +317,44 @@ test('turntable road envelope provides >= 2.5x robot width clearance', () => {
     clearanceRatio >= 2.5 && clearanceRatio <= 3.5,
     `turntable clearance ratio should be 2.5-3.5x robot width, got ${clearanceRatio.toFixed(2)}x`
   );
+});
+
+test('evaluateWaterBuoyancy computes authentic Archimedes buoyancy, floating equilibrium, and paddle thrust', () => {
+  const scale = 1.3;
+  // Deep water pool center: x = -7.4, z = -4.0
+  const poolWorldX = -7.4 * scale;
+  const poolWorldZ = -4.0 * scale;
+
+  // 1. Outside water bounds (e.g. at start line)
+  const outside = evaluateWaterBuoyancy(0, 0, 0.67, 0, 1.0, 0, 1.0, 1.0, 1.0, scale);
+  assert.equal(outside.inWater, false);
+  assert.equal(outside.buoyantForce, 0);
+  assert.equal(outside.normalForceRatio, 1.0);
+  assert.equal(outside.isFloating, false);
+
+  // 2. Shallow entry into water pool (immersion ~ 0.10m)
+  // Water level is 0.16m. With worldY = 0.06 - TRACK_CONTACT_OFFSET, immersion ~ 0.10m
+  const shallowY = 0.16 - 0.10 - TRACK_CONTACT_OFFSET;
+  const shallow = evaluateWaterBuoyancy(poolWorldX, poolWorldZ, shallowY, 0, 1.0, 0, 1.0, 1.0, 1.0, scale);
+  assert.equal(shallow.inWater, true);
+  assert.ok(shallow.immersionDepth > 0.08 && shallow.immersionDepth < 0.12);
+  assert.ok(shallow.buoyantForce > 500 && shallow.buoyantForce < 1500, `expected buoyant force ~1000N, got ${shallow.buoyantForce}`);
+  assert.equal(shallow.isFloating, false, 'shallow immersion should not float');
+  assert.ok(shallow.normalForceRatio > 0.65 && shallow.normalForceRatio < 0.90);
+
+  // 3. Deep pool immersion (immersion ~ 0.35m)
+  const deepY = 0.16 - 0.35 - TRACK_CONTACT_OFFSET;
+  const deep = evaluateWaterBuoyancy(poolWorldX, poolWorldZ, deepY, -Math.PI / 2, 1.0, 0, 2.0, 2.0, 0.52, scale);
+  assert.equal(deep.inWater, true);
+  assert.ok(deep.isFloating, 'vehicle should reach buoyant floating equilibrium');
+  assert.ok(deep.buoyantForce >= 3800, `expected buoyant force >= 3800N, got ${deep.buoyantForce}`);
+  assert.ok(deep.normalForceRatio <= 0.10, 'normal ground force should drop sharply when floating');
+  assert.ok(deep.effectiveGrip < 0.08, 'ground traction should drop significantly in deep water');
+
+  // 4. Hydrodynamic water drag opposes horizontal motion
+  assert.ok(deep.waterDragX < 0, `water drag should oppose positive vx, got ${deep.waterDragX}`);
+
+  // 5. Track paddle thrust: spinning tracks forward provides forward propulsion along heading
+  // For heading yaw = -PI/2 (Westbound, -X), forward paddle thrust should push in -X direction
+  assert.ok(deep.paddleThrustX < -0.5, `forward track spin should produce Westbound (-X) paddle thrust, got ${deep.paddleThrustX}`);
 });

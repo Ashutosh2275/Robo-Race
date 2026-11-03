@@ -61,31 +61,34 @@ test('raised bridge and curved ramp ground samples match their full-width physic
   assert.ok(entryRampSlope >= 34 && entryRampSlope <= 38, `initial climb should be about 35°, got ${entryRampSlope.toFixed(1)}°`);
 });
 
-test('road boundaries are raised above a lower arena floor and the water basket rests on the ground', () => {
+test('road boundaries are raised above a lower arena floor and deep water basin contains water pool', () => {
   assert.equal(evaluateCourseHeight(-19.2, 8.0), ROUTE_DECK_HEIGHT);
   assert.equal(evaluateCourseHeight(-20.9, 8.0), ARENA_FLOOR_HEIGHT, 'the ramp toe must not extend as an invisible elevated pad behind its visible endpoint');
   assert.equal(evaluateCourseHeight(17, 12), ARENA_FLOOR_HEIGHT, 'off-road position must fall to the lower floor');
-  assert.equal(evaluateCourseHeight(-4.8, -4.0), ARENA_FLOOR_HEIGHT + 0.02, 'water basket touches the ground bed');
-  assert.equal(evaluateCourseHeight(-7.0, -4.0), ROUTE_DECK_HEIGHT, 'exit climb ramp reaches elevated viaduct deck');
-  assert.ok(evaluateCourseHeight(-6.4, -4.0) > ARENA_FLOOR_HEIGHT + 0.1 && evaluateCourseHeight(-6.4, -4.0) < ROUTE_DECK_HEIGHT, 'exit climb ramp rises continuously from water basket to viaduct');
-  assert.equal(evaluateCourseHeight(-9.2, -4.0), ROUTE_DECK_HEIGHT + 0.02, 'oil remains a thin surface layer');
+  assert.equal(evaluateCourseHeight(-7.4, -4.0), -0.30, 'deep water basin floor rests near arena foundation');
+  assert.equal(evaluateCourseHeight(-10.4, -4.0), ROUTE_DECK_HEIGHT, 'exit climb ramp reaches elevated viaduct deck');
+  assert.ok(evaluateCourseHeight(-9.7, -4.0) > -0.30 && evaluateCourseHeight(-9.7, -4.0) < ROUTE_DECK_HEIGHT, 'exit climb ramp rises continuously from deep pool to viaduct');
+  assert.equal(evaluateCourseHeight(-11.4, -4.0), ROUTE_DECK_HEIGHT + 0.02, 'oil remains a thin surface layer');
 });
 
-test('45-degree descent ramp provides steep, realistic physics slope down to ground level', () => {
-  // Near rock field exit, road is elevated
-  const topH = evaluateCourseHeight(1.0, -0.2);
-  assert.ok(Math.abs(topH - ROUTE_DECK_HEIGHT) < 0.05, `top of descent ramp should be near ROUTE_DECK_HEIGHT, got ${topH}`);
+test('elevated sloped viaduct smoothly connects rock field exit directly to fire obstacle', () => {
+  // At rock field exit (1.2, 0.0), road is at ROUTE_DECK_HEIGHT (0.67m)
+  const topH = evaluateCourseHeight(1.2, 0.0);
+  assert.ok(Math.abs(topH - ROUTE_DECK_HEIGHT) < 0.02, `top of viaduct should be at ROUTE_DECK_HEIGHT, got ${topH}`);
 
-  // In the middle of the descent ramp, road slopes steeply (~40-50 degrees)
-  const hMid1 = evaluateCourseHeight(0.40, -1.25);
-  const hMid2 = evaluateCourseHeight(0.025, -1.72);
-  const dist = Math.hypot(0.40 - 0.025, -1.25 - (-1.72));
-  const slopeDeg = Math.atan2(Math.abs(hMid1 - hMid2), dist) * 180 / Math.PI;
-  assert.ok(slopeDeg >= 38 && slopeDeg <= 52, `descent ramp slope should be ~45 degrees, got ${slopeDeg.toFixed(1)}°`);
+  // Along the connecting slope, elevation drops continuously and smoothly to fire entrance (0.38m)
+  const midH1 = evaluateCourseHeight(0.40, -1.33);
+  const midH2 = evaluateCourseHeight(-0.40, -2.67);
+  const botH = evaluateCourseHeight(-1.20, -4.00);
 
-  // At the bottom of the descent ramp, road reaches the arena floor
-  const botH = evaluateCourseHeight(-0.85, -2.81);
-  assert.equal(botH, ARENA_FLOOR_HEIGHT, 'bottom of descent ramp must land on arena floor');
+  assert.ok(midH1 < topH && midH1 > midH2, 'viaduct must descend smoothly along segment 1');
+  assert.ok(midH2 < midH1 && midH2 > botH, 'viaduct must descend smoothly along segment 2');
+  assert.ok(Math.abs(botH - 0.38) < 0.02, `entrance of fire obstacle must meet elevated fire platform at 0.38m, got ${botH}`);
+
+  // Traversable incline
+  const dist = Math.hypot(1.20 - (-1.20), 0.00 - (-4.00));
+  const grade = Math.abs(topH - botH) / dist;
+  assert.ok(grade < 0.15, `connecting slope should be an engineered traversable grade, got ${grade.toFixed(3)}`);
 });
 
 test('hill height support ends at the visible platform edge and joins every segment endpoint', () => {
@@ -132,29 +135,37 @@ test('evaluateCourseSurface implements mandatory sequence: fire -> water -> oil'
   const fireSurf = evaluateCourseSurface(-2.8, -4.0);
   assert.equal(fireSurf.hazard, 'fire');
 
-  const waterSurf = evaluateCourseSurface(-4.8, -4.0);
+  const coolingSurf = evaluateCourseSurface(-4.0, -4.0);
+  assert.equal(coolingSurf.hazard, 'none', 'cooling bridge before water pool has safe surface');
+
+  const waterSurf = evaluateCourseSurface(-7.4, -4.0);
   assert.equal(waterSurf.hazard, 'water');
-  assert.ok(waterSurf.grip < 0.7);
+  assert.ok(waterSurf.grip < 0.65, 'water grip reduced');
 
-  assert.equal(evaluateCourseSurface(-7.0, -4.0).hazard, 'none', 'single plank is a separate timber obstacle');
-
-  const oilSurf = evaluateCourseSurface(-9.2, -4.0);
+  const oilSurf = evaluateCourseSurface(-11.4, -4.0);
   assert.equal(oilSurf.hazard, 'oil');
   assert.ok(oilSurf.grip < 0.25, 'oil grip must be very low');
 });
 
-test('generateRockFieldStones produces deterministic stones bounded inside designated rock area', () => {
+test('generateRockFieldStones produces deterministic stones distributed across full usable road width', () => {
   const stones1 = generateRockFieldStones(12345);
   const stones2 = generateRockFieldStones(12345);
+  assert.equal(stones1.length, 140, 'stone count should be 140 for full-width coverage');
   assert.equal(stones1.length, stones2.length);
   assert.deepEqual(stones1[0], stones2[0]);
 
-  // Check bounds
+  // Check bounds and ensure stones span both left, center, and right flanks
+  let leftFlankCount = 0;
+  let rightFlankCount = 0;
   for (const st of stones1) {
-    assert.ok(st.x >= 1.5 && st.x <= 4.5, `stone x ${st.x} out of bounds`);
-    assert.ok(st.z >= -1.2 && st.z <= 1.2, `stone z ${st.z} out of bounds`);
+    assert.ok(st.x >= 1.40 && st.x <= 4.60, `stone x ${st.x} out of bounds`);
+    assert.ok(st.z >= -2.70 && st.z <= 2.70, `stone z ${st.z} out of bounds`);
     assert.ok(st.scaleX > 0 && st.scaleY > 0 && st.scaleZ > 0);
+    if (st.z < -1.0) leftFlankCount++;
+    if (st.z > 1.0) rightFlankCount++;
   }
+  assert.ok(leftFlankCount >= 30, `expected at least 30 stones on left flank, got ${leftFlankCount}`);
+  assert.ok(rightFlankCount >= 30, `expected at least 30 stones on right flank, got ${rightFlankCount}`);
 });
 
 test('all 11 checkpoints are defined in sequential order', () => {

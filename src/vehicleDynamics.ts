@@ -447,3 +447,157 @@ export function applyTurntableSurfaceInteraction(
     centrifugalForce,
   };
 }
+
+export interface WaterPoolConfig {
+  xMin: number;
+  xMax: number;
+  zCenter: number;
+  width: number;
+  waterLevelY: number; // 0.16m
+  bedLevelY: number;   // -0.30m
+}
+
+export const WATER_POOL_CONFIG: WaterPoolConfig = {
+  xMin: -10.4,
+  xMax: -4.4,
+  zCenter: -4.0,
+  width: 6.0,
+  waterLevelY: 0.16,
+  bedLevelY: -0.30,
+};
+
+export interface WaterBuoyancyResult {
+  inWater: boolean;
+  immersionDepth: number;   // Submerged depth of tracks/hull in metres
+  displacedVolume: number;  // Displaced water volume in m^3
+  buoyantForce: number;     // Archimedes upward force in Newtons
+  normalForceRatio: number; // Normal force scaling (0.06 to 1.0)
+  isFloating: boolean;      // True when buoyant force offsets vehicle gravity
+  effectiveGrip: number;    // Reduced traction due to flotation
+  waterDragX: number;       // Hydrodynamic drag in X
+  waterDragZ: number;       // Hydrodynamic drag in Z
+  paddleThrustX: number;    // Track paddle wheel forward propulsion in X
+  paddleThrustZ: number;    // Track paddle wheel forward propulsion in Z
+  buoyantWaterlineY: number;// Floating equilibrium height
+}
+
+/**
+ * Computes authentic Archimedes buoyancy, hydrodynamic drag, and track paddle thrust
+ * when the vehicle enters and navigates the deep water basin.
+ */
+export function evaluateWaterBuoyancy(
+  worldX: number,
+  worldZ: number,
+  worldY: number,
+  yaw: number,
+  vx: number,
+  vz: number,
+  leftTrackSpeed: number,
+  rightTrackSpeed: number,
+  baseGrip: number,
+  mapScale = 1.3
+): WaterBuoyancyResult {
+  const courseX = worldX / mapScale;
+  const courseZ = worldZ / mapScale;
+
+  const inWaterBounds =
+    courseX >= WATER_POOL_CONFIG.xMin &&
+    courseX <= WATER_POOL_CONFIG.xMax &&
+    Math.abs(courseZ - WATER_POOL_CONFIG.zCenter) <= WATER_POOL_CONFIG.width / 2;
+
+  if (!inWaterBounds) {
+    return {
+      inWater: false,
+      immersionDepth: 0,
+      displacedVolume: 0,
+      buoyantForce: 0,
+      normalForceRatio: 1.0,
+      isFloating: false,
+      effectiveGrip: baseGrip,
+      waterDragX: 0,
+      waterDragZ: 0,
+      paddleThrustX: 0,
+      paddleThrustZ: 0,
+      buoyantWaterlineY: -999,
+    };
+  }
+
+  // Immersion depth: distance from water surface (0.16m) down to track underside
+  const trackUndersideY = worldY + TRACK_CONTACT_OFFSET;
+  const immersionDepth = Math.max(0, WATER_POOL_CONFIG.waterLevelY - trackUndersideY);
+
+  if (immersionDepth <= 0.01) {
+    return {
+      inWater: true,
+      immersionDepth: 0,
+      displacedVolume: 0,
+      buoyantForce: 0,
+      normalForceRatio: 1.0,
+      isFloating: false,
+      effectiveGrip: baseGrip,
+      waterDragX: 0,
+      waterDragZ: 0,
+      paddleThrustX: 0,
+      paddleThrustZ: 0,
+      buoyantWaterlineY: -999,
+    };
+  }
+
+  // Robot physical parameters
+  const robotMass = 420; // kg
+  const g = 9.81;
+  const totalWeight = robotMass * g; // ~4120 N
+  const sealedHullVolume = 0.58; // m^3 (watertight buoyancy enclosure)
+
+  // Displaced volume according to Archimedes principle: V = sealedVolume * (immersion / hullHeight)^1.15
+  const immersionRatio = Math.min(1.0, immersionDepth / 0.44);
+  const displacedVolume = sealedHullVolume * Math.pow(immersionRatio, 1.15);
+
+  // Buoyant upward force F_b = rho * V_disp * g (rho_water = 1000 kg/m^3)
+  const buoyantForce = 1000 * displacedVolume * g;
+
+  // Floating equilibrium condition: when buoyant force balances vehicle gravity
+  // Equilibrium immersion depth is ~0.32m (submerged 32cm, leaving 14cm freeboard to chassis top)
+  const isFloating = buoyantForce >= totalWeight * 0.92;
+  const buoyantWaterlineY = WATER_POOL_CONFIG.waterLevelY - 0.32 - TRACK_CONTACT_OFFSET;
+
+  // Normal force on bottom: F_N = max(0, totalWeight - buoyantForce)
+  const effectiveNormal = Math.max(0, totalWeight - buoyantForce);
+  const normalForceRatio = Math.max(0.06, effectiveNormal / totalWeight);
+
+  // Submerged tracks experience reduced ground traction as weight is borne by water buoyancy
+  const effectiveGrip = baseGrip * normalForceRatio;
+
+  // Hydrodynamic viscous drag opposing horizontal velocity
+  const speed = Math.hypot(vx, vz);
+  const frontalArea = 1.58 * Math.min(0.44, immersionDepth);
+  const cd = 0.85;
+  const dragMagnitude = 0.5 * 1000 * cd * frontalArea * speed * speed + 1000 * 0.08 * speed;
+  const waterDragX = speed > 0.01 ? -(vx / speed) * (dragMagnitude / robotMass) : 0;
+  const waterDragZ = speed > 0.01 ? -(vz / speed) * (dragMagnitude / robotMass) : 0;
+
+  // Track paddle thrust: spinning tracks in water displace water rearwards, generating forward paddle propulsion
+  const avgTrackSpeed = 0.5 * (leftTrackSpeed + rightTrackSpeed);
+  // Heading vector: in vehicle dynamics coordinates, forward is (sin(yaw), cos(yaw))
+  const headingX = Math.sin(yaw);
+  const headingZ = Math.cos(yaw);
+  // Paddle thrust acceleration
+  const paddleThrustMag = Math.sign(avgTrackSpeed) * Math.pow(Math.abs(avgTrackSpeed), 1.4) * 1.85 * Math.min(1.0, immersionDepth / 0.25);
+  const paddleThrustX = headingX * paddleThrustMag;
+  const paddleThrustZ = headingZ * paddleThrustMag;
+
+  return {
+    inWater: true,
+    immersionDepth,
+    displacedVolume,
+    buoyantForce,
+    normalForceRatio,
+    isFloating,
+    effectiveGrip,
+    waterDragX,
+    waterDragZ,
+    paddleThrustX,
+    paddleThrustZ,
+    buoyantWaterlineY,
+  };
+}
