@@ -88,10 +88,10 @@ async function main() {
     const scale = 1.3;
     window.__overrideCamera = {
       cx: 10.5 * scale,
-      cy: 4.8,
+      cy: 5.6,
       cz: -6.75 * scale + 5.5,
       tx: 10.5 * scale,
-      ty: 1.0,
+      ty: 1.5,
       tz: -6.75 * scale,
     };
   });
@@ -116,18 +116,18 @@ async function main() {
 
     window.__overrideCamera = {
       cx: 14.5 * scale,
-      cy: 2.4,
+      cy: 2.9,
       cz: -6.75 * scale,
       tx: 10.5 * scale,
-      ty: 1.0,
+      ty: 1.4,
       tz: -6.75 * scale,
     };
   });
   await page.waitForTimeout(400);
   const deckProbe = await page.evaluate(() => window.__gameDebug.groundContact);
   console.log('On-deck terrain height:', deckProbe.terrainY);
-  if (Math.abs(deckProbe.terrainY - 0.85) > 0.05) {
-    throw new Error(`Expected deck height ~0.85m, got ${deckProbe.terrainY}`);
+  if (Math.abs(deckProbe.terrainY - 1.35) > 0.05) {
+    throw new Error(`Expected deck height ~1.35m, got ${deckProbe.terrainY}`);
   }
   await page.screenshot({ path: 'outputs/lane4-on-narrow-deck.png' });
   console.log('Saved outputs/lane4-on-narrow-deck.png');

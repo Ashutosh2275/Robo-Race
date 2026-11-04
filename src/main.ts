@@ -1196,7 +1196,7 @@ for (const x of [9.5, 10.5, 11.5]) {
 
 // ---------------------------------------------------------------------------
 // SECTION 5A: Swinging Pendulum Gauntlet on Lane 4 (Z = -6.75, X in [6.5, 14.5])
-// High-profile narrow path (6 ft / 1.80m wide) with 3 swinging wrecking balls
+// Compressed narrow bridge catwalk (1.45m wide) with 3 counter-swinging balls with gaps
 // ---------------------------------------------------------------------------
 const pCfg = PENDULUM_CONFIG;
 
@@ -1204,7 +1204,7 @@ const pCfg = PENDULUM_CONFIG;
 box(course, mats.concretePier, V(pCfg.xEntryStart + 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
 box(course, mats.concretePier, V(pCfg.xExitEnd - 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
 
-// 2. Ascent Ramp (x in [12.5, 14.5]): Westbound vehicle climbs from ground -0.33m to 0.85m
+// 2. Ascent Ramp (x in [12.8, 14.5]): Westbound vehicle climbs from ground -0.33m to 1.35m
 slopedDeck('pendulum_ascent_ramp', pCfg.xEntryStart, pCfg.xRampUpEnd, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY, 0.12, mats.diamondPlate);
 
 // Heavy steel structural stringers beneath the ascent ramp
@@ -1213,24 +1213,42 @@ for (const side of [-1, 1]) {
   tubeBetween(V(pCfg.xEntryStart, GROUND_DECK_HEIGHT + 0.02, zS), V(pCfg.xRampUpEnd, pCfg.deckY - 0.04, zS), 0.06, mats.metal);
 }
 
-// 3. Narrow Elevated Deck (x in [8.5, 12.5]): 1.80m wide (6 ft), NO guardrails so bot falls off if hit!
-const pDeckLen = pCfg.xRampUpEnd - pCfg.xRampDownStart; // 4.0m
+// 3. Narrow Catwalk Bridge (x in [8.2, 12.8]): 1.45m wide compressed deck over cutaway chasm, NO guardrails!
+const pDeckLen = pCfg.xRampUpEnd - pCfg.xRampDownStart; // 4.60m
 const pDeckMidX = (pCfg.xRampUpEnd + pCfg.xRampDownStart) / 2; // 10.5m
+
+// Cutaway chasm beneath the narrow bridge: recessed dark pit with concrete side retaining curbs
+box(course, mats.black, V(pDeckMidX, ARENA_FLOOR_HEIGHT - 0.08, pCfg.zLane), V(pDeckLen + 0.60, 0.14, 3.20));
+box(course, mats.concretePier, V(pDeckMidX, ARENA_FLOOR_HEIGHT + 0.05, pCfg.zLane + 1.60), V(pDeckLen + 0.60, 0.20, 0.24));
+box(course, mats.concretePier, V(pDeckMidX, ARENA_FLOOR_HEIGHT + 0.05, pCfg.zLane - 1.60), V(pDeckLen + 0.60, 0.20, 0.24));
+
+// Elevated narrow diamond-plate bridge catwalk deck
 box(course, mats.diamondPlate, V(pDeckMidX, pCfg.deckY - 0.04, pCfg.zLane), V(pDeckLen, 0.08, pCfg.deckWidth));
 
-// Bare edge danger markings (high-contrast yellow/black caution stripes along the edge of the drop)
+// Twin longitudinal heavy steel I-beam side stringers supporting the narrow catwalk bridge
 for (const side of [-1, 1]) {
-  const zEdge = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.06);
-  box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.005, zEdge), V(pDeckLen, 0.012, 0.10), 0, false);
+  const zBeam = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
+  box(course, mats.metal, V(pDeckMidX, pCfg.deckY - 0.12, zBeam), V(pDeckLen, 0.16, 0.08));
 }
 
-// Heavy steel support piers underneath the narrow deck
-for (const px of [9.2, 10.5, 11.8]) {
-  cyl(course, mats.metal, V(px, (GROUND_DECK_HEIGHT + pCfg.deckY) / 2, pCfg.zLane), 0.12, pCfg.deckY - GROUND_DECK_HEIGHT, 'y');
-  box(course, mats.concretePier, V(px, GROUND_DECK_HEIGHT + 0.10, pCfg.zLane), V(0.50, 0.20, 0.50));
+// Transverse steel cross-tie beams under the bridge deck
+for (let cx = pCfg.xRampDownStart + 0.50; cx <= pCfg.xRampUpEnd - 0.40; cx += 0.80) {
+  box(course, mats.metal, V(cx, pCfg.deckY - 0.14, pCfg.zLane), V(0.10, 0.10, pCfg.deckWidth + 0.06));
 }
 
-// 4. Descent Ramp (x in [6.5, 8.5]): Westbound vehicle descends from 0.85m to ground -0.33m
+// Bare edge danger markings (high-contrast yellow caution stripes along the edge of the drop - NO guardrails!)
+for (const side of [-1, 1]) {
+  const zEdge = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
+  box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.005, zEdge), V(pDeckLen, 0.012, 0.08), 0, false);
+}
+
+// Heavy steel support piers underneath the narrow bridge at ball locations
+for (const px of pCfg.ballPositionsX) {
+  cyl(course, mats.metal, V(px, (ARENA_FLOOR_HEIGHT + pCfg.deckY) / 2, pCfg.zLane), 0.12, pCfg.deckY - ARENA_FLOOR_HEIGHT, 'y');
+  box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.10, pCfg.zLane), V(0.50, 0.20, 0.50));
+}
+
+// 4. Descent Ramp (x in [6.5, 8.2]): Westbound vehicle descends from 1.35m to ground -0.33m
 slopedDeck('pendulum_descent_ramp', pCfg.xRampDownStart, pCfg.xExitEnd, pCfg.zLane, pCfg.deckWidth, pCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
 
 for (const side of [-1, 1]) {
@@ -1238,35 +1256,36 @@ for (const side of [-1, 1]) {
   tubeBetween(V(pCfg.xRampDownStart, pCfg.deckY - 0.04, zS), V(pCfg.xExitEnd, GROUND_DECK_HEIGHT + 0.02, zS), 0.06, mats.metal);
 }
 
-// 5. Overhead Heavy Industrial Steel Gantry Frame (y = 3.65m)
+// 5. Overhead Heavy Industrial Steel Gantry Frame (y = 4.45m)
 const gantryStrobes: THREE.Mesh[] = [];
 const gantryZNorth = pCfg.zLane + 2.10;
 const gantryZSouth = pCfg.zLane - 2.10;
-const gantryXWest = 8.8;
-const gantryXEast = 12.2;
+const gantryXWest = 8.0;
+const gantryXEast = 13.0;
+const gantryTopY = 4.45;
 
 // 4 Main Vertical Steel Support Pylons
 for (const gx of [gantryXWest, gantryXEast]) {
   for (const gz of [gantryZSouth, gantryZNorth]) {
-    cyl(course, mats.metal, V(gx, ARENA_FLOOR_HEIGHT + 2.0, gz), 0.14, 4.0, 'y');
+    cyl(course, mats.metal, V(gx, ARENA_FLOOR_HEIGHT + (gantryTopY - ARENA_FLOOR_HEIGHT) / 2, gz), 0.14, gantryTopY - ARENA_FLOOR_HEIGHT, 'y');
     box(course, mats.concretePier, V(gx, ARENA_FLOOR_HEIGHT + 0.35, gz), V(0.60, 0.70, 0.60));
     box(course, mats.yellow, V(gx, ARENA_FLOOR_HEIGHT + 0.72, gz), V(0.50, 0.04, 0.50), 0, false);
 
     // Flashing amber caution strobe beacon atop each pylon
     const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.16, 12), mats.beaconAmber);
-    strobe.position.set(gx, 3.75, gz);
+    strobe.position.set(gx, gantryTopY + 0.10, gz);
     course.add(strobe);
     gantryStrobes.push(strobe);
   }
 }
 
 // Longitudinal overhead box girders
-box(course, mats.charcoal, V(pDeckMidX, 3.65, gantryZNorth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
-box(course, mats.charcoal, V(pDeckMidX, 3.65, gantryZSouth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
+box(course, mats.charcoal, V(pDeckMidX, gantryTopY, gantryZNorth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
+box(course, mats.charcoal, V(pDeckMidX, gantryTopY, gantryZSouth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
 
 // Transverse overhead bridge beams spanning above each swinging pendulum
 for (const bx of pCfg.ballPositionsX) {
-  box(course, mats.charcoal, V(bx, 3.65, pCfg.zLane), V(0.24, 0.20, gantryZNorth - gantryZSouth));
+  box(course, mats.charcoal, V(bx, gantryTopY, pCfg.zLane), V(0.24, 0.20, gantryZNorth - gantryZSouth));
   // Industrial pillow block bearing housing at pivot
   box(course, mats.metal, V(bx, pCfg.ballPivotY, pCfg.zLane), V(0.28, 0.16, 0.28));
 }

@@ -282,9 +282,22 @@ test('validateRouteClearance catches any collider placed inside a checkpoint gat
   assert.equal(blockedResult.valid, false);
 });
 
-test('Lane 4 Swinging Pendulum Gauntlet: narrow 1.8m path, elevated 0.85m deck, and edge fall-off', () => {
-  assert.equal(PENDULUM_CONFIG.deckWidth, 1.80, 'narrow path width should be 1.80m (~6 ft)');
+test('Lane 4 Swinging Pendulum Gauntlet: compressed 1.45m bridge catwalk, 1.35m elevated deck, counter-swinging balls with gaps, and edge fall-off', () => {
+  assert.equal(PENDULUM_CONFIG.deckWidth, 1.45, 'compressed bridge width should be 1.45m (~1.24x robot width)');
+  assert.equal(PENDULUM_CONFIG.deckY, 1.35, 'elevated bridge deck height should be 1.35m');
   assert.equal(PENDULUM_CONFIG.ballPositionsX.length, 3, 'should feature 3 swinging pendulum balls');
+
+  // Verify clear gaps between balls are >= length/diameter of a ball
+  const ballDiameter = PENDULUM_CONFIG.ballRadius * 2;
+  const gap12 = Math.abs(PENDULUM_CONFIG.ballPositionsX[0] - PENDULUM_CONFIG.ballPositionsX[1]) - ballDiameter;
+  const gap23 = Math.abs(PENDULUM_CONFIG.ballPositionsX[1] - PENDULUM_CONFIG.ballPositionsX[2]) - ballDiameter;
+  assert.ok(gap12 >= ballDiameter, `gap between Ball 1 & 2 (${gap12.toFixed(2)}m) must be >= ball diameter (${ballDiameter.toFixed(2)}m)`);
+  assert.ok(gap23 >= ballDiameter, `gap between Ball 2 & 3 (${gap23.toFixed(2)}m) must be >= ball diameter (${ballDiameter.toFixed(2)}m)`);
+
+  // Verify parallel and opposite swing phase: Ball 1 and 3 in phase (parallel), Ball 2 in anti-phase (opposite)
+  assert.equal(PENDULUM_CONFIG.phaseOffsets[0], PENDULUM_CONFIG.phaseOffsets[2], 'Ball 1 and Ball 3 must swing parallelly in phase');
+  const phaseDiff12 = Math.abs(PENDULUM_CONFIG.phaseOffsets[1] - PENDULUM_CONFIG.phaseOffsets[0]);
+  assert.ok(Math.abs(phaseDiff12 - Math.PI) < 0.01, 'Ball 2 (middle) must swing opposite to Ball 1 and 3');
 
   // Entrance at Gate 09 (x = 14.50, z = -6.75) is ground level
   const hEntry = evaluateCourseHeight(14.50, -6.75);
@@ -298,9 +311,9 @@ test('Lane 4 Swinging Pendulum Gauntlet: narrow 1.8m path, elevated 0.85m deck, 
   const hDeckCenter = evaluateCourseHeight(10.50, -6.75, PENDULUM_CONFIG.deckY);
   assert.ok(Math.abs(hDeckCenter - PENDULUM_CONFIG.deckY) < 0.02);
 
-  // Falling off the edge: lateral distance > 0.90m (deckWidth / 2)
-  const hFallenOff = evaluateCourseHeight(10.50, -6.75 + 1.15, PENDULUM_CONFIG.deckY);
-  assert.equal(hFallenOff, ARENA_FLOOR_HEIGHT, 'drifting beyond 1.8m narrow deck edge must drop to arena floor');
+  // Falling off the edge: lateral distance > 0.725m (deckWidth / 2)
+  const hFallenOff = evaluateCourseHeight(10.50, -6.75 + 0.85, PENDULUM_CONFIG.deckY);
+  assert.equal(hFallenOff, ARENA_FLOOR_HEIGHT, 'drifting beyond 1.45m narrow bridge deck edge must drop to arena floor');
 
   // Exit ramp touchdown (x = 6.50, z = -6.75) is ground level
   const hExit = evaluateCourseHeight(6.50, -6.75);

@@ -42,23 +42,23 @@ export const PARALLEL_PLANK_CENTERS = [
 
 // ---------------------------------------------------------------------------
 // LANE 4 OBSTACLE 1: SWINGING PENDULUM GAUNTLET CONFIGURATION (Z = -6.75, X in [6.5, 14.5])
-// High-profile narrow path (6 ft / 1.80m wide) with 3 swinging wrecking balls
+// Compressed narrow bridge catwalk with 3 counter-swinging balls with gaps
 // ---------------------------------------------------------------------------
 export const PENDULUM_CONFIG = {
   zLane: -6.75,
   xEntryStart: 14.50,   // Ground entrance directly after Gate 09
-  xRampUpEnd: 12.50,    // Top of ascent ramp
-  xRampDownStart: 8.50, // Start of descent ramp
+  xRampUpEnd: 12.80,    // Top of ascent ramp
+  xRampDownStart: 8.20, // Start of descent ramp
   xExitEnd: 6.50,       // Touchdown at ground grade
-  deckY: 0.85,          // Elevated deck height (+1.18m above ground)
-  deckWidth: 1.80,      // 6 ft narrow path (~1.5x robot width, ~1 ft clearance left & right, NO guardrails)
-  ballPositionsX: [11.50, 10.50, 9.50] as const, // 3 sequential swinging balls
-  ballRadius: 0.35,     // Heavy metallic sphere radius
-  ballPivotY: 3.45,     // Overhead gantry suspension pivot
-  ballArmLength: 2.30,  // Pendulum length
-  swingAmplitude: 1.55, // Swings +-1.55m across track (well beyond deck edges)
-  swingOmega: 2.30,     // Swing frequency in rad/s (period ~2.7s)
-  phaseOffsets: [0.0, 1.6, 3.2] as const, // Alternating rhythmic phase offsets
+  deckY: 1.35,          // Higher elevated bridge deck (+1.68m above ground)
+  deckWidth: 1.45,      // Compressed narrow bridge width (~1.24x robot width, ~14cm edge clearance, NO guardrails)
+  ballPositionsX: [12.10, 10.50, 8.90] as const, // 3 balls spaced 1.60m apart (0.90m clear gap > ball diameter)
+  ballRadius: 0.35,     // Heavy metallic sphere radius (diameter 0.70m)
+  ballPivotY: 4.25,     // Overhead gantry suspension pivot
+  ballArmLength: 2.65,  // Pendulum length
+  swingAmplitude: 1.55, // Swings +-1.55m across track (well beyond compressed bridge width)
+  swingOmega: 2.30,     // Swing frequency in rad/s
+  phaseOffsets: [0.0, Math.PI, 0.0] as const, // Ball 1 & 3 swing parallelly, Middle ball swings opposite!
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -608,28 +608,28 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
   if (Math.abs(z - (-6.75)) <= halfW) {
     // A. Obstacle 1: Swinging Pendulums Gauntlet (x in [6.5, 14.5])
     if (x >= PENDULUM_CONFIG.xExitEnd && x <= PENDULUM_CONFIG.xEntryStart) {
-      const halfTrackW = PENDULUM_CONFIG.deckWidth / 2; // 0.90m (6 ft total narrow width)
+      const halfTrackW = PENDULUM_CONFIG.deckWidth / 2; // 0.725m (1.45m compressed narrow bridge)
       const inNarrowCorridor = Math.abs(z - PENDULUM_CONFIG.zLane) <= halfTrackW;
 
       if (inNarrowCorridor) {
-        // Ascent ramp (East side, x in [12.5, 14.5]): Westbound vehicle climbs up from ground -0.33 to 0.85
+        // Ascent ramp (East side, x in [12.80, 14.50]): Westbound vehicle climbs up from ground -0.33 to 1.35m
         if (x > PENDULUM_CONFIG.xRampUpEnd) {
           const u = (PENDULUM_CONFIG.xEntryStart - x) / (PENDULUM_CONFIG.xEntryStart - PENDULUM_CONFIG.xRampUpEnd);
           const eased = u * u * (3 - 2 * u);
           return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
-        // Descent ramp (West side, x in [6.5, 8.5]): Westbound vehicle descends from 0.85 to ground -0.33
+        // Descent ramp (West side, x in [6.50, 8.20]): Westbound vehicle descends from 1.35m to ground -0.33m
         if (x < PENDULUM_CONFIG.xRampDownStart) {
           const u = (x - PENDULUM_CONFIG.xExitEnd) / (PENDULUM_CONFIG.xRampDownStart - PENDULUM_CONFIG.xExitEnd);
           const eased = u * u * (3 - 2 * u);
           return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
-        // Elevated narrow deck: x in [8.5, 12.5]
+        // Elevated narrow bridge catwalk deck: x in [8.20, 12.80]
         return PENDULUM_CONFIG.deckY;
       }
 
-      // If robot is outside narrow deck while elevated: it falls down to the ground!
-      if (poseY > GROUND_DECK_HEIGHT + 0.15 && x >= PENDULUM_CONFIG.xRampDownStart && x <= PENDULUM_CONFIG.xRampUpEnd) {
+      // If robot is outside narrow bridge deck while elevated: it falls down into the cutaway chasm / arena floor!
+      if (poseY > GROUND_DECK_HEIGHT + 0.15) {
         return ARENA_FLOOR_HEIGHT;
       }
       return GROUND_DECK_HEIGHT;
