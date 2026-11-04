@@ -1260,8 +1260,8 @@ for (const side of [-1, 1]) {
 const gantryStrobes: THREE.Mesh[] = [];
 const gantryZNorth = pCfg.zLane + 2.10;
 const gantryZSouth = pCfg.zLane - 2.10;
-const gantryXWest = 8.0;
-const gantryXEast = 13.0;
+const gantryXWest = 7.8;
+const gantryXEast = 13.2;
 const gantryTopY = 4.45;
 
 // 4 Main Vertical Steel Support Pylons
@@ -1320,16 +1320,12 @@ for (let i = 0; i < pCfg.ballPositionsX.length; i++) {
   // Heavy steel suspension arm (rod/chain)
   cyl(armGroup, mats.metal, V(0, -pCfg.ballArmLength / 2, 0), 0.035, pCfg.ballArmLength, 'y');
 
-  // Massive spherical wrecking ball
-  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(pCfg.ballRadius, 24, 24), mats.metal);
+  // Completely pure spherical metallic wrecking ball (no rectangular plates or equatorial ribs)
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(pCfg.ballRadius, 32, 32), mats.metal);
   ballMesh.position.set(0, -pCfg.ballArmLength, 0);
   ballMesh.castShadow = true;
   ballMesh.receiveShadow = true;
   armGroup.add(ballMesh);
-
-  // Welded equatorial reinforcement rib with high-contrast caution stripe
-  box(ballMesh, mats.yellow, V(0, 0, 0), V(pCfg.ballRadius * 2.05, 0.08, pCfg.ballRadius * 2.05), 0, false);
-  box(ballMesh, mats.black, V(0, 0.04, 0), V(pCfg.ballRadius * 2.08, 0.02, pCfg.ballRadius * 2.08), 0, false);
 
   // Heavy top forged steel shackle & clevis pin
   cyl(ballMesh, mats.chrome, V(0, pCfg.ballRadius + 0.08, 0), 0.05, 0.16, 'x');
@@ -3778,6 +3774,23 @@ function stepPhysics(dt: number) {
     motionState,
     subsystems,
     currentCheckpoint,
+    setPose: (newX: number, newZ: number, newYaw?: number) => {
+      pose.x = newX;
+      pose.z = newZ;
+      if (newYaw !== undefined) pose.yaw = newYaw;
+      motionState.x = newX;
+      motionState.z = newZ;
+      if (newYaw !== undefined) motionState.yaw = newYaw;
+      previousRacePosition = { x: newX, z: newZ };
+    },
+    setCurrentCheckpoint: (cp: number) => {
+      currentCheckpoint = cp;
+      checkpointMeshes.forEach((checkpoint, i) => {
+        checkpoint.passed = i < currentCheckpoint;
+        (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+      });
+    },
+    getCurrentCheckpoint: () => currentCheckpoint,
     routeClearanceAudit,
     slalomClearanceAudit,
     lastBarrierCollision,
@@ -3981,33 +3994,38 @@ function stepPhysics(dt: number) {
     }
   }
 
-  // Fall Detection & Gate 09 Reset on Narrow Path
-  // If the robot is knocked or drifts off the narrow 1.80m elevated deck, it plunges to the floor.
-  // When it hits the floor or flips after falling off, reset directly to Gate 09!
+  // Fall Detection & Gate 09 Reset on Lane 4 Narrow Catwalk Bridge
+  // Strictly applies ONLY when actively navigating Lane 4 (between Gate 09 and Gate 10, |localZ - zLane| <= 2.2m).
+  // Prevents false resets when driving on other track lanes (such as Gate 04 on Lane 2 at z = +6.75).
+  // If the robot is knocked off or drifts off the 1.45m narrow elevated catwalk, it plunges into the cutaway chasm.
+  // When it hits the chasm floor or flips after falling off, reset directly to Gate 09.
   const localX = pose.x / MAP_SCALE;
   const localZ = pose.z / MAP_SCALE;
-  if (raceState === 'racing' && localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
-    const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2; // 0.90m
-    const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
-    const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
+  const inLane4Corridor = Math.abs(localZ - PENDULUM_CONFIG.zLane) <= 2.20;
+  if (raceState === 'racing' && inLane4Corridor && (currentCheckpoint === 8 || currentCheckpoint === 9)) {
+    if (localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
+      const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2; // 0.725m
+      const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
+      const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
 
-    if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
-      // Automatic immediate checkpoint recovery to Gate 09
-      const g09Anchor = recoveryAnchors.find(a => a.checkpointIndex === 9) || recoveryAnchors[9] || recoveryAnchors[0];
-      applyRecovery(pose, g09Anchor, worldCourseHeight);
-      currentCheckpoint = 8; // Reset back to Gate 09 (Gate 09 is index 8 / id 9)
-      checkpointMeshes.forEach((checkpoint, i) => {
-        checkpoint.passed = i < currentCheckpoint;
-        (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
-      });
-      motionState.x = pose.x;
-      motionState.z = pose.z;
-      motionState.vx = 0;
-      motionState.vz = 0;
-      motionState.yaw = pose.yaw;
-      motionState.angular = 0;
-      tone(260, 0.28, 0.08);
-      displayToast('KNOCKED OFF TRACK · RESTARTING AT GATE 09');
+      if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
+        // Automatic immediate checkpoint recovery to Gate 09
+        const g09Anchor = recoveryAnchors.find(a => a.checkpointIndex === 9) || recoveryAnchors[9] || recoveryAnchors[0];
+        applyRecovery(pose, g09Anchor, worldCourseHeight);
+        currentCheckpoint = 8; // Reset back to Gate 09 (Gate 09 is index 8 / id 9)
+        checkpointMeshes.forEach((checkpoint, i) => {
+          checkpoint.passed = i < currentCheckpoint;
+          (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+        });
+        motionState.x = pose.x;
+        motionState.z = pose.z;
+        motionState.vx = 0;
+        motionState.vz = 0;
+        motionState.yaw = pose.yaw;
+        motionState.angular = 0;
+        tone(260, 0.28, 0.08);
+        displayToast('KNOCKED OFF TRACK · RESTARTING AT GATE 09');
+      }
     }
   }
 
@@ -4117,6 +4135,23 @@ function stepPhysics(dt: number) {
     inputs,
     subsystems,
     currentCheckpoint,
+    setPose: (newX: number, newZ: number, newYaw?: number) => {
+      pose.x = newX;
+      pose.z = newZ;
+      if (newYaw !== undefined) pose.yaw = newYaw;
+      motionState.x = newX;
+      motionState.z = newZ;
+      if (newYaw !== undefined) motionState.yaw = newYaw;
+      previousRacePosition = { x: newX, z: newZ };
+    },
+    setCurrentCheckpoint: (cp: number) => {
+      currentCheckpoint = cp;
+      checkpointMeshes.forEach((checkpoint, i) => {
+        checkpoint.passed = i < currentCheckpoint;
+        (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+      });
+    },
+    getCurrentCheckpoint: () => currentCheckpoint,
     routeClearanceAudit,
     slalomClearanceAudit,
     lastBarrierCollision,

@@ -287,12 +287,12 @@ test('Lane 4 Swinging Pendulum Gauntlet: compressed 1.45m bridge catwalk, 1.35m 
   assert.equal(PENDULUM_CONFIG.deckY, 1.35, 'elevated bridge deck height should be 1.35m');
   assert.equal(PENDULUM_CONFIG.ballPositionsX.length, 3, 'should feature 3 swinging pendulum balls');
 
-  // Verify clear gaps between balls are >= length/diameter of a ball
+  // Verify clear gaps between balls are 1.5 times the length/diameter of a ball
   const ballDiameter = PENDULUM_CONFIG.ballRadius * 2;
   const gap12 = Math.abs(PENDULUM_CONFIG.ballPositionsX[0] - PENDULUM_CONFIG.ballPositionsX[1]) - ballDiameter;
   const gap23 = Math.abs(PENDULUM_CONFIG.ballPositionsX[1] - PENDULUM_CONFIG.ballPositionsX[2]) - ballDiameter;
-  assert.ok(gap12 >= ballDiameter, `gap between Ball 1 & 2 (${gap12.toFixed(2)}m) must be >= ball diameter (${ballDiameter.toFixed(2)}m)`);
-  assert.ok(gap23 >= ballDiameter, `gap between Ball 2 & 3 (${gap23.toFixed(2)}m) must be >= ball diameter (${ballDiameter.toFixed(2)}m)`);
+  assert.ok(Math.abs(gap12 - 1.5 * ballDiameter) < 0.01, `gap between Ball 1 & 2 (${gap12.toFixed(2)}m) must be 1.5x ball diameter (${(1.5 * ballDiameter).toFixed(2)}m)`);
+  assert.ok(Math.abs(gap23 - 1.5 * ballDiameter) < 0.01, `gap between Ball 2 & 3 (${gap23.toFixed(2)}m) must be 1.5x ball diameter (${(1.5 * ballDiameter).toFixed(2)}m)`);
 
   // Verify parallel and opposite swing phase: Ball 1 and 3 in phase (parallel), Ball 2 in anti-phase (opposite)
   assert.equal(PENDULUM_CONFIG.phaseOffsets[0], PENDULUM_CONFIG.phaseOffsets[2], 'Ball 1 and Ball 3 must swing parallelly in phase');

@@ -52,7 +52,7 @@ export const PENDULUM_CONFIG = {
   xExitEnd: 6.50,       // Touchdown at ground grade
   deckY: 1.35,          // Higher elevated bridge deck (+1.68m above ground)
   deckWidth: 1.45,      // Compressed narrow bridge width (~1.24x robot width, ~14cm edge clearance, NO guardrails)
-  ballPositionsX: [12.10, 10.50, 8.90] as const, // 3 balls spaced 1.60m apart (0.90m clear gap > ball diameter)
+  ballPositionsX: [12.25, 10.50, 8.75] as const, // 3 balls spaced 1.75m apart (1.05m clear gap = 1.5x ball diameter)
   ballRadius: 0.35,     // Heavy metallic sphere radius (diameter 0.70m)
   ballPivotY: 4.25,     // Overhead gantry suspension pivot
   ballArmLength: 2.65,  // Pendulum length
