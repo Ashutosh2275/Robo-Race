@@ -96,7 +96,12 @@ export const SPIRAL_CONFIG = {
  * banking so the robot climbs smoothly without spinning, sliding, or cliff discontinuities.
  */
 export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
-  // 1. Connected Descending Viaduct Ramp: x in [3.45, 10.45], |z| <= descentWidth / 2 + 0.15
+  // 1. Approach road and entrance apron before spiral perimeter (x <= -6.40, |z| <= 2.20 at ground grade)
+  if (poseY < 0.50 && x <= -6.40 && x >= -8.00 && Math.abs(z - SPIRAL_CONFIG.cz) <= 2.20) {
+    return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
+  }
+
+  // 2. Connected Descending Viaduct Ramp: x in [3.45, 10.45], |z| <= descentWidth / 2 + 0.15
   if (x >= SPIRAL_CONFIG.descentX0 && x <= SPIRAL_CONFIG.descentX1 && Math.abs(z - SPIRAL_CONFIG.descentZ) <= SPIRAL_CONFIG.descentWidth / 2 + 0.15) {
     const u = (x - SPIRAL_CONFIG.descentX0) / (SPIRAL_CONFIG.descentX1 - SPIRAL_CONFIG.descentX0);
     const eased = u * u * (3 - 2 * u);
@@ -104,12 +109,18 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: h, grip: 1.05 };
   }
 
-  // 2. Compact Helical Cardboard Spiral Ramp around Single Central Stake (cx = -4.50, cz = 0.00)
+  // 3. Compact Helical Spiral Ramp around Single Central Stake (cx = -4.50, cz = 0.00)
   const dx = x - SPIRAL_CONFIG.cx;
   const dz = z - SPIRAL_CONFIG.cz;
   const dist = Math.hypot(dx, dz);
 
   if (dist >= SPIRAL_CONFIG.rInner - 0.20 && dist <= SPIRAL_CONFIG.rOuter + 0.25) {
+    // If vehicle is on the ground (poseY < 0.50m) and in the southern half (dz > 0.05),
+    // it rests firmly on the solid ground pavement underneath the elevated Tier 1 deck.
+    if (poseY < 0.50 && dz > 0.05) {
+      return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
+    }
+
     const u = Math.max(-1, Math.min(1, dx / Math.max(1e-6, dist)));
     const alpha = Math.acos(u); // in [0, PI]: 0 at East, PI at West
 
@@ -121,7 +132,7 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     }
     // 2. Ground entrance protection: when vehicle is on ground/lower tier (< 1.20m) and near West (dx < 0),
     // it enters at progress = 0 and climbs North (h ~ -0.33m).
-    else if (poseY < 1.20 && dx < 0 && dz < 0.40) {
+    else if (poseY < 1.20 && dx < 0 && dz <= 0.05) {
       progress = Math.max(0, Math.PI - alpha);
     }
     // 3. Southern half: single tier (turn 0.5 to 1.0, progress in [PI, 2*PI])
@@ -144,7 +155,12 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: h + bank, grip: 1.15 };
   }
 
-  // 3. Elevated Summit Bridge & Turntable Platter Viaduct: x in [-3.45, 3.45]
+  // 4. Ground pavement under the entire spiral footprint (eliminates any holes between inner and outer)
+  if (poseY < 0.50 && dist < SPIRAL_CONFIG.rOuter + 0.50) {
+    return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
+  }
+
+  // 5. Elevated Summit Bridge & Turntable Platter Viaduct: x in [-3.45, 3.45]
   const isApproachBridge = x >= -3.45 && x < -1.45 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.roadWidth / 2 + 0.15;
   const isTurntableDeck = x >= -1.45 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2;
   if ((isApproachBridge || isTurntableDeck) && (poseY > 1.40 || x >= -1.45)) {

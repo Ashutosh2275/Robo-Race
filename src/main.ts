@@ -1039,10 +1039,63 @@ function buildSpiralClimbingStructure() {
   capMesh.position.set(cfg.cx, cfg.yTop + 0.54, cfg.cz);
   course.add(capMesh);
 
-  // 2. Compact Rotated Cardboard Ribbon Climbing Surface (120 Segments over 1.5 turns, 540 degrees)
+  // 2. Continuous Solid Ground Foundation Apron under Spiral Footprint (x in [-7.80, -1.80], z in [-2.50, 2.50])
+  // Completely eliminates any empty void or hole under the spiral structure:
+  box(course, mats.asphalt, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.004, cfg.cz), V(5.60, 0.02, 5.20), 0, false);
+  box(course, mats.asphalt, V(-6.55, ARENA_FLOOR_HEIGHT + 0.005, 0.00), V(2.20, 0.02, DRIVE_ROUTE_WIDTH), 0, false);
+
+  // 3. Real Transitional Entrance Ramp & Banked Outer Guide Deflector Wall (South Side, z > 0)
+  // Continuous curved deflection barrier gently guiding approaching robot into the spiral climb
+  const entryBarrierSteps = 14;
+  const rBarrier = cfg.rOuter + 0.06; // 2.06m
+  for (let b = 0; b < entryBarrierSteps; b++) {
+    const t0 = b / entryBarrierSteps;
+    const t1 = (b + 1) / entryBarrierSteps;
+    // Curves from PI (approach road tangent at x = -6.56, z = 0) around the South quadrant to PI/2 (x = -4.50, z = 2.06)
+    const a0 = Math.PI - t0 * (Math.PI / 2);
+    const a1 = Math.PI - t1 * (Math.PI / 2);
+    const aMid = (a0 + a1) / 2;
+    const bx = cfg.cx + rBarrier * Math.cos(aMid);
+    const bz = cfg.cz + rBarrier * Math.sin(aMid);
+    const chord = rBarrier * (Math.PI / 2) / entryBarrierSteps;
+    const ang = Math.PI / 2 - aMid;
+    const wall = box(course, mats.concretePier, V(bx, ARENA_FLOOR_HEIGHT + 0.18, bz), V(chord + 0.04, 0.36, 0.28), ang);
+    wall.rotation.y = ang;
+    const coping = box(course, b % 2 === 0 ? mats.yellow : mats.black, V(bx, ARENA_FLOOR_HEIGHT + 0.38, bz), V(chord + 0.04, 0.04, 0.30), ang, false);
+    coping.rotation.y = ang;
+    colliders.push({
+      id: `spiral_entry_outer_barrier_${b}`,
+      x: bx,
+      z: bz,
+      hx: chord / 2 + 0.02,
+      hz: 0.14,
+      y: ARENA_FLOOR_HEIGHT + 0.18,
+      height: 0.36,
+      rot: ang,
+      walkable: false,
+    });
+    // Reflective cat-eyes along outer deflector
+    if (b % 2 === 0) {
+      box(course, mats.red, V(bx - 0.12 * Math.sin(ang), ARENA_FLOOR_HEIGHT + 0.26, bz - 0.12 * Math.cos(ang)), V(0.06, 0.06, 0.02), ang, false);
+    }
+  }
+
+  // Beveled transition entrance deck plate (x in [-6.50, -5.60])
+  box(course, mats.diamondPlate, V(-6.05, ARENA_FLOOR_HEIGHT + 0.008, 0.00), V(0.90, 0.012, cfg.roadWidth), 0, false);
+  // High-contrast yellow entrance guidance arrows pointing into spiral
+  for (let a = 0; a < 3; a++) {
+    const ax = -6.50 + a * 0.40;
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.22, 3), mats.yellow);
+    arrow.position.set(ax, ARENA_FLOOR_HEIGHT + 0.016, 0.0);
+    arrow.rotation.x = -Math.PI / 2;
+    arrow.rotation.z = Math.PI / 2 + a * 0.18; // Banks gently left toward North
+    course.add(arrow);
+  }
+
+  // 4. Compact Rotated Cardboard Ribbon Climbing Surface (144 Segments over 1.5 turns, 540 degrees)
   // Continuous cantilevered spiral around central stake. ZERO under-deck pillars or pier bents.
   // Climbs from ground entrance (y = -0.33m at x = -5.60, z = 0.0) up to summit (y = 3.20m at x = -3.40, z = 0.0)
-  const segments = 120;
+  const segments = 144;
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
@@ -1059,8 +1112,8 @@ function buildSpiralClimbingStructure() {
 
     const yTopIn = yBase + camberInner;
     const yTopOut = yBase + camberOuter;
-    const yBotIn = yTopIn - 0.06; // Sleek structural composite cardboard ply
-    const yBotOut = yTopOut - 0.06;
+    const yBotIn = yTopIn - 0.08; // Sturdy 8cm structural composite deck girder
+    const yBotOut = yTopOut - 0.08;
 
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
@@ -1075,10 +1128,10 @@ function buildSpiralClimbingStructure() {
     positions.push(xOut, yBotOut, zOut); // 2
     positions.push(xIn, yBotIn, zIn);   // 3
 
-    uvs.push(0, t * 16);
-    uvs.push(1, t * 16);
-    uvs.push(1, t * 16);
-    uvs.push(0, t * 16);
+    uvs.push(0, t * 18);
+    uvs.push(1, t * 18);
+    uvs.push(1, t * 18);
+    uvs.push(0, t * 18);
 
     if (s < segments) {
       const b = s * 4;
@@ -1103,50 +1156,67 @@ function buildSpiralClimbingStructure() {
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
-  // 3. Tactile Chevron Friction Plates (Every 15 degrees, 36 chevron treads along the spiral climb)
-  // These visual and physical grip treads mark the alternating left-right switchback lines
-  const chevronCount = 36;
-  for (let c = 0; c <= chevronCount; c++) {
-    const t = c / chevronCount;
-    const theta = cfg.startAngle + t * totalAngle;
-    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-    const midR = (cfg.rInner + cfg.rOuter) / 2;
-    const treadW = cfg.rOuter - cfg.rInner - 0.12;
-
-    const tx = cfg.cx + midR * cosT;
-    const tz = cfg.cz + midR * sinT;
-    const tread = box(course, c % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(tx, yBase + 0.008, tz), V(treadW, 0.012, 0.14), 0, false);
-    tread.rotation.y = -theta;
-    tread.rotation.z = 0.022; // Inward superelevation banking
+  // 5. Clean Flush Road Markings & Directional Climbing Arrows (Zero jagged fan-blade slats!)
+  // A. Flush Painted Centerline Dashed Stripe along rCenter = 1.10
+  const dashCount = 36;
+  for (let d = 0; d < dashCount; d++) {
+    if (d % 2 === 1) continue; // Dashed pattern
+    const t0 = d / dashCount;
+    const t1 = (d + 1) / dashCount;
+    const theta0 = cfg.startAngle + t0 * totalAngle;
+    const theta1 = cfg.startAngle + t1 * totalAngle;
+    const midTheta = (theta0 + theta1) / 2;
+    const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
+    const midX = cfg.cx + cfg.rCenter * Math.cos(midTheta);
+    const midZ = cfg.cz + cfg.rCenter * Math.sin(midTheta);
+    const chord = (cfg.rCenter * totalAngle) / dashCount;
+    const dash = box(course, mats.laneStripeWhite, V(midX, yMid + 0.007, midZ), V(chord * 0.70, 0.005, 0.06), 0, false);
+    dash.rotation.y = Math.PI / 2 - midTheta;
   }
 
-  // 4. Borderless Fall-Off Hazard Edge Stripes (ZERO curbs or walls: robot falls if steered off)
-  const edgeSegments = 48;
-  for (let r = 0; r < edgeSegments; r++) {
-    const t0 = r / edgeSegments;
-    const t1 = (r + 1) / edgeSegments;
+  // B. Flush Painted Yellow Boundary Stripes along Outer Edge (rOuter - 0.06)
+  const edgeStripeCount = 48;
+  for (let r = 0; r < edgeStripeCount; r++) {
+    const t0 = r / edgeStripeCount;
+    const t1 = (r + 1) / edgeStripeCount;
     const theta0 = cfg.startAngle + t0 * totalAngle;
     const theta1 = cfg.startAngle + t1 * totalAngle;
     const midTheta = (theta0 + theta1) / 2;
     const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
 
-    // Flush Outer Hazard Verge Stripe (Zero vertical barrier)
-    const outX = cfg.cx + (cfg.rOuter - 0.08) * Math.cos(midTheta);
-    const outZ = cfg.cz + (cfg.rOuter - 0.08) * Math.sin(midTheta);
-    const chord = (cfg.rOuter * totalAngle) / edgeSegments;
-    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(outX, yMid + 0.008, outZ), V(chord + 0.02, 0.008, 0.12), 0, false);
+    const outX = cfg.cx + (cfg.rOuter - 0.06) * Math.cos(midTheta);
+    const outZ = cfg.cz + (cfg.rOuter - 0.06) * Math.sin(midTheta);
+    const chord = (cfg.rOuter * totalAngle) / edgeStripeCount;
+    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(outX, yMid + 0.008, outZ), V(chord + 0.02, 0.006, 0.10), 0, false);
     outerStripe.rotation.y = Math.PI / 2 - midTheta;
   }
 
-  // 5. Elevated Approach Bridge connecting Spiral Summit (x = -3.40) to Turntable Deck (x = -1.45)
+  // C. Flush Directional Racing Chevron Decals (Every 30 degrees, 18 clean flat climbing arrows)
+  const arrowCount = 18;
+  for (let a = 0; a < arrowCount; a++) {
+    const t = (a + 0.5) / arrowCount;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yMid = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const ax = cfg.cx + cfg.rCenter * cosT;
+    const az = cfg.cz + cfg.rCenter * sinT;
+    const tangAng = Math.PI / 2 - theta;
+
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.28, 3), mats.yellow);
+    arrow.position.set(ax, yMid + 0.008, az);
+    arrow.rotation.x = -Math.PI / 2;
+    arrow.rotation.z = tangAng;
+    course.add(arrow);
+  }
+
+  // 6. Elevated Approach Bridge connecting Spiral Summit (x = -3.40) to Turntable Deck (x = -1.45)
   // Continuous 1.80m wide cantilevered cardboard deck at y = 3.20m
   box(course, mats.cardboard, V(-2.45, cfg.yTop - 0.03, 0.0), V(2.00, 0.06, cfg.roadWidth));
   // Beveled transition plate
   box(course, mats.yellow, V(-3.40, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
 
-  // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
+  // 7. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
   // Continuous downhill sloped deck. NO pier bents or clutter underneath!
   const dX0 = cfg.descentX0; // 3.45
   const dX1 = cfg.descentX1; // 10.45
@@ -1531,16 +1601,18 @@ box(course, mats.gravelBed, V(10.25, rockPlatDeckY + 0.025, 13.50), V(8.40, 0.04
 slopedDeck('rock_bed_entrance_ramp', 5.80, 6.40, 13.50, DRIVE_ROUTE_WIDTH - 0.20, GROUND_DECK_HEIGHT, rockPlatDeckY + 0.035, 0.06, mats.gravelBed);
 slopedDeck('rock_bed_exit_ramp', 14.20, 14.80, 13.50, DRIVE_ROUTE_WIDTH - 0.20, rockPlatDeckY + 0.035, GROUND_DECK_HEIGHT, 0.06, mats.gravelBed);
 
-// Natural weathered granite retaining rock kerbs along both shoulders
+// Natural weathered granite retaining rock kerbs along both shoulders (x in [5.80, 14.80], matching straight lane barriers exactly)
+const rockCurbMidX = 10.30;
+const rockCurbLen = 9.00;
 for (const side of [-1, 1]) {
-  const zCurb = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.18);
-  box(course, mats.granite, V(10.25, rockPlatDeckY + 0.08, zCurb), V(8.50, 0.16, 0.28));
-  box(course, mats.yellow, V(10.25, rockPlatDeckY + 0.17, zCurb), V(8.50, 0.02, 0.24), 0, false);
+  const zCurb = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
+  box(course, mats.granite, V(rockCurbMidX, rockPlatDeckY + 0.08, zCurb), V(rockCurbLen, 0.16, 0.28));
+  box(course, mats.yellow, V(rockCurbMidX, rockPlatDeckY + 0.17, zCurb), V(rockCurbLen, 0.02, 0.24), 0, false);
   colliders.push({
     id: `rock_platform_kerb_${side}`,
-    x: 10.25,
+    x: rockCurbMidX,
     z: zCurb,
-    hx: 4.25,
+    hx: rockCurbLen / 2,
     hz: 0.14,
     y: rockPlatDeckY + 0.08,
     height: 0.16,
@@ -2186,13 +2258,62 @@ for (const fx of [-12.0, 0.0, 12.0]) {
 }
 
 // ---------------------------------------------------------------------------
-// SECTION 11: Grand Checkered Finish Straight on Lane 5 (Z = -13.50, X in [10.5, 13.5])
+// SECTION 11: Grand Checkered Finish Straight on Lane 5 (Z = -13.50, X in [10.5, 16.5])
 // ---------------------------------------------------------------------------
-for (let ix = 0; ix < 10; ix++) {
-  for (let iz = 0; iz < 12; iz++) {
-    box(course, (ix + iz) % 2 ? mats.black : mats.laneStripeWhite, V(10.5 + ix * 0.30, ROUTE_DECK_HEIGHT + 0.015, -13.50 + (iz - 5.5) * 0.32), V(0.30, 0.012, 0.32), 0, false);
+// Pristine Flush Checkered Finish Grid spanning full 4.40m roadway at Gate 12 (x = 12.0)
+const finishX0 = 11.00;
+const finishTilesX = 8;  // 8 * 0.30m = 2.40m along straight
+const finishTilesZ = 14; // 14 * 0.30m = 4.20m across roadway
+for (let ix = 0; ix < finishTilesX; ix++) {
+  for (let iz = 0; iz < finishTilesZ; iz++) {
+    const tileX = finishX0 + (ix + 0.5) * 0.30;
+    const tileZ = -13.50 + (iz - (finishTilesZ - 1) / 2) * 0.30;
+    box(course, (ix + iz) % 2 ? mats.black : mats.laneStripeWhite, V(tileX, GROUND_DECK_HEIGHT + 0.007, tileZ), V(0.298, 0.006, 0.298), 0, false);
   }
 }
+
+// Crisp White Transverse Start & Stop Boundary Limit Bars
+box(course, mats.laneStripeWhite, V(finishX0 - 0.04, GROUND_DECK_HEIGHT + 0.008, -13.50), V(0.08, 0.006, 4.25), 0, false);
+box(course, mats.laneStripeWhite, V(finishX0 + finishTilesX * 0.30 + 0.04, GROUND_DECK_HEIGHT + 0.008, -13.50), V(0.08, 0.006, 4.25), 0, false);
+
+// Alternating Red & White FIA Kerb Strips along both shoulders (x in [10.5, 16.2])
+for (const side of [-1, 1]) {
+  const zCurb = -13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
+  const kSteps = 18;
+  const kW = (16.2 - 10.5) / kSteps;
+  for (let k = 0; k < kSteps; k++) {
+    const kx = 10.5 + (k + 0.5) * kW;
+    box(course, k % 2 === 0 ? mats.fiaRed : mats.fiaWhite, V(kx, GROUND_DECK_HEIGHT + 0.04, zCurb), V(kW - 0.01, 0.08, 0.24), 0, false);
+  }
+}
+
+// Terminal Run-off Tire Wall Crash Barrier Stack at Track End (x = 16.50, z = -13.50)
+const tireRows = 3;
+const tireCols = 10;
+const tireR = 0.22;
+for (let tr = 0; tr < tireRows; tr++) {
+  for (let tc = 0; tc < tireCols; tc++) {
+    const tx = 16.50 + tr * 0.36;
+    const tz = -13.50 + (tc - (tireCols - 1) / 2) * 0.44;
+    const ty = GROUND_DECK_HEIGHT + 0.18 + (tr % 2) * 0.16;
+    cyl(course, mats.rubber, V(tx, ty, tz), tireR, 0.28, 'y', 16);
+    // Yellow hazard cap on top row
+    if (tr === tireRows - 1) {
+      cyl(course, tc % 2 === 0 ? mats.yellow : mats.black, V(tx, ty + 0.15, tz), tireR - 0.02, 0.04, 'y', 16);
+    }
+  }
+}
+colliders.push({
+  id: 'lane_5_terminal_tire_wall',
+  x: 16.86,
+  z: -13.50,
+  hx: 0.60,
+  hz: DRIVE_ROUTE_WIDTH / 2 + 0.10,
+  y: GROUND_DECK_HEIGHT + 0.35,
+  height: 0.70,
+  rot: 0,
+  walkable: false,
+});
 
 // -------------------------------------------------------------
 // 6. Checkpoint Gates & Recovery Anchors (Ultra-Real 3D Gantries + 4D Laser Scan Lines)
@@ -2247,26 +2368,40 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   cameraOccluders.push(crossbar);
 
   // 3. Double-Sided Illuminated Overhead LED Display
+  const isFinishGate = (i === CHECKPOINTS.length - 1);
   const cvs = document.createElement('canvas');
   cvs.width = 512;
   cvs.height = 96;
   const ctx = cvs.getContext('2d')!;
   ctx.fillStyle = '#111413';
   ctx.fillRect(0, 0, 512, 96);
-  ctx.strokeStyle = '#f0bd53';
+  ctx.strokeStyle = isFinishGate ? '#ffd700' : '#f0bd53';
   ctx.lineWidth = 6;
   ctx.strokeRect(4, 4, 504, 88);
-  ctx.fillStyle = '#f0bd53';
+  if (isFinishGate) {
+    // Draw checkered border accents on finish banner
+    const cSize = 16;
+    for (let cx = 10; cx < 80; cx += cSize) {
+      for (let cy = 10; cy < 86; cy += cSize) {
+        if ((Math.floor(cx / cSize) + Math.floor(cy / cSize)) % 2 === 0) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(cx, cy, cSize, cSize);
+          ctx.fillRect(512 - 80 + (cx - 10), cy, cSize, cSize);
+        }
+      }
+    }
+  }
+  ctx.fillStyle = isFinishGate ? '#ffe066' : '#f0bd53';
   ctx.font = 'bold 36px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(cp.label.toUpperCase(), 256, 58);
+  ctx.fillText(isFinishGate ? '🏁 GRAND FINISH 🏁' : cp.label.toUpperCase(), 256, 58);
   const signTex = new THREE.CanvasTexture(cvs);
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(3.8, gantrySpan - 1.2), 0.52), new THREE.MeshBasicMaterial({ map: signTex, side: THREE.DoubleSide }));
   signMesh.position.set(0, towerH, 0);
   g.add(signMesh);
 
   // 4. Ultra-Realistic Laser Timing Scan Beam across the roadway
-  const laserColor = i === 0 ? '#f0bd53' : i === 10 ? '#ffd700' : '#20e3b2';
+  const laserColor = i === 0 ? '#f0bd53' : isFinishGate ? '#ffd700' : '#20e3b2';
   const laserBeamGeo = new THREE.CylinderGeometry(0.016, 0.016, gantrySpan - 0.4, 12);
   laserBeamGeo.rotateZ(Math.PI / 2);
   const bar = new THREE.Mesh(
