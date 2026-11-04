@@ -2315,20 +2315,18 @@ const checkpointBeacons: THREE.Mesh[] = [];
 
 const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   const g = new THREE.Group();
-  const gateY = i === 5
-    ? (SPIRAL_CONFIG.yGround + 0.5 * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround))
-    : evaluateCourseHeight(cp.x, cp.z);
+  const gateY = evaluateCourseHeight(cp.x, cp.z);
   g.position.set(cp.x, gateY, cp.z);
   g.rotation.y = cp.yaw;
   course.add(g);
 
   let beamSpan = 5.0;
-  if (i === 5 || i === 6) {
-    // Checkpoints 06 (Spiral Mid-Climb) and 07 (Spiral Summit Turntable)
+  if (i === 4 || i === 5) {
+    // Checkpoints 05 (Spiral Summit) and 06 (Spiral Summit Turntable)
     // Low-profile side timing sensor bollards and flush laser scan line across the deck,
     // maintaining 100% open vertical headroom without any overhead crossbars or drop columns!
-    beamSpan = (i === 6 ? SPIRAL_CONFIG.deckWidthZ - 0.40 : SPIRAL_CONFIG.roadWidth - 0.10);
-    const halfSpan = (i === 6 ? (SPIRAL_CONFIG.deckWidthZ / 2 - 0.10) : (SPIRAL_CONFIG.roadWidth / 2 + 0.08));
+    beamSpan = (i === 5 ? SPIRAL_CONFIG.deckWidthZ - 0.40 : SPIRAL_CONFIG.roadWidth - 0.10);
+    const halfSpan = (i === 5 ? (SPIRAL_CONFIG.deckWidthZ / 2 - 0.10) : (SPIRAL_CONFIG.roadWidth / 2 + 0.08));
     for (const side of [-1, 1]) {
       const px = side * halfSpan;
       box(g, mats.metal, V(px, 0.28, 0), V(0.14, 0.56, 0.14));
@@ -2791,6 +2789,7 @@ let countdown = 0;
 let turntableCurrentOmega = 0.48; // rad/s mechanical turntable rotation speed
 let currentCheckpoint = 0;
 let cameraMode = 0; // Selected home view; free-look is available in every view.
+const CAMERA_LABELS = ['CHASE', 'BUMPER', 'OVERHEAD', 'ORBIT'] as const;
 let cameraOrbitYaw = pose.yaw + Math.PI;
 let cameraOrbitPitch = 0.72;
 let cameraOrbitDistance = 6.8;
@@ -2866,7 +2865,7 @@ function renderUI() {
       <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span></div>
       <div class="hud">
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
-        <div class="pill"><small>GATES</small><strong id="gates">00 / 11</strong></div>
+        <div class="pill"><small>GATES</small><strong id="gates">00 / 12</strong></div>
         <div class="pill"><small>SPEED</small><strong id="speed">0.0 <span style="font-size:9px">m/s</span></strong></div>
         <div class="pill" id="pillHandPoints"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
         <div class="pill" id="pillBat"><small>BATTERY</small><strong id="bat">100%</strong></div>
@@ -2884,7 +2883,23 @@ function renderUI() {
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK (CLICK CANVAS)
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK (CLICK CANVAS)
+    </div>
+    <div id="floatingSkipContainer" class="floating-skip-container hidden">
+      <button id="btnSkipCheckpoint" class="floating-skip-btn" title="Skip to next checkpoint gate (Hotkey: K)">
+        <div class="skip-header-row">
+          <span class="skip-status-dot"></span>
+          <span class="skip-category">TACTICAL ASSIST</span>
+          <kbd class="skip-key-badge">K</kbd>
+        </div>
+        <div class="skip-main-row">
+          <span class="skip-icon">⏭</span>
+          <span class="skip-text">SKIP CHECKPOINT</span>
+        </div>
+        <div class="skip-detail-row" id="skipTargetDetail">
+          GATE 01 &rarr; GATE 02
+        </div>
+      </button>
     </div>
     <div class="toast"></div>
     <div class="mobile-controls">
@@ -3342,65 +3357,136 @@ function renderUI() {
     el.addEventListener('lostpointercapture', end);
   });
 
+  $('#btnSkipCheckpoint')?.addEventListener('click', skipCurrentCheckpoint);
+
   showMenu();
 }
 
 function showMenu() {
   const o = $<HTMLDivElement>('#overlay');
+  const activeTrackId = getActiveTrack().id;
   o.innerHTML = `
     <div class="overlay">
-      <div class="card">
-        <div class="eyebrow">PROFESSIONAL SIMULATION</div>
-        <h1>ROBO RACE<br><span style="color:#eab449">3D</span></h1>
-        <p>Drive the tracked differential-drive robot across challenging terrain: slaloms, bridge crossings, switchback climbing, rock fields, and the fire-water-oil hazard zone.</p>
-        <div>
-          <span class="tag">REALISTIC DIFFERENTIAL DRIVE</span>
-          <span class="tag">PHYSICAL ROLLOVER</span>
-          <span class="tag">THERMAL & BATTERY MODEL</span>
-          <span class="tag">11 ORDERED GATES</span>
+      <div class="game-card">
+        <div class="hud-corner tl"></div>
+        <div class="hud-corner tr"></div>
+        <div class="hud-corner bl"></div>
+        <div class="hud-corner br"></div>
+
+        <div class="hub-status-ribbon">
+          <div class="hub-live-badge">
+            <span class="hub-live-dot"></span>
+            <span>TELEMETRY ONLINE</span>
+          </div>
+          <div class="hub-sim-badge">UGV SIMULATOR v2.4</div>
         </div>
-        <p style="font-size:11px;margin:12px 0 14px">
-          <b>Keyboard:</b> W/S Drive · A Left · D Right · Space Brake · R Recover · C Camera · Esc Pause<br>
-          <b>Controllers:</b> Compatible with Xbox, PS, RadioMaster & EdgeTX transmitters
-        </p>
-        <div style="margin: 12px 0 10px; text-align: left;">
-          <div style="font-size:11px;color:#f0bd53;font-weight:bold;margin-bottom:6px;letter-spacing:0.05em;">CHOOSE CIRCUIT TRACK:</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-            <button class="iconbtn track-btn active" data-track="track_b" id="btnTrackB" style="border-color:#f0bd53;color:#f0bd53;font-weight:bold;">★ TRACK B: SPIRAL TOWER</button>
-            <button class="iconbtn track-btn" data-track="track_a" id="btnTrackA">TRACK A: ELEVATION</button>
-            <button class="iconbtn track-btn" data-track="track_c" id="btnTrackC">TRACK C: MULTI-LEVEL</button>
-            <button class="iconbtn track-btn" data-track="track_d" id="btnTrackD">TRACK D: EXTREME CLIMB</button>
+
+        <div class="hub-header">
+          <div class="hub-title-row">
+            <h1 class="hub-title">ROBO RACE</h1>
+            <span class="hub-edition">3D</span>
+          </div>
+          <div class="hub-subtitle">ADVANCED ROBOTIC PROVING GROUNDS</div>
+          <p class="hub-desc">
+            Pilot the high-torque differential tracked rover across 12 rigorous tactical sectors:
+            precision slaloms, elevated rock scramble, 540° spiral helix, kinetic swinging pendulums,
+            dual hanging suspension bridges, and the mandatory fire & water crucible.
+          </p>
+        </div>
+
+        <div class="hub-specs-grid">
+          <div class="hub-spec-pill"><span class="spec-ico">⚡</span> DIFFERENTIAL SKID-STEER</div>
+          <div class="hub-spec-pill"><span class="spec-ico">📐</span> 6-DOF RIGID INERTIA</div>
+          <div class="hub-spec-pill"><span class="spec-ico">🔋</span> THERMAL & BATTERY MODEL</div>
+          <div class="hub-spec-pill"><span class="spec-ico">🏁</span> 12 CHECKPOINT GATES</div>
+        </div>
+
+        <div class="hub-circuits-title">
+          <span>CHOOSE PROVING CIRCUIT:</span>
+          <small>TAP TO SELECT</small>
+        </div>
+        <div class="hub-track-grid">
+          <div class="track-card ${activeTrackId === 'track_b' ? 'active' : ''}" data-track="track_b" id="cardTrackB">
+            <div class="track-card-top">
+              <span class="track-tag-badge">★ SHOWCASE</span>
+              <span class="track-diff">★★★★★ EXPERT</span>
+            </div>
+            <div class="track-card-name">TRACK B: SPIRAL TOWER</div>
+            <div class="track-card-hazards">540° Helical Climb · Pendulums · Hanging Bridges · Fire/Water</div>
+          </div>
+          <div class="track-card ${activeTrackId === 'track_a' ? 'active' : ''}" data-track="track_a" id="cardTrackA">
+            <div class="track-card-top">
+              <span class="track-tag-badge">CIRCUIT</span>
+              <span class="track-diff">★★★ MEDIUM</span>
+            </div>
+            <div class="track-card-name">TRACK A: ELEVATION</div>
+            <div class="track-card-hazards">Tabletop Platform · Steel Arch Bridge · Fire/Water Crucible</div>
+          </div>
+          <div class="track-card ${activeTrackId === 'track_c' ? 'active' : ''}" data-track="track_c" id="cardTrackC">
+            <div class="track-card-top">
+              <span class="track-tag-badge">CIRCUIT</span>
+              <span class="track-diff">★★★★ ADVANCED</span>
+            </div>
+            <div class="track-card-name">TRACK C: MULTI-LEVEL</div>
+            <div class="track-card-hazards">Stepping Platforms · Switchback Ramps · Fire/Water Crucible</div>
+          </div>
+          <div class="track-card ${activeTrackId === 'track_d' ? 'active' : ''}" data-track="track_d" id="cardTrackD">
+            <div class="track-card-top">
+              <span class="track-tag-badge">CHALLENGE</span>
+              <span class="track-diff">★★★★★ MASTER</span>
+            </div>
+            <div class="track-card-name">TRACK D: EXTREME CLIMB</div>
+            <div class="track-card-hazards">60° Steep Incline · Boulder Scramble · Fire/Water Crucible</div>
           </div>
         </div>
-        <button class="action" id="btnStartRace">START RACE</button>
-        <div class="subactions">
-          <button class="iconbtn" id="btnMenuCam">CAMERA: CHASE</button>
-          <button class="iconbtn" id="btnMenuSettings">SETTINGS</button>
+
+        <div class="hub-controls-strip">
+          <div class="hub-keycap-row">
+            <div class="hub-keycap-item"><kbd class="hud-k">W</kbd><kbd class="hud-k">S</kbd> DRIVE</div>
+            <div class="hub-keycap-item"><kbd class="hud-k">A</kbd><kbd class="hud-k">D</kbd> TURN</div>
+            <div class="hub-keycap-item"><kbd class="hud-k">SPACE</kbd> BRAKE</div>
+            <div class="hub-keycap-item"><kbd class="hud-k">R</kbd> RECOVER (HOLD: RESET)</div>
+            <div class="hub-keycap-item"><kbd class="hud-k">K</kbd> SKIP GATE</div>
+          </div>
+          <div class="hub-controller-caption">
+            🎮 <b>CONTROLLERS:</b> Xbox, PlayStation, RadioMaster Boxer/TX16S & EdgeTX natively supported
+          </div>
+        </div>
+
+        <button class="hub-hero-cta" id="btnStartRace">
+          <span>▶</span> ENGAGE DRIVETRAIN &bull; START RACE
+        </button>
+
+        <div class="hub-footer-actions">
+          <button class="iconbtn" id="btnMenuCam">📹 CAMERA: ${CAMERA_LABELS[cameraMode] || 'CHASE'}</button>
+          <button class="iconbtn" id="btnMenuSettings">⚙ SETTINGS</button>
+          <button class="iconbtn" id="btnMenuCalib">🎮 CALIBRATE</button>
         </div>
       </div>
     </div>
   `;
   $('#btnStartRace', o).addEventListener('click', startRace);
-  const trackBtns = o.querySelectorAll<HTMLButtonElement>('.track-btn');
-  trackBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const trackId = btn.dataset.track as TrackId;
+  const trackCards = o.querySelectorAll<HTMLDivElement>('.track-card');
+  trackCards.forEach(card => {
+    card.addEventListener('click', () => {
+      const trackId = card.dataset.track as TrackId;
       setActiveTrack(trackId);
-      trackBtns.forEach(b => {
-        b.style.borderColor = '';
-        b.style.color = '';
-        b.style.fontWeight = '';
-      });
-      btn.style.borderColor = '#f0bd53';
-      btn.style.color = '#f0bd53';
-      btn.style.fontWeight = 'bold';
+      trackCards.forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
       const select = $('#trackSelect') as HTMLSelectElement | null;
       if (select) select.value = trackId;
       displayToast(`SELECTED: ${getActiveTrack().name.toUpperCase()}`);
     });
   });
-  $('#btnMenuCam', o).addEventListener('click', cycleCamera);
+  const btnMenuCam = $('#btnMenuCam', o);
+  btnMenuCam.addEventListener('click', () => {
+    cycleCamera();
+    btnMenuCam.innerHTML = `📹 CAMERA: ${CAMERA_LABELS[cameraMode] || 'CHASE'}`;
+  });
   $('#btnMenuSettings', o).addEventListener('click', () => $('#settings').classList.toggle('hidden'));
+  $('#btnMenuCalib', o).addEventListener('click', () => {
+    $('#openCalibBtn')?.click();
+  });
 }
 
 function showPaused() {
@@ -3438,7 +3524,7 @@ function showResults() {
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow">COURSE COMPLETE · 11 / 11 GATES</div>
+        <div class="eyebrow">COURSE COMPLETE · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
         <h1>Race Finished!</h1>
         <p class="result-time">${formatTime(elapsed)} <span style="font-size:14px;color:#aeb8a9">+ ${penaltyTime.toFixed(1)}s penalty</span></p>
         <p>Adjusted Total: <b style="color:#f0bd53">${formatTime(totalAdj)}</b><br>
@@ -3623,6 +3709,46 @@ function recoverVehicle() {
   displayToast(`RECOVERED TO ${anchor.label.toUpperCase()} · [${hpStr} HAND POINTS] · +${config.penalty}s`);
 }
 
+function skipCurrentCheckpoint() {
+  if (raceState !== 'racing' || currentCheckpoint >= checkpointMeshes.length) return;
+
+  const prevGate = currentCheckpoint;
+  checkpointMeshes[prevGate].passed = true;
+  (checkpointMeshes[prevGate].bar.material as THREE.MeshBasicMaterial).color.set('#f0bd53');
+
+  currentCheckpoint++;
+  tone(580, 0.16, 0.05);
+
+  if (currentCheckpoint >= checkpointMeshes.length) {
+    displayToast(`GATE ${String(prevGate + 1).padStart(2, '0')} SKIPPED · FINISH REACHED`);
+    raceState = 'finished';
+    showResults();
+    return;
+  }
+
+  // Find recovery anchor for the newly targeted checkpoint gate
+  const nextTargetAnchor = recoveryAnchors.find(a => a.checkpointIndex === currentCheckpoint)
+    || getSafeRecoveryAnchor(currentCheckpoint, recoveryAnchors)
+    || recoveryAnchors[0];
+
+  applyRecovery(pose, nextTargetAnchor, worldCourseHeight);
+  motionState.x = pose.x;
+  motionState.z = pose.z;
+  motionState.vx = 0;
+  motionState.vz = 0;
+  motionState.yaw = pose.yaw;
+  motionState.angular = 0;
+  previousRacePosition = { x: pose.x, z: pose.z };
+
+  checkpointMeshes.forEach((checkpoint, i) => {
+    checkpoint.passed = i < currentCheckpoint;
+    (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+  });
+
+  penaltyTime += 5.0; // Tactical assist penalty
+  displayToast(`⏭ GATE ${String(prevGate + 1).padStart(2, '0')} SKIPPED → TARGET: GATE ${String(currentCheckpoint + 1).padStart(2, '0')} (+5s)`);
+}
+
 // Global Key Listeners & R Long-Press Restart Handling
 let rKeyPressed = false;
 let rHoldDuration = 0;
@@ -3648,6 +3774,9 @@ window.addEventListener('keydown', e => {
   }
 
   if (e.repeat) return;
+  if (e.code === 'KeyK' && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
+    skipCurrentCheckpoint();
+  }
   if (e.code === 'Escape') {
     if (document.pointerLockElement) {
       document.exitPointerLock();
@@ -4029,17 +4158,17 @@ function stepPhysics(dt: number) {
   const localX = pose.x / MAP_SCALE;
   const localZ = pose.z / MAP_SCALE;
   const inLane4Corridor = Math.abs(localZ - PENDULUM_CONFIG.zLane) <= 2.20;
-  if (raceState === 'racing' && inLane4Corridor && (currentCheckpoint === 8 || currentCheckpoint === 9)) {
+  if (raceState === 'racing' && inLane4Corridor && (currentCheckpoint === 7 || currentCheckpoint === 8)) {
     if (localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
       const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2; // 0.725m
       const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
       const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
 
       if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
-        // Automatic immediate checkpoint recovery to Gate 09
-        const g09Anchor = recoveryAnchors.find(a => a.checkpointIndex === 9) || recoveryAnchors[9] || recoveryAnchors[0];
-        applyRecovery(pose, g09Anchor, worldCourseHeight);
-        currentCheckpoint = 8; // Reset back to Gate 09 (Gate 09 is index 8 / id 9)
+        // Automatic immediate checkpoint recovery to Lane 4 entry (before pendulums)
+        const g08Anchor = recoveryAnchors.find(a => a.checkpointIndex === 7 || a.checkpointIndex === 8) || recoveryAnchors[0];
+        applyRecovery(pose, g08Anchor, worldCourseHeight);
+        currentCheckpoint = 7; // Reset back to Gate 08 target
         checkpointMeshes.forEach((checkpoint, i) => {
           checkpoint.passed = i < currentCheckpoint;
           (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
@@ -4051,7 +4180,7 @@ function stepPhysics(dt: number) {
         motionState.yaw = pose.yaw;
         motionState.angular = 0;
         tone(260, 0.28, 0.08);
-        displayToast('KNOCKED OFF TRACK · RESTARTING AT GATE 09');
+        displayToast('KNOCKED OFF TRACK · RESTARTING AT PENDULUM GAUNTLET');
       }
     }
   }
@@ -4387,7 +4516,7 @@ function updateHUD(dt: number) {
   const rolloverBanner = $<HTMLElement>('#rolloverAlert');
 
   if (t) t.textContent = formatTime(elapsed);
-  if (g) g.textContent = `${String(currentCheckpoint).padStart(2, '0')} / 11`;
+  if (g) g.textContent = `${String(currentCheckpoint).padStart(2, '0')} / ${checkpointMeshes.length}`;
   if (s) {
     const spd = Math.hypot(pose.vx, pose.vz);
     s.innerHTML = `${spd.toFixed(1)} <span style="font-size:9px">m/s</span>`;
@@ -4398,6 +4527,21 @@ function updateHUD(dt: number) {
       raceState === 'countdown' ? `RACE STARTS IN <i>${Math.max(1, Math.ceil(countdown))}</i>` :
       raceState === 'paused' ? 'RACE PAUSED' :
       `PASS GATE <i>${String(currentCheckpoint + 1).padStart(2, '0')}</i> IN ORDER`;
+  }
+
+  // Floating Checkpoint Skip Widget State
+  const skipContainer = $<HTMLElement>('#floatingSkipContainer');
+  const skipTarget = $<HTMLElement>('#skipTargetDetail');
+  if (skipContainer) {
+    const showSkip = raceState === 'racing' && currentCheckpoint < checkpointMeshes.length;
+    skipContainer.classList.toggle('hidden', !showSkip);
+    if (showSkip && skipTarget) {
+      if (currentCheckpoint < checkpointMeshes.length - 1) {
+        skipTarget.innerHTML = `GATE ${String(currentCheckpoint + 1).padStart(2, '0')} &rarr; GATE ${String(currentCheckpoint + 2).padStart(2, '0')}`;
+      } else {
+        skipTarget.innerHTML = `GATE ${String(currentCheckpoint + 1).padStart(2, '0')} &rarr; FINISH LINE`;
+      }
+    }
   }
 
   if (bat) bat.textContent = `${subsystems.battery.percentage.toFixed(0)}%`;

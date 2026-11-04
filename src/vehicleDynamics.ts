@@ -278,24 +278,32 @@ export function stepVehicle3D(
  */
 export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
   return [
-    // Lane 1: Starting bay and slaloms (ground at ARENA_FLOOR_HEIGHT = -0.33)
+    // 0: Start Bay (before Gate 01)
     { id: 'start', label: 'Starting Bay', x: -20.5 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 0 },
-    { id: 'slalom', label: 'Slalom Entry', x: -16.0 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
-    { id: 'speedbreaker_entry', label: 'Speed Breakers', x: 3.5 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
-    { id: 'rockfield_entry', label: 'Rock Field', x: 6.0 * scale, z: 13.50 * scale, y: 0.12 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
-    // Lane 2: Mid-South Straight (ground level)
-    { id: 'lane2_straight', label: 'Mid-South Straight', x: 14.5 * scale, z: 6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
-    // Lane 3: Parking-Garage Spiral Tower & Rooftop Deck
-    { id: 'spiral_entrance', label: 'Spiral Entrance', x: -5.60 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
-    { id: 'spiral_mid', label: 'Spiral Mid-Climb', x: -4.50 * scale, z: 1.10 * scale, y: 1.44 - TRACK_CONTACT_OFFSET, yaw: 0, checkpointIndex: 6 },
-    { id: 'turntable', label: 'Spiral Rooftop Deck', x: 1.00 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
-    { id: 'mixed_terrain', label: 'Descent Ramp Landing', x: 10.45 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
-    // Lane 4: Technical North Straight (ground level)
-    { id: 'north_straight', label: 'North Straight', x: 14.5 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
-    // Lane 5: Final Mandatory Sequence (Fire -> Water -> Finish)
-    { id: 'fire_platform', label: 'Fire Hazard', x: -5.0 * scale, z: -13.50 * scale, y: 0.05 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
-    { id: 'water_basin', label: 'Water Basin', x: 0.5 * scale, z: -13.50 * scale, y: -0.30 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 11 },
-    { id: 'finish_straight', label: 'Grand Finish', x: 12.0 * scale, z: -13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 12 },
+    // 1: After Gate 01 / Approaching Slaloms
+    { id: 'slalom', label: 'Gate 01 - Start Straight', x: -16.5 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 1 },
+    // 2: After Gate 02 (Slaloms Cleared) / Approaching Rock Field
+    { id: 'speedbreaker_entry', label: 'Gate 02 - Slaloms Cleared', x: 4.8 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 2 },
+    // 3: After Gate 03 (Rock Field Cleared) / Approaching Hairpin 1
+    { id: 'rockfield_entry', label: 'Gate 03 - Rock Field Cleared', x: 15.2 * scale, z: 13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 3 },
+    // 4: After Gate 04 (Technical Straight & Steel Cleared) / Approaching Hairpin 2
+    { id: 'lane2_straight', label: 'Gate 04 - Technical Straight Cleared', x: -15.5 * scale, z: 6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
+    // 5: After Gate 05 (Spiral Summit Cleared) / On Summit Deck entry (y = 3.20m)
+    { id: 'spiral_entrance', label: 'Gate 05 - Spiral Summit Cleared', x: -2.00 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
+    // 6: After Gate 06 (Turntable Cleared) / On Summit Deck exit (y = 3.20m)
+    { id: 'spiral_mid', label: 'Gate 06 - Turntable Cleared', x: 3.90 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 6 },
+    // 7: Spiral Rooftop Deck Anchor
+    { id: 'turntable', label: 'Gate 07 - Turntable Deck', x: 1.00 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
+    // 8: Descent Ramp Landing Anchor (at ground grade)
+    { id: 'mixed_terrain', label: 'Gate 08 - Descent Ramp Landing', x: 11.80 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
+    // 9: North Straight (after Pendulum Gauntlet / Suspension Bridge)
+    { id: 'north_straight', label: 'Gate 09 - North Straight', x: 14.5 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
+    // 10: After Gate 10 (Fire Hazard Cleared) / Cooling transition Lane 5
+    { id: 'fire_platform', label: 'Gate 10 - Fire Hazard Cleared', x: 0.20 * scale, z: -13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
+    // 11: After Gate 11 (Deep Water Basin Cleared) / Finishing straight Lane 5
+    { id: 'water_basin', label: 'Gate 11 - Water Basin Cleared', x: 11.00 * scale, z: -13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 11 },
+    // 12: Grand Finish Line
+    { id: 'finish_straight', label: 'Gate 12 - Grand Finish', x: 13.80 * scale, z: -13.50 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 12 },
   ];
 }
 

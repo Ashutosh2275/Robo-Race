@@ -29,3 +29,432 @@
 .diag-raw-axes{display:flex;gap:6px;flex-wrap:wrap}
 .diag-axis-pill{background:#17211a;border:1px solid rgba(255,255,255,.08);border-radius:4px;padding:3px 6px;font-size:9.5px;font-family:monospace}
 
+/* ==========================================================================
+   AAA Tactical Gaming Launch Card & Hub
+   ========================================================================== */
+.game-card {
+  position: relative;
+  width: min(540px, calc(100vw - 28px));
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  border-radius: 14px;
+  background: radial-gradient(135% 100% at 50% 0%, rgba(22, 32, 26, 0.96) 0%, rgba(12, 17, 14, 0.98) 100%);
+  border: 1px solid rgba(240, 189, 83, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 25px 80px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  padding: 24px 28px 22px;
+  backdrop-filter: blur(16px);
+  color: #eff3ea;
+  z-index: 35;
+}
+
+/* Tactical HUD Corner Reticles */
+.hud-corner {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  border-color: #f0bd53;
+  border-style: solid;
+}
+.hud-corner.tl { top: 6px; left: 6px; border-width: 2px 0 0 2px; }
+.hud-corner.tr { top: 6px; right: 6px; border-width: 2px 2px 0 0; }
+.hud-corner.bl { bottom: 6px; left: 6px; border-width: 0 0 2px 2px; }
+.hud-corner.br { bottom: 6px; right: 6px; border-width: 0 2px 2px 0; }
+
+/* Status Telemetry Ribbon */
+.hub-status-ribbon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9cb09b;
+}
+.hub-live-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #4ade80;
+}
+.hub-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39e75f;
+  box-shadow: 0 0 8px #39e75f;
+  animation: pulseGreen 1.4s infinite ease-in-out;
+}
+@keyframes pulseGreen {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+.hub-sim-badge {
+  color: #eab449;
+  background: rgba(234, 180, 73, 0.12);
+  border: 1px solid rgba(234, 180, 73, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Hero Title Block */
+.hub-header {
+  margin-bottom: 12px;
+}
+.hub-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+}
+.hub-title {
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0;
+  background: linear-gradient(180deg, #ffffff 30%, #cfd8cc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hub-edition {
+  font-size: 24px;
+  font-weight: 900;
+  color: #f0bd53;
+  text-shadow: 0 0 16px rgba(240, 189, 83, 0.5);
+  letter-spacing: 0.05em;
+}
+.hub-subtitle {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8da18c;
+  margin-top: 3px;
+}
+.hub-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #bdc7ba;
+  margin: 8px 0 14px;
+}
+
+/* Feature Spec Capsules */
+.hub-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.hub-spec-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 24, 19, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #d1ded0;
+}
+.hub-spec-pill .spec-ico {
+  color: #f0bd53;
+  font-size: 12px;
+}
+
+/* Circuit Selector Grid */
+.hub-circuits-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #f0bd53;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+.hub-circuits-title small {
+  color: #8da18c;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+.hub-track-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.track-card {
+  position: relative;
+  background: rgba(14, 20, 16, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.track-card:hover {
+  background: rgba(25, 36, 29, 0.9);
+  border-color: rgba(240, 189, 83, 0.45);
+  transform: translateY(-1px);
+}
+.track-card.active {
+  background: radial-gradient(130% 120% at 0% 0%, rgba(55, 75, 45, 0.45) 0%, rgba(18, 26, 21, 0.95) 100%);
+  border: 1.5px solid #f0bd53;
+  box-shadow: 0 0 16px rgba(240, 189, 83, 0.25), inset 0 0 12px rgba(240, 189, 83, 0.1);
+}
+.track-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.track-tag-badge {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a7b7a6;
+}
+.track-card.active .track-tag-badge {
+  background: #f0bd53;
+  color: #121814;
+}
+.track-diff {
+  font-size: 9px;
+  color: #f0bd53;
+  font-weight: 700;
+}
+.track-card-name {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #eff3ea;
+}
+.track-card.active .track-card-name {
+  color: #f0bd53;
+}
+.track-card-hazards {
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: #9cb09b;
+}
+
+/* Keycap Controls Dock */
+.hub-controls-strip {
+  background: rgba(10, 15, 12, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 16px;
+}
+.hub-keycap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: #c9d5c8;
+}
+.hub-keycap-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hud-k {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(180deg, #323f36 0%, #202b23 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  padding: 2px 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+.hub-controller-caption {
+  font-size: 9.5px;
+  color: #8da18c;
+  margin-top: 6px;
+  letter-spacing: 0.02em;
+}
+
+/* Hero CTA Start Button */
+.hub-hero-cta {
+  width: 100%;
+  padding: 13px 22px;
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  border-radius: 8px;
+  border: 1px solid #ffd875;
+  background: linear-gradient(135deg, #f5c555 0%, #db9a28 100%);
+  color: #121814;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(240, 189, 83, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.15s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.hub-hero-cta:hover {
+  background: linear-gradient(135deg, #ffd36b 0%, #e6a735 100%);
+  box-shadow: 0 6px 28px rgba(240, 189, 83, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform: translateY(-1px);
+}
+.hub-hero-cta:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 10px rgba(240, 189, 83, 0.3);
+}
+
+/* Secondary Actions Footer */
+.hub-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.hub-footer-actions .iconbtn {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  text-align: center;
+  border-radius: 6px;
+  background: rgba(18, 25, 21, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1ded0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.hub-footer-actions .iconbtn:hover {
+  background: rgba(35, 48, 39, 0.95);
+  border-color: rgba(240, 189, 83, 0.35);
+  color: #fff;
+}
+
+/* ==========================================================================
+   Floating Tactical Checkpoint Skip Widget (Right Side HUD)
+   ========================================================================== */
+.floating-skip-container {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: auto;
+  z-index: 25;
+}
+.floating-skip-btn {
+  position: relative;
+  background: radial-gradient(120% 120% at 100% 50%, rgba(26, 36, 30, 0.94) 0%, rgba(13, 18, 15, 0.96) 100%);
+  border: 1px solid rgba(240, 189, 83, 0.45);
+  border-radius: 12px;
+  padding: 10px 14px 10px 12px;
+  color: #eff3ea;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 16px rgba(240, 189, 83, 0.15);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 175px;
+}
+.floating-skip-btn:hover {
+  background: radial-gradient(120% 120% at 100% 50%, rgba(36, 50, 41, 0.96) 0%, rgba(18, 26, 21, 0.98) 100%);
+  border-color: #f0bd53;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 24px rgba(240, 189, 83, 0.35);
+  transform: translateX(-3px);
+}
+.floating-skip-btn:active {
+  transform: translateX(0) scale(0.98);
+}
+.skip-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.skip-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f0bd53;
+  box-shadow: 0 0 6px #f0bd53;
+  animation: pulseGreen 1.8s infinite ease-in-out;
+}
+.skip-category {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #eab449;
+  text-transform: uppercase;
+}
+.skip-key-badge {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  color: #121814;
+  background: #f0bd53;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.skip-main-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skip-icon {
+  font-size: 15px;
+  color: #f0bd53;
+  line-height: 1;
+}
+.skip-text {
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+}
+.skip-detail-row {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #aab4a8;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+@media (max-width: 760px) {
+  .floating-skip-container {
+    right: 8px;
+    top: auto;
+    bottom: 235px;
+    transform: none;
+  }
+  .floating-skip-btn {
+    min-width: 140px;
+    padding: 7px 10px;
+  }
+  .hub-title { font-size: 26px; }
+  .hub-edition { font-size: 20px; }
+  .hub-track-grid { grid-template-columns: 1fr; }
+  .hub-specs-grid { grid-template-columns: 1fr; }
+}
+

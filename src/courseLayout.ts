@@ -314,21 +314,23 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   { x: -1.0, z: 13.50 },  // Slalom hurdle 4
   { x: 1.2, z: 13.50 },   // Speed breaker 1
   { x: 3.2, z: 13.50 },   // Speed breaker 3
-  { x: 4.2, z: 13.50 },   // Gate 02 - Slalom Exit
-  { x: 6.0, z: 13.50 },   // Gate 03 - Rock Field Entrance (Platform +0.45m)
+  { x: 4.2, z: 13.50 },   // Gate 02 - Slaloms Cleared (Exit of slaloms & speed breakers)
+  { x: 6.0, z: 13.50 },   // Rock Field Entrance (Platform +0.45m)
   { x: 10.25, z: 13.50 }, // Rock Field center
-  { x: 14.5, z: 13.50 },  // Rock Field exit (descent to ground)
+  { x: 14.5, z: 13.50 },  // Rock Field exit descent
+  { x: 14.8, z: 13.50 },  // Gate 03 - Rock Field Cleared (Immediately after rock field)
   { x: 17.5, z: 13.50 },  // Lane 1 exit to Hairpin 1
 
   // Hairpin 1: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
   // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - Ground Level
-  { x: 14.5, z: 6.75 },   // Gate 04 - Mid-South Straight
-  { x: 7.5, z: 6.75 },    // Technical straight
+  { x: 14.5, z: 6.75 },   // Technical straight entry
+  { x: 7.5, z: 6.75 },    // Technical straight mid
   { x: 0.0, z: 6.75 },    // Mid-corridor
   { x: -7.5, z: 6.75 },   // Slippery sheet entry
   { x: -12.0, z: 6.75 },  // Slippery steel sheet
+  { x: -14.8, z: 6.75 },  // Gate 04 - Technical Straight & Steel Sheet Cleared
   { x: -17.5, z: 6.75 },  // Lane 2 exit to Hairpin 2
 
   // Hairpin 2: Ground-Level Semicircular Viaduct
@@ -336,18 +338,17 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
 
   // Lane 3: Compact Spiral Tower Approach & Climb (Center: cx = -4.50, cz = 0.00)
   { x: -12.0, z: 0.00 },  // Approach to Spiral Entrance
-  { x: -10.50, z: 0.00 }, // Gate 05 - Spiral Approach Gantry
+  { x: -10.50, z: 0.00 }, // Spiral Approach Gantry
   { x: -5.85, z: 0.00 },  // Compact Spiral Ground Entrance (y = -0.33m)
   // Helical climb around central stake (R = 1.35m, 1.5 turns, climb to y = 3.20m)
-  // Arc 1: West tangent to North quadrant (y rises to 1.44m at Gate 06)
   ...circularArc(-4.50, 0.0, 1.35, Math.PI, Math.PI * 2.5, 12).slice(1),
-  // Arc 2: North quadrant through summit exit at East tangent (y rises to 3.20m)
   ...circularArc(-4.50, 0.0, 1.35, Math.PI * 2.5, Math.PI * 4.0, 12).slice(1),
-  { x: -2.00, z: 0.00 },  // Elevated connecting bridge
-  { x: 1.00, z: 0.00 },   // Gate 07 - Spiral Rooftop Deck (y = 3.20m, Summit Turntable)
-  { x: 3.45, z: 0.00 },   // Descent ramp start
+  { x: -2.50, z: 0.00 },  // Gate 05 - Spiral Summit Cleared (Immediately after helical climb on summit deck)
+  { x: 1.00, z: 0.00 },   // Summit Turntable center (y = 3.20m)
+  { x: 3.65, z: 0.00 },   // Gate 06 - Turntable Cleared (Immediately after turntable on summit deck)
   { x: 6.95, z: 0.00 },   // Downhill viaduct ramp midpoint
-  { x: 10.45, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
+  { x: 10.45, z: 0.00 },  // Descent ramp touchdown
+  { x: 11.20, z: 0.00 },  // Gate 07 - Descent Ramp Cleared (Immediately after touchdown at ground grade)
   { x: 14.00, z: 0.00 },  // Ground runway
   { x: 17.50, z: 0.00 },  // Lane 3 exit to Hairpin 3
 
@@ -355,10 +356,17 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   ...circularArc(17.50, -3.375, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
   // Lane 4: Mid-North Straight (Z = -6.75, Westbound) - Ground Level
-  { x: 14.5, z: -6.75 },  // Gate 09 - Technical Straight
-  { x: 6.5, z: -6.75 },   // Mid-straight
-  { x: 0.0, z: -6.75 },   // Chicanes
-  { x: -7.5, z: -6.75 },  // Parallel planks
+  { x: 14.5, z: -6.75 },  // Lane 4 Entry
+  { x: 12.25, z: -6.75 }, // Ball 1
+  { x: 10.50, z: -6.75 }, // Ball 2
+  { x: 8.75, z: -6.75 },  // Ball 3
+  { x: 6.50, z: -6.75 },  // Pendulum ramp touchdown
+  { x: 5.80, z: -6.75 },  // Gate 08 - Pendulum Gauntlet Cleared (Immediately after descending pendulum catwalk)
+  { x: 3.50, z: -6.75 },  // Suspension Bridge East Tower
+  { x: -2.00, z: -6.75 }, // Suspension Bridge Mid
+  { x: -7.50, z: -6.75 }, // Suspension Bridge West Tower
+  { x: -9.50, z: -6.75 }, // Suspension Bridge touchdown
+  { x: -10.50, z: -6.75 },// Gate 09 - Suspension Bridges Cleared (Immediately after descending suspension bridge)
   { x: -17.5, z: -6.75 }, // Lane 4 exit to Hairpin 4
 
   // Hairpin 4: Ground-Level Semicircular Viaduct
@@ -366,28 +374,30 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
 
   // Lane 5: North Finishing Straight (Z = -13.50, Eastbound) - MANDATORY SEQUENCE: FIRE -> WATER -> FINISH
   { x: -12.0, z: -13.50 }, // Lane 5 approach (ground)
-  { x: -5.0, z: -13.50 },  // Gate 10 - Fire Hazard Entrance (Hearth at y = 0.05m)
-  { x: -1.0, z: -13.50 },  // Fire Exit / Heat-Shield Cooling Bridge
-  { x: 0.5, z: -13.50 },   // Gate 11 - Deep Water Basin Entrance (y = -0.30m, Water level 0.16m)
+  { x: -5.0, z: -13.50 },  // Fire Hazard Entrance
+  { x: -1.0, z: -13.50 },  // Fire Hazard Exit
+  { x: -0.20, z: -13.50 }, // Gate 10 - Fire Hazard Cleared (Immediately after fire hearth platform)
+  { x: 0.5, z: -13.50 },   // Deep Water Basin Entrance
   { x: 5.0, z: -13.50 },   // Water pool submerged center
-  { x: 9.5, z: -13.50 },   // Water Exit Ramp touchdown (ground: -0.33m)
-  { x: 12.0, z: -13.50 },  // Gate 12 - Grand Finish Line
+  { x: 9.5, z: -13.50 },   // Water Exit Ramp touchdown
+  { x: 10.50, z: -13.50 }, // Gate 11 - Deep Water Basin Cleared (Immediately after emerging from water basin)
+  { x: 13.50, z: -13.50 }, // Gate 12 - Grand Finish Line (Grand finish line)
   { x: 16.0, z: -13.50 },  // Deceleration run-off end
 ];
 
 export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
   { id: 1, label: 'Gate 01 - Start Straight', x: -17.5, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 2, label: 'Gate 02 - Slalom Exit', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 3, label: 'Gate 03 - Rock Field', x: 6.0, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 4, label: 'Gate 04 - Mid-South Straight', x: 14.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 5, label: 'Gate 05 - Spiral Approach', x: -10.50, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -4.50, z: 1.35, yaw: 0, width: 6.8 },
-  { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.00, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
-  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 10.45, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 9, label: 'Gate 09 - North Straight', x: 14.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 10, label: 'Gate 10 - Fire Hazard', x: -5.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 11, label: 'Gate 11 - Deep Water Basin', x: 0.5, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 12, label: 'Gate 12 - Grand Finish', x: 12.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 2, label: 'Gate 02 - Slaloms Cleared', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 3, label: 'Gate 03 - Rock Field Cleared', x: 14.8, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 4, label: 'Gate 04 - Technical Straight Cleared', x: -14.8, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
+  { id: 5, label: 'Gate 05 - Spiral Summit Cleared', x: -2.50, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 6, label: 'Gate 06 - Turntable Cleared', x: 3.65, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 7, label: 'Gate 07 - Descent Ramp Cleared', x: 11.20, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 8, label: 'Gate 08 - Pendulum Gauntlet Cleared', x: 5.80, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
+  { id: 9, label: 'Gate 09 - Suspension Bridges Cleared', x: -10.50, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
+  { id: 10, label: 'Gate 10 - Fire Hazard Cleared', x: -0.20, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 11, label: 'Gate 11 - Deep Water Basin Cleared', x: 10.50, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 12, label: 'Gate 12 - Grand Finish Line', x: 13.50, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
 ];
 
 export const TRACK_B_OBSTACLES: TrackObstacle[] = [
