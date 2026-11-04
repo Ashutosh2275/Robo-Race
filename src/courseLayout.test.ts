@@ -24,6 +24,8 @@ import {
   evaluateSpiralRamp,
   PARALLEL_PLANK_CENTERS,
   PARALLEL_PLANK_CENTER_Z,
+  PENDULUM_CONFIG,
+  HANGING_BRIDGE_CONFIG,
   MAP_SCALE,
   validateDriveRoute,
   validateObstacleSequence,
@@ -278,4 +280,47 @@ test('validateRouteClearance catches any collider placed inside a checkpoint gat
   ];
   const blockedResult = validateRouteClearance(blockedColliders);
   assert.equal(blockedResult.valid, false);
+});
+
+test('Lane 4 Swinging Pendulum Gauntlet: narrow 1.8m path, elevated 0.85m deck, and edge fall-off', () => {
+  assert.equal(PENDULUM_CONFIG.deckWidth, 1.80, 'narrow path width should be 1.80m (~6 ft)');
+  assert.equal(PENDULUM_CONFIG.ballPositionsX.length, 3, 'should feature 3 swinging pendulum balls');
+
+  // Entrance at Gate 09 (x = 14.50, z = -6.75) is ground level
+  const hEntry = evaluateCourseHeight(14.50, -6.75);
+  assert.ok(Math.abs(hEntry - GROUND_DECK_HEIGHT) < 0.02);
+
+  // Midway up the ascent ramp (x = 13.50, z = -6.75)
+  const hAscent = evaluateCourseHeight(13.50, -6.75);
+  assert.ok(hAscent > GROUND_DECK_HEIGHT + 0.30 && hAscent < PENDULUM_CONFIG.deckY);
+
+  // Center of narrow elevated deck (x = 10.50, z = -6.75)
+  const hDeckCenter = evaluateCourseHeight(10.50, -6.75, PENDULUM_CONFIG.deckY);
+  assert.ok(Math.abs(hDeckCenter - PENDULUM_CONFIG.deckY) < 0.02);
+
+  // Falling off the edge: lateral distance > 0.90m (deckWidth / 2)
+  const hFallenOff = evaluateCourseHeight(10.50, -6.75 + 1.15, PENDULUM_CONFIG.deckY);
+  assert.equal(hFallenOff, ARENA_FLOOR_HEIGHT, 'drifting beyond 1.8m narrow deck edge must drop to arena floor');
+
+  // Exit ramp touchdown (x = 6.50, z = -6.75) is ground level
+  const hExit = evaluateCourseHeight(6.50, -6.75);
+  assert.ok(Math.abs(hExit - GROUND_DECK_HEIGHT) < 0.02);
+});
+
+test('Lane 4 Dual Hanging Suspension Bridges: ascent ramp, 11m suspended deck, and descent ramp', () => {
+  // Approach ramp start at ground (x = 5.50, z = -6.75)
+  const hRampStart = evaluateCourseHeight(5.50, -6.75);
+  assert.ok(Math.abs(hRampStart - GROUND_DECK_HEIGHT) < 0.02);
+
+  // Top of ascent ramp / East tower (x = 3.50, z = -6.75)
+  const hEastTower = evaluateCourseHeight(3.50, -6.75);
+  assert.ok(Math.abs(hEastTower - HANGING_BRIDGE_CONFIG.deckY) < 0.02);
+
+  // Suspended bridge span midpoint with authentic catenary deflection
+  const hBridgeMid = evaluateCourseHeight(0.75, -6.75, HANGING_BRIDGE_CONFIG.deckY);
+  assert.ok(hBridgeMid <= HANGING_BRIDGE_CONFIG.deckY && hBridgeMid >= HANGING_BRIDGE_CONFIG.deckY - 0.05);
+
+  // Descent ramp touchdown at ground (x = -9.50, z = -6.75)
+  const hExit = evaluateCourseHeight(-9.50, -6.75);
+  assert.ok(Math.abs(hExit - GROUND_DECK_HEIGHT) < 0.02);
 });

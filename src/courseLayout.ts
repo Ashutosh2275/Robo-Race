@@ -40,6 +40,45 @@ export const PARALLEL_PLANK_CENTERS = [
   { x: -3.5, z: PARALLEL_PLANK_CENTER_Z + PARALLEL_PLANK_SPACING_LOCAL / 2 },
 ] as const;
 
+// ---------------------------------------------------------------------------
+// LANE 4 OBSTACLE 1: SWINGING PENDULUM GAUNTLET CONFIGURATION (Z = -6.75, X in [6.5, 14.5])
+// High-profile narrow path (6 ft / 1.80m wide) with 3 swinging wrecking balls
+// ---------------------------------------------------------------------------
+export const PENDULUM_CONFIG = {
+  zLane: -6.75,
+  xEntryStart: 14.50,   // Ground entrance directly after Gate 09
+  xRampUpEnd: 12.50,    // Top of ascent ramp
+  xRampDownStart: 8.50, // Start of descent ramp
+  xExitEnd: 6.50,       // Touchdown at ground grade
+  deckY: 0.85,          // Elevated deck height (+1.18m above ground)
+  deckWidth: 1.80,      // 6 ft narrow path (~1.5x robot width, ~1 ft clearance left & right, NO guardrails)
+  ballPositionsX: [11.50, 10.50, 9.50] as const, // 3 sequential swinging balls
+  ballRadius: 0.35,     // Heavy metallic sphere radius
+  ballPivotY: 3.45,     // Overhead gantry suspension pivot
+  ballArmLength: 2.30,  // Pendulum length
+  swingAmplitude: 1.55, // Swings +-1.55m across track (well beyond deck edges)
+  swingOmega: 2.30,     // Swing frequency in rad/s (period ~2.7s)
+  phaseOffsets: [0.0, 1.6, 3.2] as const, // Alternating rhythmic phase offsets
+} as const;
+
+// ---------------------------------------------------------------------------
+// LANE 4 OBSTACLE 2: DUAL HANGING SUSPENSION BRIDGES CONFIGURATION (Z = -6.75, X in [-9.5, 5.5])
+// Heighted ramp climbing to twin suspended trackways with suspension towers & catenary cables
+// ---------------------------------------------------------------------------
+export const HANGING_BRIDGE_CONFIG = {
+  zLane: -6.75,
+  xEntryStart: 5.50,    // Ascent ramp start at ground grade
+  xBridgeEast: 3.50,    // East suspension tower / deck start
+  xBridgeMid: -2.00,    // Center suspension tower
+  xBridgeWest: -7.50,   // West suspension tower / deck end
+  xExitEnd: -9.50,      // Descent ramp touchdown at ground grade
+  deckY: 0.80,          // Elevated deck height (+1.13m above ground)
+  trackWidth: 0.95,     // Width of each individual suspended track
+  totalDeckWidth: 2.40, // Full width across both tracks and central transom
+  cableTowerHeight: 3.20,// Pylon tower height
+  catenarySag: 0.04,    // Authentic subtle deck suspension deflection
+} as const;
+
 // Lane 3 at z = 0.00 (Turntable on Spiral Rooftop Deck for Track B, or ground platform)
 export const TURNTABLE_CENTER = { x: 1.0, z: 0.00 } as const;
 export const TURNTABLE_RADIUS = 2.45; // 4.90m diameter, >3.2x robot width
@@ -358,6 +397,8 @@ export const TRACK_B_OBSTACLES: TrackObstacle[] = [
   { id: 'rock_field', name: 'Sculpted Rock Field', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
   { id: 'spiral_tower', name: 'Compact Cardboard Spiral Stake', kind: 'spiral', x: -4.50, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'rooftop_turntable', name: 'Rooftop Turntable Platform', kind: 'turntable', x: 1.0, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+  { id: 'swinging_pendulums', name: 'Swinging Pendulums Gauntlet', kind: 'bridge', x: 10.5, z: -6.75, elevation: ELEVATION_TIER_MEDIUM },
+  { id: 'hanging_bridges', name: 'Dual Hanging Suspension Bridges', kind: 'planks', x: -2.0, z: -6.75, elevation: ELEVATION_TIER_MEDIUM },
   { id: 'fire_hazard', name: 'Refractory Fire Hearth', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
   { id: 'water_basin', name: 'Deep Water Testing Basin', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },
 ];
@@ -565,12 +606,76 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
 
   // 8. LANE 4: Mid-North Straight (Z = -6.75, Westbound)
   if (Math.abs(z - (-6.75)) <= halfW) {
-    // Stepping planks
-    if (x >= -7.5 && x <= 0.5) {
-      for (const p of PARALLEL_PLANK_CENTERS) {
-        if (Math.hypot(x - p.x, z - p.z) < 2.5) return GROUND_DECK_HEIGHT + 0.27;
+    // A. Obstacle 1: Swinging Pendulums Gauntlet (x in [6.5, 14.5])
+    if (x >= PENDULUM_CONFIG.xExitEnd && x <= PENDULUM_CONFIG.xEntryStart) {
+      const halfTrackW = PENDULUM_CONFIG.deckWidth / 2; // 0.90m (6 ft total narrow width)
+      const inNarrowCorridor = Math.abs(z - PENDULUM_CONFIG.zLane) <= halfTrackW;
+
+      if (inNarrowCorridor) {
+        // Ascent ramp (East side, x in [12.5, 14.5]): Westbound vehicle climbs up from ground -0.33 to 0.85
+        if (x > PENDULUM_CONFIG.xRampUpEnd) {
+          const u = (PENDULUM_CONFIG.xEntryStart - x) / (PENDULUM_CONFIG.xEntryStart - PENDULUM_CONFIG.xRampUpEnd);
+          const eased = u * u * (3 - 2 * u);
+          return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+        }
+        // Descent ramp (West side, x in [6.5, 8.5]): Westbound vehicle descends from 0.85 to ground -0.33
+        if (x < PENDULUM_CONFIG.xRampDownStart) {
+          const u = (x - PENDULUM_CONFIG.xExitEnd) / (PENDULUM_CONFIG.xRampDownStart - PENDULUM_CONFIG.xExitEnd);
+          const eased = u * u * (3 - 2 * u);
+          return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+        }
+        // Elevated narrow deck: x in [8.5, 12.5]
+        return PENDULUM_CONFIG.deckY;
       }
+
+      // If robot is outside narrow deck while elevated: it falls down to the ground!
+      if (poseY > GROUND_DECK_HEIGHT + 0.15 && x >= PENDULUM_CONFIG.xRampDownStart && x <= PENDULUM_CONFIG.xRampUpEnd) {
+        return ARENA_FLOOR_HEIGHT;
+      }
+      return GROUND_DECK_HEIGHT;
     }
+
+    // B. Ground transition link between obstacles: x in [5.5, 6.5]
+    if (x > HANGING_BRIDGE_CONFIG.xEntryStart && x < PENDULUM_CONFIG.xExitEnd) {
+      return GROUND_DECK_HEIGHT;
+    }
+
+    // C. Obstacle 2: Dual Hanging Suspension Bridges (x in [-9.5, 5.5])
+    if (x >= HANGING_BRIDGE_CONFIG.xExitEnd && x <= HANGING_BRIDGE_CONFIG.xEntryStart) {
+      const halfBridgeW = HANGING_BRIDGE_CONFIG.totalDeckWidth / 2; // 1.20m corridor width
+      const inBridgeCorridor = Math.abs(z - HANGING_BRIDGE_CONFIG.zLane) <= halfBridgeW;
+
+      if (inBridgeCorridor) {
+        // Ascent ramp (East side, x in [3.5, 5.5]): Westbound vehicle climbs up from ground -0.33 to 0.80
+        if (x > HANGING_BRIDGE_CONFIG.xBridgeEast) {
+          const u = (HANGING_BRIDGE_CONFIG.xEntryStart - x) / (HANGING_BRIDGE_CONFIG.xEntryStart - HANGING_BRIDGE_CONFIG.xBridgeEast);
+          const eased = u * u * (3 - 2 * u);
+          return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+        }
+        // Descent ramp (West side, x in [-9.5, -7.5]): Westbound vehicle descends from 0.80 to ground -0.33
+        if (x < HANGING_BRIDGE_CONFIG.xBridgeWest) {
+          const u = (x - HANGING_BRIDGE_CONFIG.xExitEnd) / (HANGING_BRIDGE_CONFIG.xBridgeWest - HANGING_BRIDGE_CONFIG.xExitEnd);
+          const eased = u * u * (3 - 2 * u);
+          return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+        }
+        // Dual Suspended Deck Spans: x in [-7.5, 3.5] (Length 11.0m)
+        const spanMid = x >= HANGING_BRIDGE_CONFIG.xBridgeMid
+          ? (HANGING_BRIDGE_CONFIG.xBridgeEast + HANGING_BRIDGE_CONFIG.xBridgeMid) / 2
+          : (HANGING_BRIDGE_CONFIG.xBridgeMid + HANGING_BRIDGE_CONFIG.xBridgeWest) / 2;
+        const spanHalfLen = 2.75;
+        const normDist = Math.min(1, Math.abs(x - spanMid) / spanHalfLen);
+        const deflection = HANGING_BRIDGE_CONFIG.catenarySag * (1 - normDist * normDist);
+        return HANGING_BRIDGE_CONFIG.deckY - deflection;
+      }
+
+      // If driven off bridge edge: falls to ground
+      if (poseY > GROUND_DECK_HEIGHT + 0.15 && x >= HANGING_BRIDGE_CONFIG.xBridgeWest && x <= HANGING_BRIDGE_CONFIG.xBridgeEast) {
+        return ARENA_FLOOR_HEIGHT;
+      }
+      return GROUND_DECK_HEIGHT;
+    }
+
+    // D. Ground runway approaching Hairpin 4: x in [-17.5, 17.5]
     if (x >= -17.5 && x <= 17.5) {
       return GROUND_DECK_HEIGHT;
     }
@@ -660,6 +765,16 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
   // 4. Lane 2 Slippery Steel
   if (Math.abs(z - 6.75) <= halfW && x >= -14.0 && x <= -9.5) {
     return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
+  }
+
+  // 5. Lane 4 Elevated Obstacles (Swinging Pendulum Steel Deck & Dual Hanging Bridge)
+  if (Math.abs(z - (-6.75)) <= halfW) {
+    if (x >= PENDULUM_CONFIG.xExitEnd && x <= PENDULUM_CONFIG.xEntryStart) {
+      return { grip: 1.05, rollingResistance: 0.28, hazard: 'none' };
+    }
+    if (x >= HANGING_BRIDGE_CONFIG.xExitEnd && x <= HANGING_BRIDGE_CONFIG.xEntryStart) {
+      return { grip: 0.95, rollingResistance: 0.32, hazard: 'none' };
+    }
   }
 
   // Default clean arena ground concrete

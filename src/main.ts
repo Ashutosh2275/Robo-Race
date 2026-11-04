@@ -44,6 +44,8 @@ import {
   HILL_ENTRY_LINK,
   HILL_EXIT_LINK,
   PARALLEL_PLANK_CENTERS,
+  PENDULUM_CONFIG,
+  HANGING_BRIDGE_CONFIG,
   TURNTABLE_CENTER,
   TURNTABLE_RADIUS,
   SPIRAL_CONFIG,
@@ -1193,91 +1195,138 @@ for (const x of [9.5, 10.5, 11.5]) {
 }
 
 // ---------------------------------------------------------------------------
-// SECTION 5: Grand Warren Steel Arch Bridge on Lane 4 (Z = -6.75, X in [6.5, 14.5])
+// SECTION 5A: Swinging Pendulum Gauntlet on Lane 4 (Z = -6.75, X in [6.5, 14.5])
+// High-profile narrow path (6 ft / 1.80m wide) with 3 swinging wrecking balls
 // ---------------------------------------------------------------------------
-const bridgeDeckCrown = ROUTE_DECK_HEIGHT + 0.59; // 1.26m
-const bridgeZ = -6.75;
+const pCfg = PENDULUM_CONFIG;
 
-// 1. Approaches & Heavy Concrete Abutments
-box(course, mats.concretePier, V(6.35, ARENA_FLOOR_HEIGHT + 0.55, bridgeZ), V(0.8, 1.1, DRIVE_ROUTE_WIDTH + 0.35));
-box(course, mats.concretePier, V(14.65, ARENA_FLOOR_HEIGHT + 0.55, bridgeZ), V(0.8, 1.1, DRIVE_ROUTE_WIDTH + 0.35));
+// 1. Concrete Approach Foundations
+box(course, mats.concretePier, V(pCfg.xEntryStart + 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
+box(course, mats.concretePier, V(pCfg.xExitEnd - 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
 
-// Physical Walkable Colliders matching bridge heights
-colliders.push({ id: 'bridge_approach', x: 8.0, z: bridgeZ, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 0.30, height: 0.60, rot: 0, walkable: true });
-colliders.push({ id: 'bridge_deck', x: 10.5, z: bridgeZ, hx: 1.0, hz: DRIVE_ROUTE_WIDTH / 2, y: bridgeDeckCrown, height: 0.24, rot: 0, walkable: true });
-colliders.push({ id: 'bridge_descent', x: 13.0, z: bridgeZ, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 0.30, height: 0.60, rot: 0, walkable: true });
+// 2. Ascent Ramp (x in [12.5, 14.5]): Westbound vehicle climbs from ground -0.33m to 0.85m
+slopedDeck('pendulum_ascent_ramp', pCfg.xEntryStart, pCfg.xRampUpEnd, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY, 0.12, mats.diamondPlate);
 
-// Central Span Diamond-Plate Steel Deck Overlay
-box(course, mats.diamondPlate, V(10.5, bridgeDeckCrown + 0.015, bridgeZ), V(2.4, 0.03, DRIVE_ROUTE_WIDTH - 0.16), 0, false);
-
-// Heavy Structural Crash Guard Rails
+// Heavy steel structural stringers beneath the ascent ramp
 for (const side of [-1, 1]) {
-  const zRail = bridgeZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
-  solidBox(`bridge_rail_low_${side}`, 10.5, zRail, 7.8, 0.14, 0.30, mats.black, 0, bridgeDeckCrown + 0.25);
-  box(course, mats.metal, V(10.5, bridgeDeckCrown + 0.52, zRail), V(7.8, 0.08, 0.08));
-  for (let rx = 7.0; rx <= 14.0; rx += 1.0) {
-    box(course, side === 1 ? mats.red : mats.laneStripeWhite, V(rx, bridgeDeckCrown + 0.38, zRail + side * 0.08), V(0.08, 0.08, 0.03), 0, false);
-  }
+  const zS = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
+  tubeBetween(V(pCfg.xEntryStart, GROUND_DECK_HEIGHT + 0.02, zS), V(pCfg.xRampUpEnd, pCfg.deckY - 0.04, zS), 0.06, mats.metal);
 }
 
-// Sunken River Basin beneath the bridge
-box(course, mats.concretePier, V(10.5, ARENA_FLOOR_HEIGHT + 0.18, bridgeZ), V(7.8, 0.22, 5.6), 0, false);
-box(course, mats.black, V(10.5, ARENA_FLOOR_HEIGHT + 0.26, bridgeZ), V(7.5, 0.06, 5.3), 0, false);
+// 3. Narrow Elevated Deck (x in [8.5, 12.5]): 1.80m wide (6 ft), NO guardrails so bot falls off if hit!
+const pDeckLen = pCfg.xRampUpEnd - pCfg.xRampDownStart; // 4.0m
+const pDeckMidX = (pCfg.xRampUpEnd + pCfg.xRampDownStart) / 2; // 10.5m
+box(course, mats.diamondPlate, V(pDeckMidX, pCfg.deckY - 0.04, pCfg.zLane), V(pDeckLen, 0.08, pCfg.deckWidth));
 
-const bridgeWaterGeom = new THREE.PlaneGeometry(7.4, 5.2, 48, 48);
-const bridgeWaterBasePositions = Float32Array.from(bridgeWaterGeom.attributes.position.array);
-const bridgeWaterMesh = new THREE.Mesh(bridgeWaterGeom, mats.water);
-bridgeWaterMesh.rotation.x = -Math.PI / 2;
-bridgeWaterMesh.position.set(10.5, ARENA_FLOOR_HEIGHT + 0.33, bridgeZ);
-bridgeWaterMesh.receiveShadow = true;
-course.add(bridgeWaterMesh);
-
-const bridgeWaterRipples: THREE.Mesh[] = [];
-for (let i = 0; i < 6; i++) {
-  const ripple = new THREE.Mesh(
-    new THREE.TorusGeometry(0.35 + (i % 3) * 0.18, 0.016, 8, 32),
-    new THREE.MeshBasicMaterial({ color: '#8dd9e8', transparent: true, opacity: 0.35, depthWrite: false }),
-  );
-  ripple.rotation.x = -Math.PI / 2;
-  ripple.position.set(8.5 + (i % 3) * 2.0, ARENA_FLOOR_HEIGHT + 0.34 + (i % 2) * 0.002, bridgeZ - 1.5 + (i % 2) * 3.0);
-  course.add(ripple);
-  bridgeWaterRipples.push(ripple);
-}
-
-// Red & White Warren Steel Arch Superstructure
-const bridgeStrobes: THREE.Mesh[] = [];
+// Bare edge danger markings (high-contrast yellow/black caution stripes along the edge of the drop)
 for (const side of [-1, 1]) {
-  const zArch = bridgeZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.metal, V(10.5, bridgeDeckCrown + 0.08, zArch), V(7.8, 0.14, 0.14));
-  box(course, mats.metal, V(10.5, bridgeDeckCrown + 2.15, zArch), V(3.6, 0.14, 0.14));
-  tubeBetween(V(6.5, ROUTE_DECK_HEIGHT + 0.10, zArch), V(8.7, bridgeDeckCrown + 2.15, zArch), 0.08, mats.metal);
-  tubeBetween(V(14.5, ROUTE_DECK_HEIGHT + 0.10, zArch), V(12.3, bridgeDeckCrown + 2.15, zArch), 0.08, mats.metal);
-
-  const postXs = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5];
-  for (let p = 0; p < postXs.length; p++) {
-    const px = postXs[p];
-    const botY = evaluateCourseHeight(px, bridgeZ) + 0.08;
-    const topY = px >= 8.7 && px <= 12.3 ? bridgeDeckCrown + 2.15 : (bridgeDeckCrown + 1.20);
-    tubeBetween(V(px, botY, zArch), V(px, topY, zArch), 0.06, mats.trussRed);
-    if (p < postXs.length - 1) {
-      const nextX = postXs[p + 1];
-      const nextBotY = evaluateCourseHeight(nextX, bridgeZ) + 0.08;
-      const nextTopY = nextX >= 8.7 && nextX <= 12.3 ? bridgeDeckCrown + 2.15 : (bridgeDeckCrown + 1.20);
-      tubeBetween(V(px, p % 2 === 0 ? botY : topY, zArch), V(nextX, p % 2 === 0 ? nextTopY : nextBotY, zArch), 0.045, mats.trussWhite);
-    }
-  }
+  const zEdge = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.06);
+  box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.005, zEdge), V(pDeckLen, 0.012, 0.10), 0, false);
 }
 
-// Overhead Portal Sway Frames & Flashing Strobes
-for (const ox of [8.7, 10.5, 12.3]) {
-  box(course, mats.metal, V(ox, bridgeDeckCrown + 2.15, bridgeZ), V(0.14, 0.14, DRIVE_ROUTE_WIDTH - 0.28));
-  for (const side of [-1, 1]) {
-    const bz = bridgeZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-    const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.14, 12), mats.beaconRed);
-    strobe.position.set(ox, bridgeDeckCrown + 2.24, bz);
+// Heavy steel support piers underneath the narrow deck
+for (const px of [9.2, 10.5, 11.8]) {
+  cyl(course, mats.metal, V(px, (GROUND_DECK_HEIGHT + pCfg.deckY) / 2, pCfg.zLane), 0.12, pCfg.deckY - GROUND_DECK_HEIGHT, 'y');
+  box(course, mats.concretePier, V(px, GROUND_DECK_HEIGHT + 0.10, pCfg.zLane), V(0.50, 0.20, 0.50));
+}
+
+// 4. Descent Ramp (x in [6.5, 8.5]): Westbound vehicle descends from 0.85m to ground -0.33m
+slopedDeck('pendulum_descent_ramp', pCfg.xRampDownStart, pCfg.xExitEnd, pCfg.zLane, pCfg.deckWidth, pCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+
+for (const side of [-1, 1]) {
+  const zS = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
+  tubeBetween(V(pCfg.xRampDownStart, pCfg.deckY - 0.04, zS), V(pCfg.xExitEnd, GROUND_DECK_HEIGHT + 0.02, zS), 0.06, mats.metal);
+}
+
+// 5. Overhead Heavy Industrial Steel Gantry Frame (y = 3.65m)
+const gantryStrobes: THREE.Mesh[] = [];
+const gantryZNorth = pCfg.zLane + 2.10;
+const gantryZSouth = pCfg.zLane - 2.10;
+const gantryXWest = 8.8;
+const gantryXEast = 12.2;
+
+// 4 Main Vertical Steel Support Pylons
+for (const gx of [gantryXWest, gantryXEast]) {
+  for (const gz of [gantryZSouth, gantryZNorth]) {
+    cyl(course, mats.metal, V(gx, ARENA_FLOOR_HEIGHT + 2.0, gz), 0.14, 4.0, 'y');
+    box(course, mats.concretePier, V(gx, ARENA_FLOOR_HEIGHT + 0.35, gz), V(0.60, 0.70, 0.60));
+    box(course, mats.yellow, V(gx, ARENA_FLOOR_HEIGHT + 0.72, gz), V(0.50, 0.04, 0.50), 0, false);
+
+    // Flashing amber caution strobe beacon atop each pylon
+    const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.16, 12), mats.beaconAmber);
+    strobe.position.set(gx, 3.75, gz);
     course.add(strobe);
-    bridgeStrobes.push(strobe);
+    gantryStrobes.push(strobe);
   }
+}
+
+// Longitudinal overhead box girders
+box(course, mats.charcoal, V(pDeckMidX, 3.65, gantryZNorth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
+box(course, mats.charcoal, V(pDeckMidX, 3.65, gantryZSouth), V(gantryXEast - gantryXWest + 0.6, 0.20, 0.20));
+
+// Transverse overhead bridge beams spanning above each swinging pendulum
+for (const bx of pCfg.ballPositionsX) {
+  box(course, mats.charcoal, V(bx, 3.65, pCfg.zLane), V(0.24, 0.20, gantryZNorth - gantryZSouth));
+  // Industrial pillow block bearing housing at pivot
+  box(course, mats.metal, V(bx, pCfg.ballPivotY, pCfg.zLane), V(0.28, 0.16, 0.28));
+}
+
+// 6. 3 Dynamic Swinging Pendulum Assemblies
+interface SwingingPendulum {
+  x: number;
+  zCenter: number;
+  pivotY: number;
+  armLength: number;
+  ballRadius: number;
+  omega: number;
+  amplitude: number;
+  phase: number;
+  armGroup: THREE.Group;
+  ballMesh: THREE.Mesh;
+}
+
+const swingingPendulums: SwingingPendulum[] = [];
+
+for (let i = 0; i < pCfg.ballPositionsX.length; i++) {
+  const bx = pCfg.ballPositionsX[i];
+  const phase = pCfg.phaseOffsets[i];
+
+  const armGroup = new THREE.Group();
+  armGroup.position.set(bx, pCfg.ballPivotY, pCfg.zLane);
+  course.add(armGroup);
+
+  // Pivot axle pin
+  cyl(armGroup, mats.metal, V(0, 0, 0), 0.07, 0.36, 'x');
+
+  // Heavy steel suspension arm (rod/chain)
+  cyl(armGroup, mats.metal, V(0, -pCfg.ballArmLength / 2, 0), 0.035, pCfg.ballArmLength, 'y');
+
+  // Massive spherical wrecking ball
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(pCfg.ballRadius, 24, 24), mats.metal);
+  ballMesh.position.set(0, -pCfg.ballArmLength, 0);
+  ballMesh.castShadow = true;
+  ballMesh.receiveShadow = true;
+  armGroup.add(ballMesh);
+
+  // Welded equatorial reinforcement rib with high-contrast caution stripe
+  box(ballMesh, mats.yellow, V(0, 0, 0), V(pCfg.ballRadius * 2.05, 0.08, pCfg.ballRadius * 2.05), 0, false);
+  box(ballMesh, mats.black, V(0, 0.04, 0), V(pCfg.ballRadius * 2.08, 0.02, pCfg.ballRadius * 2.08), 0, false);
+
+  // Heavy top forged steel shackle & clevis pin
+  cyl(ballMesh, mats.chrome, V(0, pCfg.ballRadius + 0.08, 0), 0.05, 0.16, 'x');
+
+  swingingPendulums.push({
+    x: bx,
+    zCenter: pCfg.zLane,
+    pivotY: pCfg.ballPivotY,
+    armLength: pCfg.ballArmLength,
+    ballRadius: pCfg.ballRadius,
+    omega: pCfg.swingOmega,
+    amplitude: pCfg.swingAmplitude,
+    phase,
+    armGroup,
+    ballMesh,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1917,57 +1966,113 @@ colliders.push({
 });
 
 // ---------------------------------------------------------------------------
-// SECTION 5: Over-Engineered Stepping Platforms on Lane 4 (Z = -6.75, X in [1.5, 5.5])
+// SECTION 5B: Dual Hanging Suspension Bridges on Lane 4 (Z = -6.75, X in [-9.5, 5.5])
+// Heighted ramp climbing to twin suspended trackways with suspension towers & catenary cables
 // ---------------------------------------------------------------------------
-for (let p = 0; p < 4; p++) {
-  const stepX = 2.0 + p * 0.95;
-  const sideSign = p % 2 === 0 ? 1 : -1;
-  const stepZ = -6.75 + sideSign * 0.85;
-  box(course, mats.metal, V(stepX, ROUTE_DECK_HEIGHT + 0.09, stepZ), V(0.80, 0.18, 1.40));
-  box(course, mats.yellow, V(stepX, ROUTE_DECK_HEIGHT + 0.185, stepZ), V(0.76, 0.02, 1.34), 0, false);
-  colliders.push({
-    id: `stepping_platform_${p}`,
-    x: stepX,
-    z: stepZ,
-    hx: 0.40,
-    hz: 0.70,
-    y: ROUTE_DECK_HEIGHT + 0.09,
-    height: 0.18,
-    rot: 0,
-    walkable: true,
-  });
+const hCfg = HANGING_BRIDGE_CONFIG;
+
+// 1. Concrete Approach Abutments
+box(course, mats.concretePier, V(hCfg.xEntryStart + 0.15, ARENA_FLOOR_HEIGHT + 0.15, hCfg.zLane), V(0.40, 0.30, hCfg.totalDeckWidth + 0.40));
+box(course, mats.concretePier, V(hCfg.xExitEnd - 0.15, ARENA_FLOOR_HEIGHT + 0.15, hCfg.zLane), V(0.40, 0.30, hCfg.totalDeckWidth + 0.40));
+
+// 2. East Ascent Ramp (x in [3.5, 5.5]): Westbound vehicle climbs from ground -0.33m to 0.80m
+slopedDeck('hanging_bridge_ascent_ramp', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY, 0.12, mats.diamondPlate);
+
+// 3. West Descent Ramp (x in [-9.5, -7.5]): Westbound vehicle descends from 0.80m to ground -0.33m
+slopedDeck('hanging_bridge_descent_ramp', hCfg.xBridgeWest, hCfg.xExitEnd, hCfg.zLane, hCfg.totalDeckWidth, hCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+
+// 4. 3 Majestic Portal A-Frame Suspension Towers at x = 3.5, x = -2.0, x = -7.5
+const towerXs = [hCfg.xBridgeEast, hCfg.xBridgeMid, hCfg.xBridgeWest];
+const towerZNorth = hCfg.zLane + 1.35;
+const towerZSouth = hCfg.zLane - 1.35;
+const suspensionStrobes: THREE.Mesh[] = [];
+
+for (const tx of towerXs) {
+  for (const tz of [towerZSouth, towerZNorth]) {
+    // Tower vertical steel tubular legs
+    cyl(course, mats.metal, V(tx, ARENA_FLOOR_HEIGHT + 1.80, tz), 0.12, 3.60, 'y');
+    box(course, mats.concretePier, V(tx, ARENA_FLOOR_HEIGHT + 0.30, tz), V(0.50, 0.60, 0.50));
+    // Saddle casting on top
+    cyl(course, mats.metal, V(tx, hCfg.cableTowerHeight, tz), 0.15, 0.16, 'x');
+
+    // Aviation caution strobe beacon atop each tower leg
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 12), mats.beaconAmber);
+    s.position.set(tx, hCfg.cableTowerHeight + 0.14, tz);
+    course.add(s);
+    suspensionStrobes.push(s);
+  }
+  // Overhead transverse cross-strut connecting tower legs
+  box(course, mats.charcoal, V(tx, hCfg.cableTowerHeight - 0.30, hCfg.zLane), V(0.14, 0.14, towerZNorth - towerZSouth));
+  box(course, mats.yellow, V(tx, hCfg.deckY + 0.10, hCfg.zLane), V(0.16, 0.16, towerZNorth - towerZSouth));
 }
 
-// ---------------------------------------------------------------------------
-// SECTION 5: Over-Engineered Parallel Plank Bridge on Lane 4 (Z = -6.75, X in [-7.5, 0.5])
-// ---------------------------------------------------------------------------
-for (const [i, plank] of PARALLEL_PLANK_CENTERS.entries()) {
-  // Main elevated plank timber beam (length 7.0m, x in [-7.0, 0.0])
-  box(course, mats.wood, V(plank.x, ROUTE_DECK_HEIGHT + 0.21, plank.z), V(7.0, 0.18, 0.65));
-  box(course, mats.black, V(plank.x, ROUTE_DECK_HEIGHT + 0.10, plank.z), V(7.05, 0.05, 0.70));
-  colliders.push({ id: `parallel_plank_${i === 0 ? 'left' : 'right'}`, x: plank.x, z: plank.z, hx: 3.5, hz: 0.35, y: ROUTE_DECK_HEIGHT + 0.21, height: 0.18, rot: 0, walkable: true });
-
-  // Entry Wedge Ramp (smooth 0.50m ramp up from deck to plank top at x in [0.0, 0.5])
-  slopedDeck(`plank_entry_ramp_${i}`, plank.x + 3.5, plank.x + 4.0, plank.z, 0.65, ROUTE_DECK_HEIGHT, ROUTE_DECK_HEIGHT + 0.27, 0.10, mats.wood);
-  // Exit Wedge Ramp (smooth 0.50m ramp down from plank top to deck at x in [-7.5, -7.0])
-  slopedDeck(`plank_exit_ramp_${i}`, plank.x - 4.0, plank.x - 3.5, plank.z, 0.65, ROUTE_DECK_HEIGHT + 0.27, ROUTE_DECK_HEIGHT, 0.10, mats.wood);
-
-  // High-contrast white center guidance stripe along each plank
-  box(course, mats.laneStripeWhite, V(plank.x, ROUTE_DECK_HEIGHT + 0.275, plank.z), V(6.9, 0.008, 0.08), 0, false);
-
-  // Sturdy vertical stanchions supporting each plank from the deck
-  for (const sx of [-2.5, -1.0, 0.5, 2.0]) {
-    cyl(course, mats.metal, V(plank.x + sx, ROUTE_DECK_HEIGHT + 0.09, plank.z), 0.05, 0.18, 'y');
-    box(course, mats.concretePier, V(plank.x + sx, ROUTE_DECK_HEIGHT + 0.02, plank.z), V(0.20, 0.04, 0.20));
+// 5. Twin Suspended Tracks (Left and Right for tracks/treads) spanning x in [-7.5, 3.5]
+for (const trackSign of [-1, 1]) {
+  const tZ = hCfg.zLane + trackSign * 0.65;
+  // Longitudinal steel deck stringers
+  for (const edgeSign of [-1, 1]) {
+    const sZ = tZ + edgeSign * (hCfg.trackWidth / 2 - 0.04);
+    box(course, mats.metal, V(-2.0, hCfg.deckY - 0.06, sZ), V(11.0, 0.08, 0.08));
+  }
+  // Transverse wooden deck planks along the 11m span
+  for (let px = -7.4; px <= 3.4; px += 0.32) {
+    box(course, mats.wood, V(px, hCfg.deckY - 0.01, tZ), V(0.28, 0.04, hCfg.trackWidth - 0.06));
+    // Planking fastener rivets
+    box(course, mats.metal, V(px, hCfg.deckY + 0.015, tZ - 0.35), V(0.04, 0.01, 0.04), 0, false);
+    box(course, mats.metal, V(px, hCfg.deckY + 0.015, tZ + 0.35), V(0.04, 0.01, 0.04), 0, false);
   }
 }
-// Transverse steel cross-ties connecting both plank structures across the gap
-for (const cx of [-2.4, -0.8, 0.8, 2.4]) {
-  beamBetween(
-    V(PARALLEL_PLANK_CENTERS[0].x + cx, ROUTE_DECK_HEIGHT + 0.08, PARALLEL_PLANK_CENTERS[0].z),
-    V(PARALLEL_PLANK_CENTERS[1].x + cx, ROUTE_DECK_HEIGHT + 0.08, PARALLEL_PLANK_CENTERS[1].z),
-    0.06, mats.metal
-  );
+
+// Transverse structural steel cross-transom floor beams connecting twin bridges across the center
+for (let bx = -7.0; bx <= 3.0; bx += 1.10) {
+  box(course, mats.metal, V(bx, hCfg.deckY - 0.08, hCfg.zLane), V(0.10, 0.08, hCfg.totalDeckWidth));
+}
+
+// 6. Main Catenary Suspension Cables (North and South at zLane +- 1.35m)
+for (const cZ of [towerZSouth, towerZNorth]) {
+  // Span 1: x in [-2.0, 3.5]
+  const stepsSpan1 = 16;
+  for (let s = 0; s < stepsSpan1; s++) {
+    const u0 = s / stepsSpan1;
+    const u1 = (s + 1) / stepsSpan1;
+    const x0 = 3.5 - u0 * 5.5;
+    const x1 = 3.5 - u1 * 5.5;
+    const sag0 = 4 * 1.95 * u0 * (1 - u0);
+    const sag1 = 4 * 1.95 * u1 * (1 - u1);
+    const y0 = hCfg.cableTowerHeight - sag0;
+    const y1 = hCfg.cableTowerHeight - sag1;
+    tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
+
+    // Vertical suspender hanger wire every 2 steps
+    if (s % 2 === 1) {
+      tubeBetween(V(x0, y0, cZ), V(x0, hCfg.deckY - 0.02, cZ), 0.018, mats.chrome);
+    }
+  }
+
+  // Span 2: x in [-7.5, -2.0]
+  const stepsSpan2 = 16;
+  for (let s = 0; s < stepsSpan2; s++) {
+    const u0 = s / stepsSpan2;
+    const u1 = (s + 1) / stepsSpan2;
+    const x0 = -2.0 - u0 * 5.5;
+    const x1 = -2.0 - u1 * 5.5;
+    const sag0 = 4 * 1.95 * u0 * (1 - u0);
+    const sag1 = 4 * 1.95 * u1 * (1 - u1);
+    const y0 = hCfg.cableTowerHeight - sag0;
+    const y1 = hCfg.cableTowerHeight - sag1;
+    tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
+
+    if (s % 2 === 1) {
+      tubeBetween(V(x0, y0, cZ), V(x0, hCfg.deckY - 0.02, cZ), 0.018, mats.chrome);
+    }
+  }
+
+  // Backstay anchor cables extending down to concrete deadman blocks
+  tubeBetween(V(3.5, hCfg.cableTowerHeight, cZ), V(5.2, GROUND_DECK_HEIGHT + 0.20, cZ), 0.045, mats.metal);
+  box(course, mats.concretePier, V(5.2, GROUND_DECK_HEIGHT + 0.15, cZ), V(0.60, 0.30, 0.40));
+
+  tubeBetween(V(-7.5, hCfg.cableTowerHeight, cZ), V(-9.2, GROUND_DECK_HEIGHT + 0.20, cZ), 0.045, mats.metal);
+  box(course, mats.concretePier, V(-9.2, GROUND_DECK_HEIGHT + 0.15, cZ), V(0.60, 0.30, 0.40));
 }
 
 // ---------------------------------------------------------------------------
@@ -2080,7 +2185,7 @@ const straightLaneSpecs = [
   { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
-  { laneId: 4, z: -6.75, xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 4 West Planks / Steps
+  { laneId: 4, z: -6.75, xMin: -17.5, xMax: -9.50, dir: -1 as const }, // Lane 4 West Runway to HP4
   { laneId: 4, z: -6.75, xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 4 East Approach (Ground)
   { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
   { laneId: 5, z: -13.50, xMin: 9.50,  xMax: 16.0, dir: 1 as const },  // Lane 5 Finish Straight
@@ -3812,6 +3917,81 @@ function stepPhysics(dt: number) {
   pose.vx = motionState.vx;
   pose.vz = motionState.vz;
 
+  // -------------------------------------------------------------
+  // Authentic Swinging Pendulums Dynamic Motion & Kinetic Collision
+  // -------------------------------------------------------------
+  const nowSec = performance.now() * 0.001;
+  let pendulumStruck = false;
+
+  for (const pend of swingingPendulums) {
+    const theta = (pend.amplitude / pend.armLength) * Math.sin(pend.omega * nowSec + pend.phase);
+    pend.armGroup.rotation.x = theta;
+
+    // Instantaneous 3D position of the wrecking ball sphere in world space
+    const ballWorldY = pend.pivotY - pend.armLength * Math.cos(theta);
+    const ballWorldZ = (pend.zCenter + pend.armLength * Math.sin(theta)) * MAP_SCALE;
+    const ballWorldX = pend.x * MAP_SCALE;
+
+    // Instantaneous lateral swing velocity (dz/dt in world units)
+    const omegaVal = (pend.amplitude / pend.armLength) * pend.omega * Math.cos(pend.omega * nowSec + pend.phase);
+    const vBallZ = pend.armLength * Math.cos(theta) * omegaVal * MAP_SCALE;
+
+    // Sphere-to-robot collision check
+    const dx = pose.x - ballWorldX;
+    const dy = (pose.y + 0.22) - ballWorldY;
+    const dz = pose.z - ballWorldZ;
+    const dist = Math.hypot(dx, dy, dz);
+
+    const hitDist = pend.ballRadius * MAP_SCALE + 0.55;
+    if (dist < hitDist && !pendulumStruck) {
+      pendulumStruck = true;
+      // Massive lateral impulse flinging the robot sideways off the narrow 1.80m path
+      const swingSign = Math.sign(vBallZ) || (dz > 0 ? 1 : -1);
+      const impulseMag = Math.max(5.5, Math.abs(vBallZ) * 1.8);
+      pose.vz = swingSign * impulseMag;
+      pose.vx += Math.sign(dx || -1) * 2.2;
+      pose.vy = Math.max(pose.vy, 2.8); // Airborne launch!
+      pose.rollRate = swingSign * 7.5;   // Tumbling angular kick
+      motionState.vz = pose.vz;
+      motionState.vx = pose.vx;
+
+      // Chassis damage & audio feedback
+      subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - 10.0);
+      tone(105, 0.32, 0.14);
+      displayToast('PENDULUM IMPACT! KNOCKED OFF TRACK');
+    }
+  }
+
+  // Fall Detection & Gate 09 Reset on Narrow Path
+  // If the robot is knocked or drifts off the narrow 1.80m elevated deck, it plunges to the floor.
+  // When it hits the floor or flips after falling off, reset directly to Gate 09!
+  const localX = pose.x / MAP_SCALE;
+  const localZ = pose.z / MAP_SCALE;
+  if (raceState === 'racing' && localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
+    const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2; // 0.90m
+    const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
+    const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
+
+    if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
+      // Automatic immediate checkpoint recovery to Gate 09
+      const g09Anchor = recoveryAnchors.find(a => a.checkpointIndex === 9) || recoveryAnchors[9] || recoveryAnchors[0];
+      applyRecovery(pose, g09Anchor, worldCourseHeight);
+      currentCheckpoint = 8; // Reset back to Gate 09 (Gate 09 is index 8 / id 9)
+      checkpointMeshes.forEach((checkpoint, i) => {
+        checkpoint.passed = i < currentCheckpoint;
+        (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+      });
+      motionState.x = pose.x;
+      motionState.z = pose.z;
+      motionState.vx = 0;
+      motionState.vz = 0;
+      motionState.yaw = pose.yaw;
+      motionState.angular = 0;
+      tone(260, 0.28, 0.08);
+      displayToast('KNOCKED OFF TRACK · RESTARTING AT GATE 09');
+    }
+  }
+
   // Collision handling against static barriers
   let impactDamage = 0;
   const hit = collidesWithBarrier(pose.x, pose.z, pose.y);
@@ -4274,21 +4454,8 @@ function animate() {
 
   const tSec = now * 0.001;
 
-  // 1. Dynamic Gerstner Waves on Checkpoint 05 River Water
-  {
-    const pos = bridgeWaterGeom.attributes.position;
-    const count = pos.count;
-    for (let i = 0; i < count; i++) {
-      const vx = bridgeWaterBasePositions[i * 3];
-      const vy = bridgeWaterBasePositions[i * 3 + 1];
-      const wave = 0.024 * Math.sin(vx * 2.8 + vy * 1.9 - tSec * 2.6) +
-                   0.014 * Math.cos(vx * 4.2 - vy * 3.3 + tSec * 3.5) +
-                   0.007 * Math.sin(vx * 7.6 + vy * 6.1 - tSec * 5.1);
-      pos.setZ(i, wave);
-    }
-    pos.needsUpdate = true;
-    bridgeWaterGeom.computeVertexNormals();
-  }
+  // 1. Dynamic Gerstner Waves on Water (Tranquil, Crystal-Clear Surface)
+  // Water remains tranquil; disturbances radiate organically when vehicle tracks plunge in
 
   // 2. Still Water Hazard Basin (Tranquil, Crystal-Clear Glass Surface without Flowing Current)
   // Water remains still; disturbances radiate organically when vehicle tracks plunge in
@@ -4374,13 +4541,6 @@ function animate() {
     smoke.scale.set(0.42 + phase * 0.52, 0.56 + phase * 0.74, 1);
     (smoke.material as THREE.SpriteMaterial).opacity = 0.42 * (1 - phase);
   }
-  for (let i = 0; i < bridgeWaterRipples.length; i++) {
-    const ripple = bridgeWaterRipples[i];
-    const phase = (now * 0.00022 + i * 0.19) % 1;
-    const size = 0.48 + phase * 1.35;
-    ripple.scale.set(size, size, size);
-    (ripple.material as THREE.MeshBasicMaterial).opacity = 0.18 * (1 - phase);
-  }
   for (let i = 0; i < hazardWaterRipples.length; i++) {
     const ripple = hazardWaterRipples[i];
     const phase = (now * 0.0003 + i * 0.21) % 1;
@@ -4389,10 +4549,13 @@ function animate() {
     (ripple.material as THREE.MeshBasicMaterial).opacity = 0.24 * (1 - phase);
   }
 
-  // 4D Checkpoint 5 Flashing Aviation Navigation Beacons
-  const bridgeStrobeOn = Math.sin(now * 0.012) > 0.4;
-  for (let i = 0; i < bridgeStrobes.length; i++) {
-    bridgeStrobes[i].visible = bridgeStrobeOn;
+  // 4D Lane 4 Overhead Gantry & Suspension Bridge Flashing Caution Beacons
+  const lane4StrobeOn = Math.sin(now * 0.012) > 0.3;
+  for (let i = 0; i < gantryStrobes.length; i++) {
+    gantryStrobes[i].visible = lane4StrobeOn;
+  }
+  for (let i = 0; i < suspensionStrobes.length; i++) {
+    suspensionStrobes[i].visible = lane4StrobeOn;
   }
 
   // 4D Checkpoint 6 Motorized Revolving Amber Beacons
