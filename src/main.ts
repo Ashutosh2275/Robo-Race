@@ -985,11 +985,12 @@ for (const [id, x, z, w, d] of [
   solidBox(id, x, z, w, d, 0.78, mats.barrier, 0, ARENA_FLOOR_HEIGHT + 0.39);
 }
 
-// Yellow hazard stripes along perimeter
-for (let x = -22; x <= 22; x += 2) {
-  box(course, mats.yellow, V(x, 0.4, -13.6), V(1.55, 0.16, 0.055));
-  box(course, mats.yellow, V(x, 0.4, 13.6), V(1.55, 0.16, 0.055));
-}
+// Solid perimeter wall hazard coping firmly seated on top of barrier parapets
+const wallTopY = ARENA_FLOOR_HEIGHT + 0.78;
+box(course, mats.yellow, V(0, wallTopY + 0.015, -17.82), V(46, 0.03, 0.34), 0, false);
+box(course, mats.yellow, V(0, wallTopY + 0.015, 17.82), V(46, 0.03, 0.34), 0, false);
+box(course, mats.yellow, V(-24.02, wallTopY + 0.015, 0), V(0.34, 0.03, 36), 0, false);
+box(course, mats.yellow, V(24.02, wallTopY + 0.015, 0), V(0.34, 0.03, 36), 0, false);
 
 // Start Bay and level transition to Lane 1 on ground grade (-0.33m)
 box(course, mats.asphalt, V(-19.5, ARENA_FLOOR_HEIGHT + 0.01, 13.50), V(4.0, 0.02, DRIVE_ROUTE_WIDTH));
@@ -1396,10 +1397,10 @@ for (let h = 0; h < 32; h++) {
   box(course, h % 2 === 0 ? mats.yellow : mats.black, V(hx, ttY + 0.035, hz), V(0.18, 0.012, 0.48), theta, false);
 }
 
-// Heavy electric motor drive pod mounted on stationary coaming (east rim)
-box(course, mats.charcoal, V(TURNTABLE_CENTER.x + 2.74, ttY + 0.22, TURNTABLE_CENTER.z), V(0.55, 0.44, 0.45));
-cyl(course, mats.metal, V(TURNTABLE_CENTER.x + 2.50, ttY + 0.12, TURNTABLE_CENTER.z), 0.16, 0.18, 'y', 16);
-box(course, mats.yellow, V(TURNTABLE_CENTER.x + 2.74, ttY + 0.46, TURNTABLE_CENTER.z), V(0.40, 0.04, 0.35), 0, false);
+// Heavy electric motor drive pod mounted on stationary coaming (north rim, safely clear of roadway)
+box(course, mats.charcoal, V(TURNTABLE_CENTER.x, ttY + 0.22, TURNTABLE_CENTER.z + 2.65), V(0.55, 0.44, 0.45));
+cyl(course, mats.metal, V(TURNTABLE_CENTER.x, ttY + 0.12, TURNTABLE_CENTER.z + 2.42), 0.16, 0.18, 'y', 16);
+box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.46, TURNTABLE_CENTER.z + 2.65), V(0.40, 0.04, 0.35), 0, false);
 
 // 2. Rotating Turntable Platter (inside discGroup)
 const discGroup = new THREE.Group();
@@ -1975,11 +1976,6 @@ colliders.push({
   rot: 0,
   walkable: true,
 });
-for (const side of [-1, 1]) {
-  const zCurb = 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.concretePier, V(-11.75, ROUTE_DECK_HEIGHT + 0.18, zCurb), V(4.5, 0.36, 0.28));
-  box(course, mats.yellow, V(-11.75, ROUTE_DECK_HEIGHT + 0.38, zCurb), V(4.5, 0.04, 0.30), 0, false);
-}
 
 // ---------------------------------------------------------------------------
 // SECTION 8: High-Gloss Iridescent Oil Skid Pad on Lane 3 (Z = 0.00, X in [-12.0, -8.0])
@@ -1997,11 +1993,6 @@ colliders.push({
   rot: 0,
   walkable: true,
 });
-for (const side of [-1, 1]) {
-  const zCurb = 0.00 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.15);
-  box(course, mats.barrier, V(-10.0, ROUTE_DECK_HEIGHT + 0.12, zCurb), V(4.0, 0.22, 0.30));
-  box(course, mats.yellow, V(-10.0, ROUTE_DECK_HEIGHT + 0.23, zCurb), V(4.0, 0.04, 0.32), 0, false);
-}
 
 // ---------------------------------------------------------------------------
 // SECTION 5: Over-Engineered Stepping Platforms on Lane 4 (Z = -6.75, X in [1.5, 5.5])
@@ -2145,6 +2136,7 @@ for (const hp of hairpins) {
     const theta = hp.startAngle + tFrac * (hp.endAngle - hp.startAngle);
     const cx = hp.cx + (hp.radius + halfW - 0.08) * Math.cos(theta);
     const cz = hp.cz + (hp.radius + halfW - 0.08) * Math.sin(theta);
+    cyl(course, mats.metal, V(cx, hpDeckY + 0.44, cz), 0.025, 0.16, 'y');
     box(course, mats.black, V(cx, hpDeckY + 0.55, cz), V(0.08, 0.28, 0.45), theta);
     const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.20, 3), mats.yellow);
     arrow.rotation.z = hp.facingOutDir > 0 ? Math.PI / 2 : -Math.PI / 2;
@@ -2162,10 +2154,12 @@ for (const hp of hairpins) {
 const straightLaneSpecs = [
   { laneId: 1, z: 13.50, xMin: -18.5, xMax: 5.80, dir: 1 as const },   // Lane 1 Approach (Ground)
   { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
-  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Lane 2 (Ground)
+  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 2 West Approach (Ground)
+  { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -7.70, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.75, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
-  { laneId: 4, z: -6.75, xMin: -17.5, xMax: 17.5, dir: -1 as const },  // Lane 4 (Ground)
+  { laneId: 4, z: -6.75, xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 4 West Planks / Steps
+  { laneId: 4, z: -6.75, xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 4 East Approach (Ground)
   { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
   { laneId: 5, z: -13.50, xMin: 9.50,  xMax: 16.0, dir: 1 as const },  // Lane 5 Finish Straight
 ];
@@ -2197,14 +2191,6 @@ for (const lane of straightLaneSpecs) {
     for (let wx = lane.xMin + 2.0; wx <= lane.xMax - 2.0; wx += 3.5) {
       box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, laneDeckY + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
     }
-  }
-}
-
-// Stanchion Luminaires in the open chasms between lanes
-for (const fx of [-14.0, -8.0, -2.0, 4.0, 10.0, 15.0]) {
-  for (const chasmZ of [10.125, 3.375, -3.375, -10.125]) {
-    cyl(course, mats.metal, V(fx, ARENA_FLOOR_HEIGHT + 0.6, chasmZ), 0.04, 1.2, 'y');
-    box(course, mats.yellow, V(fx, ARENA_FLOOR_HEIGHT + 1.2, chasmZ), V(0.24, 0.12, 0.36), 0, false);
   }
 }
 
