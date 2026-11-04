@@ -3968,29 +3968,56 @@ function stepPhysics(dt: number) {
     const omegaVal = (pend.amplitude / pend.armLength) * pend.omega * Math.cos(pend.omega * nowSec + pend.phase);
     const vBallZ = pend.armLength * Math.cos(theta) * omegaVal * MAP_SCALE;
 
-    // Sphere-to-robot collision check
+    // Sphere-to-robot collision check (using effective bounding radii)
     const dx = pose.x - ballWorldX;
-    const dy = (pose.y + 0.22) - ballWorldY;
+    const dy = (pose.y + 0.18) - ballWorldY;
     const dz = pose.z - ballWorldZ;
     const dist = Math.hypot(dx, dy, dz);
 
     const hitDist = pend.ballRadius * MAP_SCALE + 0.55;
-    if (dist < hitDist && !pendulumStruck) {
-      pendulumStruck = true;
-      // Massive lateral impulse flinging the robot sideways off the narrow 1.80m path
-      const swingSign = Math.sign(vBallZ) || (dz > 0 ? 1 : -1);
-      const impulseMag = Math.max(5.5, Math.abs(vBallZ) * 1.8);
-      pose.vz = swingSign * impulseMag;
-      pose.vx += Math.sign(dx || -1) * 2.2;
-      pose.vy = Math.max(pose.vy, 2.8); // Airborne launch!
-      pose.rollRate = swingSign * 7.5;   // Tumbling angular kick
-      motionState.vz = pose.vz;
-      motionState.vx = pose.vx;
+    if (dist < hitDist) {
+      // 1. Contact normal from ball center to robot center
+      const nx = dist > 0.001 ? dx / dist : 0;
+      const ny = dist > 0.001 ? dy / dist : 0;
+      const nz = dist > 0.001 ? dz / dist : 1;
+      const overlap = hitDist - dist;
 
-      // Chassis damage & audio feedback
-      subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - 10.0);
-      tone(105, 0.32, 0.14);
-      displayToast('PENDULUM IMPACT! KNOCKED OFF TRACK');
+      // 2. Physical solid-body horizontal depenetration (prevents climbing into or glitching through the ball)
+      const hDist = Math.hypot(dx, dz);
+      const hnx = hDist > 0.001 ? dx / hDist : 0;
+      const hnz = hDist > 0.001 ? dz / hDist : (Math.sign(vBallZ) || 1);
+      pose.x += hnx * overlap;
+      pose.z += hnz * overlap;
+      motionState.x = pose.x;
+      motionState.z = pose.z;
+
+      // 3. Dynamic momentum transfer & kinetic throw
+      if (!pendulumStruck) {
+        pendulumStruck = true;
+
+        // Relative lateral speed
+        const vRelZ = pose.vz - vBallZ;
+        const impactSpeed = Math.abs(vBallZ);
+
+        // Heavy pendulum transfers velocity and flings robot in swing direction
+        const throwDirection = Math.sign(vBallZ) || (nz > 0 ? 1 : -1);
+        const lateralThrow = throwDirection * Math.max(4.8, impactSpeed * 1.5 + Math.abs(vRelZ) * 0.6);
+        const forwardDeflect = hnx * Math.max(1.5, Math.abs(pose.vx) * 0.8);
+
+        pose.vz = lateralThrow;
+        pose.vx = forwardDeflect;
+        motionState.vz = pose.vz;
+        motionState.vx = pose.vx;
+
+        // Natural modest bounce & roll kick (NO artificial extreme roll rate that forces upside-down flip!)
+        pose.vy = Math.max(pose.vy, Math.min(1.0, impactSpeed * 0.25));
+        pose.rollRate = Math.max(-1.8, Math.min(1.8, throwDirection * 1.4));
+
+        // Chassis integrity reduction & audio-visual impact cues
+        subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - 8.0);
+        tone(105, 0.32, 0.14);
+        displayToast('PENDULUM IMPACT! KNOCKED OFF TRACK');
+      }
     }
   }
 

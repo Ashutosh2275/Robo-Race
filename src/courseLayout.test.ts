@@ -241,12 +241,15 @@ test('paired plank support spacing matches both robot track contact lines', () =
   assert.ok(Math.abs(worldSpacing - TRACK_WIDTH) < 1e-6, 'each track should align over one plank');
 });
 
-test('slalom hurdles are alternating solid brick walls, spaced for a clear weave', () => {
+test('slalom hurdles are alternating solid brick walls, spaced for a clear weave and expanded to the center', () => {
   assert.equal(SLALOM_BLOCKS.length, 5);
   assert.equal(SPEED_BREAKER_XS.length, 3);
   for (let i = 0; i < SLALOM_BLOCKS.length; i++) {
     const b = SLALOM_BLOCKS[i];
     assert.ok(b.length > 0 && b.span >= 1.50 && b.height >= 1.0);
+    assert.equal(b.span, DRIVE_ROUTE_WIDTH / 2, 'brick width must expand up to the road center');
+    const innerEdge = b.side === 'left' ? b.z - b.span / 2 : b.z + b.span / 2;
+    assert.ok(Math.abs(innerEdge - 13.50) < 0.001, 'inner edge of brick hurdle must touch the road center (z = 13.50)');
     if (i > 0) {
       assert.ok(SLALOM_BLOCKS[i - 1].x < b.x);
       assert.ok(b.x - SLALOM_BLOCKS[i - 1].x >= 3.0);

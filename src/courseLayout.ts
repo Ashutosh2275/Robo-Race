@@ -801,7 +801,7 @@ export const CHECKPOINTS: CheckpointGate[] = TRACK_B_CHECKPOINTS;
 // ---------------------------------------------------------------------------
 export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
   const side = i % 2 === 0 ? 'left' as const : 'right' as const;
-  const span = 1.60;
+  const span = DRIVE_ROUTE_WIDTH / 2; // 2.20m: expands width of all 5 brick hurdles up to the road center
   const sign = side === 'left' ? 1 : -1;
   const laneZ = 13.50;
   return {
