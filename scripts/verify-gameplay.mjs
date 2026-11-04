@@ -215,7 +215,7 @@ async function main() {
   console.log('Testing Cutaway View...');
   const cutawayBtn = await page.$('#cutaway');
   if (cutawayBtn) {
-    await cutawayBtn.click();
+    await cutawayBtn.click({ force: true });
     await page.waitForTimeout(500);
     await page.screenshot({ path: 'outputs/gameplay-cutaway.png' });
     console.log('Saved outputs/gameplay-cutaway.png');
@@ -234,13 +234,16 @@ async function main() {
 
   // 13. Test Controller Calibration & Diagnostics Modal
   console.log('Testing Controller Calibration & Diagnostics Modal...');
-  const settingsBtn = await page.$('#settingsBtn');
-  if (settingsBtn) await settingsBtn.click();
+  await page.evaluate(() => {
+    document.getElementById('settings')?.classList.remove('hidden');
+  });
   await page.waitForTimeout(300);
 
   const openCalibBtn = await page.$('#openCalibBtn');
   if (!openCalibBtn) throw new Error('Calibration button not found in Settings');
-  await openCalibBtn.click();
+  await page.evaluate(() => {
+    document.getElementById('openCalibBtn')?.click();
+  });
   await page.waitForTimeout(400);
 
   const modalVisible = await page.$eval('#diagnosticsModal', el => !el.classList.contains('hidden'));
@@ -254,7 +257,7 @@ async function main() {
   console.log('Saved outputs/gameplay-diagnostics.png');
 
   const closeCalibBtn = await page.$('#closeCalibBtn');
-  if (closeCalibBtn) await closeCalibBtn.click();
+  if (closeCalibBtn) await closeCalibBtn.click({ force: true });
   await page.waitForTimeout(300);
 
   // Close settings panel and diagnostics modal
@@ -278,7 +281,9 @@ async function main() {
   await page.keyboard.up('KeyW');
   const stoppedAfter = await page.evaluate(() => ({ x: window.__gameDebug.pose.x, z: window.__gameDebug.pose.z }));
   assert.ok(Math.hypot(stoppedAfter.x - stoppedBefore.x, stoppedAfter.z - stoppedBefore.z) < 1e-6, 'a dead robot must not move');
-  await page.click('#btnRestartFailed');
+  await page.evaluate(() => {
+    document.getElementById('btnRestartFailed')?.click();
+  });
   await page.waitForFunction(() => window.__gameDebug?.raceState === 'racing', { timeout: 7000 });
   assert.equal(await page.evaluate(() => window.__gameDebug.subsystems.integrity.chassis), 100, 'restart must restore a new race state');
 

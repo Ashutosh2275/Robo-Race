@@ -352,11 +352,13 @@ const mats = {
     roughness: 0.84,
     metalness: 0.04,
     map: generateSurfaceTexture('#c49a6c', ['#d4ab7c', '#b18759', '#dfb88c'], 'wood'),
+    side: THREE.DoubleSide,
   }),
   cardboardEdge: new THREE.MeshStandardMaterial({
     color: '#8a6238',
     roughness: 0.92,
     metalness: 0.04,
+    side: THREE.DoubleSide,
   }),
   stakeMetal: new THREE.MeshStandardMaterial({
     color: '#495057',
@@ -501,6 +503,7 @@ function cyl(parent: THREE.Object3D, mat: THREE.Material, p: THREE.Vector3, r: n
 // 2. Arena Layout, Walls, and Colliders
 // -------------------------------------------------------------
 const colliders: CourseCollider[] = [];
+(window as unknown as Record<string, unknown>).__colliders = colliders;
 const cameraOccluders: THREE.Object3D[] = [];
 
 function solidBox(id: string, x: number, z: number, w: number, d: number, h: number, mat: THREE.Material, rot = 0, y = h / 2, walkable = false) {
@@ -1039,73 +1042,13 @@ function buildSpiralClimbingStructure() {
   capMesh.position.set(cfg.cx, cfg.yTop + 0.54, cfg.cz);
   course.add(capMesh);
 
-  // 2. Continuous Solid Ground Foundation Apron under Spiral Footprint (x in [-8.00, -1.20], z in [-2.90, 2.90])
-  // Completely eliminates any empty void or hole under the spiral structure:
-  box(course, mats.asphalt, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.004, cfg.cz), V(6.00, 0.02, 5.80), 0, false);
-  box(course, mats.asphalt, V(-6.80, ARENA_FLOOR_HEIGHT + 0.005, 0.00), V(2.40, 0.02, DRIVE_ROUTE_WIDTH), 0, false);
+  // 2. Continuous Solid Ground Foundation Apron under Spiral Precinct (x in [-11.75, 1.75], z in [-3.75, 3.75])
+  // Completely eliminates any empty void or hole under the spiral structure and approach road:
+  box(course, mats.asphalt, V(-5.00, ARENA_FLOOR_HEIGHT + 0.004, 0.00), V(13.50, 0.02, 7.50), 0, false);
 
-  // 3. Real Transitional Entrance Ramp & Banked Outer Guide Deflector Wall (South Shoulder, z >= 1.80)
-  // Continuous curved deflection barrier placed safely on the southern shoulder, guiding approaching robot into the spiral climb
-  const entryBarrierSteps = 12;
-  const rBarrier = cfg.rOuter + 0.10; // 2.60m
-  for (let b = 0; b < entryBarrierSteps; b++) {
-    const t0 = b / entryBarrierSteps;
-    const t1 = (b + 1) / entryBarrierSteps;
-    // Curves from 0.75*PI (x = -6.34, z = 1.84) to 0.50*PI (x = -4.50, z = 2.60) safely on the southern shoulder
-    const a0 = Math.PI * 0.75 - t0 * (Math.PI * 0.25);
-    const a1 = Math.PI * 0.75 - t1 * (Math.PI * 0.25);
-    const aMid = (a0 + a1) / 2;
-    const bx = cfg.cx + rBarrier * Math.cos(aMid);
-    const bz = cfg.cz + rBarrier * Math.sin(aMid);
-    const chord = rBarrier * (Math.PI * 0.25) / entryBarrierSteps;
-    const ang = Math.PI / 2 - aMid;
-    const wall = box(course, mats.concretePier, V(bx, ARENA_FLOOR_HEIGHT + 0.18, bz), V(chord + 0.04, 0.36, 0.28), ang);
-    wall.rotation.y = ang;
-    const coping = box(course, b % 2 === 0 ? mats.yellow : mats.black, V(bx, ARENA_FLOOR_HEIGHT + 0.38, bz), V(chord + 0.04, 0.04, 0.30), ang, false);
-    coping.rotation.y = ang;
-    colliders.push({
-      id: `spiral_entry_outer_barrier_${b}`,
-      x: bx,
-      z: bz,
-      hx: chord / 2 + 0.02,
-      hz: 0.14,
-      y: ARENA_FLOOR_HEIGHT + 0.18,
-      height: 0.36,
-      rot: ang,
-      walkable: false,
-    });
-    // Reflective cat-eyes along outer deflector
-    if (b % 2 === 0) {
-      box(course, mats.red, V(bx - 0.12 * Math.sin(ang), ARENA_FLOOR_HEIGHT + 0.26, bz - 0.12 * Math.cos(ang)), V(0.06, 0.06, 0.02), ang, false);
-    }
-  }
-
-  // Straight approach shoulder curb on south side connecting from x = -7.50 to x = -6.34 at z = 1.84
-  box(course, mats.concretePier, V(-6.92, ARENA_FLOOR_HEIGHT + 0.18, 1.84), V(1.16, 0.36, 0.28), 0);
-  box(course, mats.yellow, V(-6.92, ARENA_FLOOR_HEIGHT + 0.38, 1.84), V(1.16, 0.04, 0.30), 0, false);
-  colliders.push({
-    id: 'spiral_approach_south_curb',
-    x: -6.92,
-    z: 1.84,
-    hx: 0.58,
-    hz: 0.14,
-    y: ARENA_FLOOR_HEIGHT + 0.18,
-    height: 0.36,
-    rot: 0,
-    walkable: false,
-  });
-
-  // Beveled transition entrance deck plate (x in [-6.75, -5.85])
+  // 3. Beveled Transition Entrance Deck Plate (x in [-6.75, -5.85])
+  // Smooth flush approach plate leading directly onto the continuous helical cardboard deck
   box(course, mats.diamondPlate, V(-6.30, ARENA_FLOOR_HEIGHT + 0.008, 0.00), V(0.90, 0.012, cfg.roadWidth), 0, false);
-  // High-contrast yellow entrance guidance arrows pointing into spiral
-  for (let a = 0; a < 3; a++) {
-    const ax = -6.70 + a * 0.40;
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.22, 3), mats.yellow);
-    arrow.position.set(ax, ARENA_FLOOR_HEIGHT + 0.016, 0.0);
-    arrow.rotation.x = -Math.PI / 2;
-    arrow.rotation.z = Math.PI / 2 + a * 0.18; // Banks gently left toward North
-    course.add(arrow);
-  }
 
   // 4. Compact Rotated Cardboard Ribbon Climbing Surface (144 Segments over 1.5 turns, 540 degrees)
   // Continuous cantilevered spiral around central stake. ZERO under-deck pillars or pier bents.
@@ -1171,87 +1114,18 @@ function buildSpiralClimbingStructure() {
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
-  // 5. Clean Flush Road Markings & Directional Climbing Arrows (Zero jagged fan-blade slats!)
-  // A. Flush Painted Centerline Dashed Stripe along rCenter = 1.10
-  const dashCount = 36;
-  for (let d = 0; d < dashCount; d++) {
-    if (d % 2 === 1) continue; // Dashed pattern
-    const t0 = d / dashCount;
-    const t1 = (d + 1) / dashCount;
-    const theta0 = cfg.startAngle + t0 * totalAngle;
-    const theta1 = cfg.startAngle + t1 * totalAngle;
-    const midTheta = (theta0 + theta1) / 2;
-    const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
-    const midX = cfg.cx + cfg.rCenter * Math.cos(midTheta);
-    const midZ = cfg.cz + cfg.rCenter * Math.sin(midTheta);
-    const chord = (cfg.rCenter * totalAngle) / dashCount;
-    const dash = box(course, mats.laneStripeWhite, V(midX, yMid + 0.007, midZ), V(chord * 0.70, 0.005, 0.06), 0, false);
-    dash.rotation.y = Math.PI / 2 - midTheta;
-  }
-
-  // B. Flush Painted Yellow Boundary Stripes along Outer Edge (rOuter - 0.06)
-  const edgeStripeCount = 48;
-  for (let r = 0; r < edgeStripeCount; r++) {
-    const t0 = r / edgeStripeCount;
-    const t1 = (r + 1) / edgeStripeCount;
-    const theta0 = cfg.startAngle + t0 * totalAngle;
-    const theta1 = cfg.startAngle + t1 * totalAngle;
-    const midTheta = (theta0 + theta1) / 2;
-    const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
-
-    const outX = cfg.cx + (cfg.rOuter - 0.06) * Math.cos(midTheta);
-    const outZ = cfg.cz + (cfg.rOuter - 0.06) * Math.sin(midTheta);
-    const chord = (cfg.rOuter * totalAngle) / edgeStripeCount;
-    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(outX, yMid + 0.008, outZ), V(chord + 0.02, 0.006, 0.10), 0, false);
-    outerStripe.rotation.y = Math.PI / 2 - midTheta;
-  }
-
-  // C. Flush Directional Racing Chevron Decals (Every 30 degrees, 18 clean flat climbing arrows)
-  const arrowCount = 18;
-  for (let a = 0; a < arrowCount; a++) {
-    const t = (a + 0.5) / arrowCount;
-    const theta = cfg.startAngle + t * totalAngle;
-    const yMid = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-    const ax = cfg.cx + cfg.rCenter * cosT;
-    const az = cfg.cz + cfg.rCenter * sinT;
-    const tangAng = Math.PI / 2 - theta;
-
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.28, 3), mats.yellow);
-    arrow.position.set(ax, yMid + 0.008, az);
-    arrow.rotation.x = -Math.PI / 2;
-    arrow.rotation.z = tangAng;
-    course.add(arrow);
-  }
-
-  // 6. Elevated Approach Bridge connecting Spiral Summit (x = -3.15) to Turntable Deck (x = -1.45)
+  // 5. Elevated Approach Bridge connecting Spiral Summit (x = -3.15) to Turntable Deck (x = -1.45)
   // Continuous 2.30m wide cantilevered cardboard deck at y = 3.20m
   box(course, mats.cardboard, V(-2.30, cfg.yTop - 0.03, 0.0), V(2.30, 0.06, cfg.roadWidth));
   // Beveled transition plate
   box(course, mats.yellow, V(-3.15, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
 
-  // 7. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
+  // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
   // Continuous downhill sloped deck. NO pier bents or clutter underneath!
   const dX0 = cfg.descentX0; // 3.45
   const dX1 = cfg.descentX1; // 10.45
-  const dLen = dX1 - dX0;    // 7.0m
-  const dWidth = cfg.descentWidth; // 1.80m
-
+  const dWidth = cfg.descentWidth; // 2.30m matching roadWidth
   slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.08, mats.cardboard);
-
-  // Flush Descending Ramp Shoulder Markings (Zero vertical barriers: pure fall-off hazard)
-  for (const side of [-1, 1]) {
-    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.08);
-    const dSteps = 16;
-    const dStepW = dLen / dSteps;
-    for (let s = 0; s < dSteps; s++) {
-      const rx = dX0 + (s + 0.5) * dStepW;
-      const u = (rx - dX0) / dLen;
-      const ry = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
-      box(course, s % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(rx, ry + 0.006, rZ), V(dStepW + 0.02, 0.008, 0.12), 0, false);
-    }
-  }
 }
 
 
@@ -1723,6 +1597,8 @@ for (const side of [-1, 1]) {
   const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
   box(course, mats.slalomBrick, V(firePlatMidX, firePlatElevY + 0.12, zCurb), V(firePlatLen, 0.22, 0.32));
   box(course, mats.yellow, V(firePlatMidX, firePlatElevY + 0.24, zCurb), V(firePlatLen, 0.04, 0.34), 0, false);
+  // Continuous ramp curbs bridging smoothly from approach lane onto the platform
+  slopedDeck(`fire_leadin_curb_${side}`, -5.80, -5.00, zCurb, 0.32, ARENA_FLOOR_HEIGHT + 0.18, firePlatElevY + 0.24, 0.22, mats.slalomBrick);
 }
 
 // 36 Sculpted Basalt Charcoal Rocks with Glowing Lava Fissures
@@ -2240,25 +2116,6 @@ for (const lane of straightLaneSpecs) {
   }
 }
 
-// Directional Road Surface Chevron Markings
-function paintDirectionChevron(x: number, z: number, dir: -1 | 1) {
-  // Suppress chevrons in special hazard zones
-  if (Math.abs(z - 6.75) < 1.0 && x >= -9.5 && x <= 6.5) return;
-  if (Math.abs(z - 0.00) < 1.0 && x >= -12.0 && x <= -8.0) return;
-  const deckY = evaluateCourseHeight(x, z);
-  for (let arm of [-1, 1]) {
-    const angle = dir === -1 ? (arm * 0.5) : (Math.PI - arm * 0.5);
-    const m = box(course, mats.laneStripeWhite, V(x + (dir === -1 ? -0.12 : 0.12), deckY + 0.008, z + arm * 0.25), V(0.55, 0.004, 0.12), angle, false);
-    m.rotation.y = angle;
-  }
-}
-
-for (const lane of straightLaneSpecs) {
-  for (let cx = lane.xMin + 3.0; cx <= lane.xMax - 3.0; cx += 5.0) {
-    paintDirectionChevron(cx, lane.z, lane.dir);
-  }
-}
-
 // High-mast stadium floodlight towers along the southern perimeter
 for (const fx of [-12.0, 0.0, 12.0]) {
   const pz = -16.5;
@@ -2338,18 +2195,20 @@ const checkpointBeacons: THREE.Mesh[] = [];
 
 const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   const g = new THREE.Group();
-  const gateY = evaluateCourseHeight(cp.x, cp.z);
+  const gateY = i === 5
+    ? (SPIRAL_CONFIG.yGround + 0.5 * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround))
+    : evaluateCourseHeight(cp.x, cp.z);
   g.position.set(cp.x, gateY, cp.z);
   g.rotation.y = cp.yaw;
   course.add(g);
 
   let beamSpan = 5.0;
-  if (i === 5) {
-    // Checkpoint 06 is on the multi-tier climbing spiral helix.
-    // Use sleek low-profile side timing sensor bollards and flush laser scan line across the deck,
-    // maintaining 100% open vertical headroom without any obstructive overhead crossbars or drop pillars.
-    beamSpan = SPIRAL_CONFIG.roadWidth - 0.10;
-    const halfSpan = SPIRAL_CONFIG.roadWidth / 2 + 0.08;
+  if (i === 5 || i === 6) {
+    // Checkpoints 06 (Spiral Mid-Climb) and 07 (Spiral Summit Turntable)
+    // Low-profile side timing sensor bollards and flush laser scan line across the deck,
+    // maintaining 100% open vertical headroom without any overhead crossbars or drop columns!
+    beamSpan = (i === 6 ? SPIRAL_CONFIG.deckWidthZ - 0.40 : SPIRAL_CONFIG.roadWidth - 0.10);
+    const halfSpan = (i === 6 ? (SPIRAL_CONFIG.deckWidthZ / 2 - 0.10) : (SPIRAL_CONFIG.roadWidth / 2 + 0.08));
     for (const side of [-1, 1]) {
       const px = side * halfSpan;
       box(g, mats.metal, V(px, 0.28, 0), V(0.14, 0.56, 0.14));
@@ -2363,8 +2222,7 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
     // 1. Structural Steel Truss Gantry (Left & Right Columns)
     // Standardized proportional gantry spans tailored to exact corridor widths
     // Gates 01, 02, 03, 04, 05, 08, 09, 11 span the 6.0m roadway: 5.4m span
-    // Gate 07 (Turntable): 6.2m span to clear the enlarged 4.9m rotating deck and corridor
-    const gantrySpan = (i === 6 ? 6.2 : 5.4);
+    const gantrySpan = 5.4;
     beamSpan = gantrySpan - 0.4;
     const halfSpan = gantrySpan / 2;
     const towerH = 2.85;
@@ -2443,13 +2301,15 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   bar.position.set(0, 0.04, 0);
   g.add(bar);
 
-  // Soft vertical laser shimmer curtain
-  const shimmer = new THREE.Mesh(
-    new THREE.PlaneGeometry(beamSpan, 0.35),
-    new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false })
-  );
-  shimmer.position.set(0, 0.18, 0);
-  g.add(shimmer);
+  // Soft vertical laser shimmer curtain (Only on full gantry gates, NEVER across climbing spiral or turntable)
+  if (i !== 5 && i !== 6) {
+    const shimmer = new THREE.Mesh(
+      new THREE.PlaneGeometry(beamSpan, 0.35),
+      new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false })
+    );
+    shimmer.position.set(0, 0.18, 0);
+    g.add(shimmer);
+  }
   checkpointLaserBeams.push(bar);
 
   return {
