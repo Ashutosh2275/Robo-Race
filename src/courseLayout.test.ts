@@ -96,8 +96,8 @@ test('spiral ramp geometry: continuous helical climb, parking garage gradient, a
   const gradient = (rise / rampLength) * 100;
   assert.ok(gradient >= 20.0 && gradient <= 45.0, `spiral gradient should reflect steep trial climb requiring zigzag tacking, got ${gradient.toFixed(2)}%`);
 
-  // Clearance check: compact road width matches ~1.15x bot width (1.75m to 2.20m)
-  assert.ok(SPIRAL_CONFIG.roadWidth >= 1.75 && SPIRAL_CONFIG.roadWidth <= 2.20, `compact road width should match 1.15x bot width, got ${SPIRAL_CONFIG.roadWidth}`);
+  // Clearance check: expanded road width matches ~1.5x bot width (1.75m to 2.60m)
+  assert.ok(SPIRAL_CONFIG.roadWidth >= 1.75 && SPIRAL_CONFIG.roadWidth <= 2.60, `road width should match expanded clearance, got ${SPIRAL_CONFIG.roadWidth}`);
 });
 
 test('spiral ramp height is strictly monotonic without cliff discontinuities or spin-out jumps', () => {

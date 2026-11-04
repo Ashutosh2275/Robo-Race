@@ -69,15 +69,15 @@ export const ELEVATION_TIER_MAJOR = 3.20;  // 3.0 - 4.0m: e.g. Spiral Climbing T
 export const SPIRAL_CONFIG = {
   cx: -4.50,
   cz: 0.00,
-  rCenter: 1.10,       // Centerline driving radius ((rInner + rOuter) / 2 = 1.10m)
-  roadWidth: 1.80,     // Compact road width: exactly 1.15x robot width (1.52m in course units)
+  rCenter: 1.35,       // Centerline driving radius ((rInner + rOuter) / 2 = 1.35m)
+  roadWidth: 2.30,     // Expanded road width: ~1.51x robot width (1.52m in course units) gives ~39cm clearance on both sides
   rInner: 0.20,        // Single central vertical stake/pole (radius 20cm, not a drum)
-  rOuter: 2.00,        // Outer edge radius (rInner + roadWidth = 2.00m)
+  rOuter: 2.50,        // Outer edge radius (rInner + roadWidth = 2.50m)
   turns: 1.50,         // 1.5 revolutions (540 degrees continuous helical climb)
   yGround: ARENA_FLOOR_HEIGHT, // Ground entrance: -0.33m
   yTop: 3.20,          // Large climb to summit elevation (3.53m above ground)
-  startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -5.60, z = 0.00)
-  endAngle: Math.PI + 1.50 * 2 * Math.PI, // 4.0 * Math.PI (exits at east tangent: x = cx + rCenter = -3.40, z = 0.00)
+  startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -5.85, z = 0.00)
+  endAngle: Math.PI + 1.50 * 2 * Math.PI, // 4.0 * Math.PI (exits at east tangent: x = cx + rCenter = -3.15, z = 0.00)
   // Summit Platform & Connecting Bridge to Turntable
   deckX: 1.00,
   deckZ: 0.00,
@@ -87,7 +87,7 @@ export const SPIRAL_CONFIG = {
   descentX0: 3.45,
   descentX1: 10.45,    // 7.0m smooth downhill grade back to ground level
   descentZ: 0.00,
-  descentWidth: 1.80,  // Compact 1.15x bot width
+  descentWidth: 2.30,  // Expanded matching 2.30m road width
 } as const;
 
 /**
@@ -96,8 +96,8 @@ export const SPIRAL_CONFIG = {
  * banking so the robot climbs smoothly without spinning, sliding, or cliff discontinuities.
  */
 export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
-  // 1. Approach road and entrance apron before spiral perimeter (x <= -6.40, |z| <= 2.20 at ground grade)
-  if (poseY < 0.50 && x <= -6.40 && x >= -8.00 && Math.abs(z - SPIRAL_CONFIG.cz) <= 2.20) {
+  // 1. Approach road and entrance apron before spiral perimeter (x <= -6.80, |z| <= 2.50 at ground grade)
+  if (poseY < 0.50 && x <= -6.80 && x >= -8.50 && Math.abs(z - SPIRAL_CONFIG.cz) <= 2.50) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
   }
 
@@ -293,12 +293,13 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
 
   // Lane 3: Compact Spiral Tower Approach & Climb (Center: cx = -4.50, cz = 0.00)
   { x: -12.0, z: 0.00 },  // Approach to Spiral Entrance
-  { x: -5.60, z: 0.00 },  // Gate 05 - Compact Spiral Ground Entrance (y = -0.33m)
-  // Helical climb around central stake (R = 1.10m, 1.5 turns, climb to y = 3.20m)
+  { x: -8.00, z: 0.00 },  // Gate 05 - Spiral Approach Gantry
+  { x: -5.85, z: 0.00 },  // Compact Spiral Ground Entrance (y = -0.33m)
+  // Helical climb around central stake (R = 1.35m, 1.5 turns, climb to y = 3.20m)
   // Arc 1: West tangent to North quadrant (y rises to 1.44m at Gate 06)
-  ...circularArc(-4.50, 0.0, 1.10, Math.PI, Math.PI * 2.5, 12).slice(1),
+  ...circularArc(-4.50, 0.0, 1.35, Math.PI, Math.PI * 2.5, 12).slice(1),
   // Arc 2: North quadrant through summit exit at East tangent (y rises to 3.20m)
-  ...circularArc(-4.50, 0.0, 1.10, Math.PI * 2.5, Math.PI * 4.0, 12).slice(1),
+  ...circularArc(-4.50, 0.0, 1.35, Math.PI * 2.5, Math.PI * 4.0, 12).slice(1),
   { x: -2.00, z: 0.00 },  // Elevated connecting bridge
   { x: 1.00, z: 0.00 },   // Gate 07 - Spiral Rooftop Deck (y = 3.20m, Summit Turntable)
   { x: 3.45, z: 0.00 },   // Descent ramp start
@@ -336,8 +337,8 @@ export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
   { id: 2, label: 'Gate 02 - Slalom Exit', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 3, label: 'Gate 03 - Rock Field', x: 6.0, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 4, label: 'Gate 04 - Mid-South Straight', x: 14.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 5, label: 'Gate 05 - Spiral Entrance', x: -5.60, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -4.50, z: 1.10, yaw: 0, width: 5.6 },
+  { id: 5, label: 'Gate 05 - Spiral Approach', x: -8.00, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -4.50, z: 1.35, yaw: 0, width: 6.8 },
   { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.00, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
   { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 10.45, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
   { id: 9, label: 'Gate 09 - North Straight', x: 14.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },

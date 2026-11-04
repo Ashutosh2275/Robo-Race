@@ -862,12 +862,12 @@ const corridorLane2: CoursePoint[] = [
 const hairpin2Arc = circularArcPoints(-17.50, 3.375, 3.375, Math.PI / 2, Math.PI * 1.5, 24);
 
 // Lane 3: Center Straight Ground Approach & Landing Exit
-// Ground Approach to Spiral: x in [-17.5, -5.60]
+// Ground Approach to Spiral: x in [-17.5, -5.85]
 const corridorLane3Approach: CoursePoint[] = [
   { x: -17.5, z: 0.00 },
   { x: -13.0, z: 0.00 },
-  { x: -9.00, z: 0.00 },
-  { x: -5.60, z: 0.00 },
+  { x: -8.00, z: 0.00 },
+  { x: -5.85, z: 0.00 },
 ];
 // Landing Exit from Descending Ramp to Hairpin 3: x in [10.45, 17.5]
 const corridorLane3Exit: CoursePoint[] = [
@@ -1039,25 +1039,25 @@ function buildSpiralClimbingStructure() {
   capMesh.position.set(cfg.cx, cfg.yTop + 0.54, cfg.cz);
   course.add(capMesh);
 
-  // 2. Continuous Solid Ground Foundation Apron under Spiral Footprint (x in [-7.80, -1.80], z in [-2.50, 2.50])
+  // 2. Continuous Solid Ground Foundation Apron under Spiral Footprint (x in [-8.00, -1.20], z in [-2.90, 2.90])
   // Completely eliminates any empty void or hole under the spiral structure:
-  box(course, mats.asphalt, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.004, cfg.cz), V(5.60, 0.02, 5.20), 0, false);
-  box(course, mats.asphalt, V(-6.55, ARENA_FLOOR_HEIGHT + 0.005, 0.00), V(2.20, 0.02, DRIVE_ROUTE_WIDTH), 0, false);
+  box(course, mats.asphalt, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.004, cfg.cz), V(6.00, 0.02, 5.80), 0, false);
+  box(course, mats.asphalt, V(-6.80, ARENA_FLOOR_HEIGHT + 0.005, 0.00), V(2.40, 0.02, DRIVE_ROUTE_WIDTH), 0, false);
 
-  // 3. Real Transitional Entrance Ramp & Banked Outer Guide Deflector Wall (South Side, z > 0)
-  // Continuous curved deflection barrier gently guiding approaching robot into the spiral climb
-  const entryBarrierSteps = 14;
-  const rBarrier = cfg.rOuter + 0.06; // 2.06m
+  // 3. Real Transitional Entrance Ramp & Banked Outer Guide Deflector Wall (South Shoulder, z >= 1.80)
+  // Continuous curved deflection barrier placed safely on the southern shoulder, guiding approaching robot into the spiral climb
+  const entryBarrierSteps = 12;
+  const rBarrier = cfg.rOuter + 0.10; // 2.60m
   for (let b = 0; b < entryBarrierSteps; b++) {
     const t0 = b / entryBarrierSteps;
     const t1 = (b + 1) / entryBarrierSteps;
-    // Curves from PI (approach road tangent at x = -6.56, z = 0) around the South quadrant to PI/2 (x = -4.50, z = 2.06)
-    const a0 = Math.PI - t0 * (Math.PI / 2);
-    const a1 = Math.PI - t1 * (Math.PI / 2);
+    // Curves from 0.75*PI (x = -6.34, z = 1.84) to 0.50*PI (x = -4.50, z = 2.60) safely on the southern shoulder
+    const a0 = Math.PI * 0.75 - t0 * (Math.PI * 0.25);
+    const a1 = Math.PI * 0.75 - t1 * (Math.PI * 0.25);
     const aMid = (a0 + a1) / 2;
     const bx = cfg.cx + rBarrier * Math.cos(aMid);
     const bz = cfg.cz + rBarrier * Math.sin(aMid);
-    const chord = rBarrier * (Math.PI / 2) / entryBarrierSteps;
+    const chord = rBarrier * (Math.PI * 0.25) / entryBarrierSteps;
     const ang = Math.PI / 2 - aMid;
     const wall = box(course, mats.concretePier, V(bx, ARENA_FLOOR_HEIGHT + 0.18, bz), V(chord + 0.04, 0.36, 0.28), ang);
     wall.rotation.y = ang;
@@ -1080,11 +1080,26 @@ function buildSpiralClimbingStructure() {
     }
   }
 
-  // Beveled transition entrance deck plate (x in [-6.50, -5.60])
-  box(course, mats.diamondPlate, V(-6.05, ARENA_FLOOR_HEIGHT + 0.008, 0.00), V(0.90, 0.012, cfg.roadWidth), 0, false);
+  // Straight approach shoulder curb on south side connecting from x = -7.50 to x = -6.34 at z = 1.84
+  box(course, mats.concretePier, V(-6.92, ARENA_FLOOR_HEIGHT + 0.18, 1.84), V(1.16, 0.36, 0.28), 0);
+  box(course, mats.yellow, V(-6.92, ARENA_FLOOR_HEIGHT + 0.38, 1.84), V(1.16, 0.04, 0.30), 0, false);
+  colliders.push({
+    id: 'spiral_approach_south_curb',
+    x: -6.92,
+    z: 1.84,
+    hx: 0.58,
+    hz: 0.14,
+    y: ARENA_FLOOR_HEIGHT + 0.18,
+    height: 0.36,
+    rot: 0,
+    walkable: false,
+  });
+
+  // Beveled transition entrance deck plate (x in [-6.75, -5.85])
+  box(course, mats.diamondPlate, V(-6.30, ARENA_FLOOR_HEIGHT + 0.008, 0.00), V(0.90, 0.012, cfg.roadWidth), 0, false);
   // High-contrast yellow entrance guidance arrows pointing into spiral
   for (let a = 0; a < 3; a++) {
-    const ax = -6.50 + a * 0.40;
+    const ax = -6.70 + a * 0.40;
     const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.22, 3), mats.yellow);
     arrow.position.set(ax, ARENA_FLOOR_HEIGHT + 0.016, 0.0);
     arrow.rotation.x = -Math.PI / 2;
@@ -1210,11 +1225,11 @@ function buildSpiralClimbingStructure() {
     course.add(arrow);
   }
 
-  // 6. Elevated Approach Bridge connecting Spiral Summit (x = -3.40) to Turntable Deck (x = -1.45)
-  // Continuous 1.80m wide cantilevered cardboard deck at y = 3.20m
-  box(course, mats.cardboard, V(-2.45, cfg.yTop - 0.03, 0.0), V(2.00, 0.06, cfg.roadWidth));
+  // 6. Elevated Approach Bridge connecting Spiral Summit (x = -3.15) to Turntable Deck (x = -1.45)
+  // Continuous 2.30m wide cantilevered cardboard deck at y = 3.20m
+  box(course, mats.cardboard, V(-2.30, cfg.yTop - 0.03, 0.0), V(2.30, 0.06, cfg.roadWidth));
   // Beveled transition plate
-  box(course, mats.yellow, V(-3.40, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
+  box(course, mats.yellow, V(-3.15, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
 
   // 7. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
   // Continuous downhill sloped deck. NO pier bents or clutter underneath!
@@ -2328,81 +2343,98 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   g.rotation.y = cp.yaw;
   course.add(g);
 
-  // 1. Structural Steel Truss Gantry (Left & Right Columns)
-  // Standardized proportional gantry spans tailored to exact corridor widths
-  // Gates 01, 02, 03, 04, 05, 08, 09, 11 span the 6.0m roadway: 6.6m span
-  // Gate 06 (Marble Pit Turn): 7.4m span to clear the full diagonal turn envelope
-  // Gate 07 (Turntable): 7.2m span to clear the enlarged 4.9m rotating deck and corridor
-  // Gate 10 (Parallel Planks): 4.4m span
-  const gantrySpan = (i === 6 ? 6.2 : 5.4);
-  const halfSpan = gantrySpan / 2;
-  const towerH = 2.85;
-  for (const side of [-1, 1]) {
-    const px = side * (halfSpan - 0.15);
-    // Support foundation pier extending down to the true ground level
-    const worldTowerX = cp.x + px * Math.cos(cp.yaw);
-    const worldTowerZ = cp.z - px * Math.sin(cp.yaw);
-    const groundY = evaluateCourseHeight(worldTowerX, worldTowerZ);
-    const drop = gateY - groundY;
-    if (drop > 0.05) {
-      box(g, mats.concretePier, V(px, -drop / 2, 0), V(0.48, drop, 0.48));
+  let beamSpan = 5.0;
+  if (i === 5) {
+    // Checkpoint 06 is on the multi-tier climbing spiral helix.
+    // Use sleek low-profile side timing sensor bollards and flush laser scan line across the deck,
+    // maintaining 100% open vertical headroom without any obstructive overhead crossbars or drop pillars.
+    beamSpan = SPIRAL_CONFIG.roadWidth - 0.10;
+    const halfSpan = SPIRAL_CONFIG.roadWidth / 2 + 0.08;
+    for (const side of [-1, 1]) {
+      const px = side * halfSpan;
+      box(g, mats.metal, V(px, 0.28, 0), V(0.14, 0.56, 0.14));
+      box(g, mats.yellow, V(px, 0.08, 0), V(0.20, 0.16, 0.20), 0, false);
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.10, 12), mats.beaconAmber);
+      beacon.position.set(px, 0.60, 0);
+      g.add(beacon);
+      checkpointBeacons.push(beacon);
     }
-    // Heavy concrete footing with hazard striping
-    box(g, mats.yellow, V(px, 0.14, 0), V(0.42, 0.28, 0.42));
-    box(g, mats.black, V(px, 0.14, 0.12), V(0.44, 0.10, 0.20), 0, false);
-    // Vertical steel column tower
-    box(g, mats.metal, V(px, towerH / 2, 0), V(0.20, towerH, 0.20));
-    // Truss horizontal banding
-    for (let t = 0.6; t < towerH - 0.2; t += 0.7) {
-      box(g, mats.black, V(px, t, 0), V(0.24, 0.05, 0.24), 0, false);
+  } else {
+    // 1. Structural Steel Truss Gantry (Left & Right Columns)
+    // Standardized proportional gantry spans tailored to exact corridor widths
+    // Gates 01, 02, 03, 04, 05, 08, 09, 11 span the 6.0m roadway: 5.4m span
+    // Gate 07 (Turntable): 6.2m span to clear the enlarged 4.9m rotating deck and corridor
+    const gantrySpan = (i === 6 ? 6.2 : 5.4);
+    beamSpan = gantrySpan - 0.4;
+    const halfSpan = gantrySpan / 2;
+    const towerH = 2.85;
+    for (const side of [-1, 1]) {
+      const px = side * (halfSpan - 0.15);
+      // Support foundation pier extending down to the true ground level
+      const worldTowerX = cp.x + px * Math.cos(cp.yaw);
+      const worldTowerZ = cp.z - px * Math.sin(cp.yaw);
+      const groundY = evaluateCourseHeight(worldTowerX, worldTowerZ);
+      const drop = gateY - groundY;
+      if (drop > 0.05) {
+        box(g, mats.concretePier, V(px, -drop / 2, 0), V(0.48, drop, 0.48));
+      }
+      // Heavy concrete footing with hazard striping
+      box(g, mats.yellow, V(px, 0.14, 0), V(0.42, 0.28, 0.42));
+      box(g, mats.black, V(px, 0.14, 0.12), V(0.44, 0.10, 0.20), 0, false);
+      // Vertical steel column tower
+      box(g, mats.metal, V(px, towerH / 2, 0), V(0.20, towerH, 0.20));
+      // Truss horizontal banding
+      for (let t = 0.6; t < towerH - 0.2; t += 0.7) {
+        box(g, mats.black, V(px, t, 0), V(0.24, 0.05, 0.24), 0, false);
+      }
+      // Top flashing strobe beacon
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.14, 12), mats.beaconAmber);
+      beacon.position.set(px, towerH + 0.08, 0);
+      g.add(beacon);
+      checkpointBeacons.push(beacon);
     }
-    // Top flashing strobe beacon
-    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.14, 12), mats.beaconAmber);
-    beacon.position.set(px, towerH + 0.08, 0);
-    g.add(beacon);
-    checkpointBeacons.push(beacon);
-  }
 
-  // 2. Overhead Horizontal Truss Crossbar
-  const crossbar = box(g, mats.metal, V(0, towerH, 0), V(gantrySpan - 0.10, 0.18, 0.24));
-  cameraOccluders.push(crossbar);
+    // 2. Overhead Horizontal Truss Crossbar
+    const crossbar = box(g, mats.metal, V(0, towerH, 0), V(gantrySpan - 0.10, 0.18, 0.24));
+    cameraOccluders.push(crossbar);
 
-  // 3. Double-Sided Illuminated Overhead LED Display
-  const isFinishGate = (i === CHECKPOINTS.length - 1);
-  const cvs = document.createElement('canvas');
-  cvs.width = 512;
-  cvs.height = 96;
-  const ctx = cvs.getContext('2d')!;
-  ctx.fillStyle = '#111413';
-  ctx.fillRect(0, 0, 512, 96);
-  ctx.strokeStyle = isFinishGate ? '#ffd700' : '#f0bd53';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(4, 4, 504, 88);
-  if (isFinishGate) {
-    // Draw checkered border accents on finish banner
-    const cSize = 16;
-    for (let cx = 10; cx < 80; cx += cSize) {
-      for (let cy = 10; cy < 86; cy += cSize) {
-        if ((Math.floor(cx / cSize) + Math.floor(cy / cSize)) % 2 === 0) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(cx, cy, cSize, cSize);
-          ctx.fillRect(512 - 80 + (cx - 10), cy, cSize, cSize);
+    // 3. Double-Sided Illuminated Overhead LED Display
+    const isFinishGate = (i === CHECKPOINTS.length - 1);
+    const cvs = document.createElement('canvas');
+    cvs.width = 512;
+    cvs.height = 96;
+    const ctx = cvs.getContext('2d')!;
+    ctx.fillStyle = '#111413';
+    ctx.fillRect(0, 0, 512, 96);
+    ctx.strokeStyle = isFinishGate ? '#ffd700' : '#f0bd53';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(4, 4, 504, 88);
+    if (isFinishGate) {
+      // Draw checkered border accents on finish banner
+      const cSize = 16;
+      for (let cx = 10; cx < 80; cx += cSize) {
+        for (let cy = 10; cy < 86; cy += cSize) {
+          if ((Math.floor(cx / cSize) + Math.floor(cy / cSize)) % 2 === 0) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(cx, cy, cSize, cSize);
+            ctx.fillRect(512 - 80 + (cx - 10), cy, cSize, cSize);
+          }
         }
       }
     }
+    ctx.fillStyle = isFinishGate ? '#ffe066' : '#f0bd53';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(isFinishGate ? '🏁 GRAND FINISH 🏁' : cp.label.toUpperCase(), 256, 58);
+    const signTex = new THREE.CanvasTexture(cvs);
+    const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(3.8, gantrySpan - 1.2), 0.52), new THREE.MeshBasicMaterial({ map: signTex, side: THREE.DoubleSide }));
+    signMesh.position.set(0, towerH, 0);
+    g.add(signMesh);
   }
-  ctx.fillStyle = isFinishGate ? '#ffe066' : '#f0bd53';
-  ctx.font = 'bold 36px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText(isFinishGate ? '🏁 GRAND FINISH 🏁' : cp.label.toUpperCase(), 256, 58);
-  const signTex = new THREE.CanvasTexture(cvs);
-  const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(3.8, gantrySpan - 1.2), 0.52), new THREE.MeshBasicMaterial({ map: signTex, side: THREE.DoubleSide }));
-  signMesh.position.set(0, towerH, 0);
-  g.add(signMesh);
 
   // 4. Ultra-Realistic Laser Timing Scan Beam across the roadway
-  const laserColor = i === 0 ? '#f0bd53' : isFinishGate ? '#ffd700' : '#20e3b2';
-  const laserBeamGeo = new THREE.CylinderGeometry(0.016, 0.016, gantrySpan - 0.4, 12);
+  const laserColor = i === 0 ? '#f0bd53' : (i === CHECKPOINTS.length - 1) ? '#ffd700' : '#20e3b2';
+  const laserBeamGeo = new THREE.CylinderGeometry(0.016, 0.016, beamSpan, 12);
   laserBeamGeo.rotateZ(Math.PI / 2);
   const bar = new THREE.Mesh(
     laserBeamGeo,
@@ -2413,7 +2445,7 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
 
   // Soft vertical laser shimmer curtain
   const shimmer = new THREE.Mesh(
-    new THREE.PlaneGeometry(gantrySpan - 0.4, 0.35),
+    new THREE.PlaneGeometry(beamSpan, 0.35),
     new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false })
   );
   shimmer.position.set(0, 0.18, 0);
@@ -3962,7 +3994,9 @@ function stepPhysics(dt: number) {
     },
     driveResult.longitudinalSpeed,
     motionState.angular,
-    dt
+    dt,
+    9.81,
+    false // Broad obstacle reaction yaw torque is handled above via evaluateRockHeight, preserving 100% player steering on ramps and spiral
   );
   if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
     // Metacentric righting stability while floating in water

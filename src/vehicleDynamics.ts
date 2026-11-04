@@ -144,7 +144,8 @@ export function stepVehicle3D(
   longitudinalSpeed: number,
   angularYaw: number,
   dt: number,
-  gravity = 9.81
+  gravity = 9.81,
+  applyObstacleTwist = true
 ) {
   const patches = getContactPatches(pose.x, pose.z, pose.yaw);
   const hFL = heightAt(patches.frontLeft.x, patches.frontLeft.z);
@@ -237,8 +238,8 @@ export function stepVehicle3D(
   // CRITICAL DISTINCTION: Continuous planar ramps and slopes support both tracks linearly such that
   // centerH matches track midpoint: |centerH - avgH| < 0.012. Only discrete convex bumps (boulders)
   // deviate from planar slope and trigger physical drag deflection.
-  const isConvexObstacle = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.012;
-  if (!pose.isFlipped && Math.abs(longitudinalSpeed) > 0.15 && rollDifferential > 0.025 && isConvexObstacle && !sideDropActive) {
+  const isConvexObstacle = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.035;
+  if (applyObstacleTwist && !pose.isFlipped && Math.abs(longitudinalSpeed) > 0.15 && rollDifferential > 0.025 && isConvexObstacle && !sideDropActive) {
     const obstacleTwist = -Math.sign(longitudinalSpeed) * (leftH - rightH) * 2.5;
     pose.yawRate = (pose.yawRate ?? 0) + (obstacleTwist - (pose.yawRate ?? 0)) * (1 - Math.exp(-dt * 6.0));
     pose.yaw += obstacleTwist * dt;
