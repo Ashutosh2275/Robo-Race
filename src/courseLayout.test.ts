@@ -100,6 +100,42 @@ test('spiral ramp geometry: continuous helical climb, parking garage gradient, a
   assert.ok(SPIRAL_CONFIG.roadWidth >= 1.75 && SPIRAL_CONFIG.roadWidth <= 2.20, `compact road width should match 1.15x bot width, got ${SPIRAL_CONFIG.roadWidth}`);
 });
 
+test('spiral ramp height is strictly monotonic without cliff discontinuities or spin-out jumps', () => {
+  // 1. Entrance boundary sensitivity: z crossing near West entrance must have zero height cliffs
+  for (const dz of [-0.20, -0.05, 0.0, 0.05, 0.20]) {
+    const res = evaluateSpiralRamp(-5.60, dz, -0.33);
+    assert.ok(res.inSpiral);
+    assert.ok(Math.abs(res.height - SPIRAL_CONFIG.yGround) <= 0.08, `entrance at dz=${dz} should be near ground -0.33m, got ${res.height}`);
+  }
+
+  // 2. Full traversal monotonicity from entrance to summit across 36 steps
+  let prevH = SPIRAL_CONFIG.yGround - 0.01;
+  let simulatedPoseY = SPIRAL_CONFIG.yGround;
+  for (let s = 0; s <= 36; s++) {
+    const theta = Math.PI + (s / 36) * 3 * Math.PI;
+    const x = SPIRAL_CONFIG.cx + SPIRAL_CONFIG.rCenter * Math.cos(theta);
+    const z = SPIRAL_CONFIG.cz + SPIRAL_CONFIG.rCenter * Math.sin(theta);
+    const res = evaluateSpiralRamp(x, z, simulatedPoseY);
+    assert.ok(res.inSpiral, `point at step ${s} must be in spiral`);
+    assert.ok(res.height >= prevH - 1e-4, `step ${s} height drop from ${prevH} to ${res.height}`);
+    prevH = res.height;
+    simulatedPoseY = res.height;
+  }
+  assert.ok(Math.abs(prevH - SPIRAL_CONFIG.yTop) <= 0.02, `summit must reach yTop 3.20m, got ${prevH}`);
+
+  // 3. Roll differential across track width (0.65m) inside spiral stays subtle (< 0.05m banking)
+  for (let s = 0; s <= 24; s++) {
+    const theta = Math.PI + (s / 24) * 3 * Math.PI;
+    const rIn = SPIRAL_CONFIG.rCenter - 0.32;
+    const rOut = SPIRAL_CONFIG.rCenter + 0.32;
+    const poseY = SPIRAL_CONFIG.yGround + (s / 24) * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
+    const hIn = evaluateSpiralRamp(SPIRAL_CONFIG.cx + rIn * Math.cos(theta), SPIRAL_CONFIG.cz + rIn * Math.sin(theta), poseY).height;
+    const hOut = evaluateSpiralRamp(SPIRAL_CONFIG.cx + rOut * Math.cos(theta), SPIRAL_CONFIG.cz + rOut * Math.sin(theta), poseY).height;
+    const rollDiff = Math.abs(hOut - hIn);
+    assert.ok(rollDiff <= 0.05, `step ${s} roll differential should be <= 0.05m (gentle banking), got ${rollDiff}`);
+  }
+});
+
 test('spiral ramp ascending and descending paths have zero physical overlap', () => {
   // Ascending helix is contained within x in [-9.6, -1.2]
   // Descending ramp is contained within x in [3.75, 12.50]

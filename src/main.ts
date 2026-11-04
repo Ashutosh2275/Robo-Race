@@ -1053,10 +1053,9 @@ function buildSpiralClimbingStructure() {
     const theta = cfg.startAngle + t * totalAngle;
     const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
 
-    // Left-right zigzag banked switchback camber:
-    const zigzagWave = Math.sin(t * 6 * Math.PI);
-    const camberInner = -0.045 * zigzagWave;
-    const camberOuter = 0.045 * zigzagWave;
+    // Inward superelevation banking matching evaluateSpiralRamp (outer edge slightly elevated):
+    const camberInner = -0.020;
+    const camberOuter = 0.020;
 
     const yTopIn = yBase + camberInner;
     const yTopOut = yBase + camberOuter;
@@ -1111,7 +1110,6 @@ function buildSpiralClimbingStructure() {
     const t = c / chevronCount;
     const theta = cfg.startAngle + t * totalAngle;
     const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const zigzagWave = Math.sin(t * 6 * Math.PI);
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
     const midR = (cfg.rInner + cfg.rOuter) / 2;
@@ -1121,7 +1119,7 @@ function buildSpiralClimbingStructure() {
     const tz = cfg.cz + midR * sinT;
     const tread = box(course, c % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(tx, yBase + 0.008, tz), V(treadW, 0.012, 0.14), 0, false);
     tread.rotation.y = -theta;
-    tread.rotation.z = zigzagWave * 0.05;
+    tread.rotation.z = 0.022; // Inward superelevation banking
   }
 
   // 4. Borderless Fall-Off Hazard Edge Stripes (ZERO curbs or walls: robot falls if steered off)
@@ -3635,7 +3633,7 @@ function stepPhysics(dt: number) {
     turntableOmega: turntableCurrentOmega,
     turntableRadius: TURNTABLE_RADIUS,
     groundContact: {
-      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
+      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y),
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
     },
   };
@@ -3676,9 +3674,9 @@ function stepPhysics(dt: number) {
   const effectiveLeft = pose.isFlipped ? 0 : inputs.leftTrack;
   const effectiveRight = pose.isFlipped ? 0 : inputs.rightTrack;
 
-  // Query ground slope and surface at current position
-  const slope = slopeAt(evaluateCourseHeight, motionState.x / MAP_SCALE, motionState.z / MAP_SCALE);
-  const surf = evaluateCourseSurface(motionState.x / MAP_SCALE, motionState.z / MAP_SCALE);
+  // Query ground slope and surface at current position (sampling at active vehicle elevation)
+  const slope = slopeAt((sx, sz) => evaluateCourseHeight(sx, sz, pose.y), motionState.x / MAP_SCALE, motionState.z / MAP_SCALE);
+  const surf = evaluateCourseSurface(motionState.x / MAP_SCALE, motionState.z / MAP_SCALE, pose.y);
 
   // Difficulty grip multiplier
   const gripMult = config.difficulty === 'Beginner' ? 1.25 : config.difficulty === 'Intermediate' ? 1.0 : config.difficulty === 'Advanced' ? 0.82 : 0.68;
@@ -3821,7 +3819,7 @@ function stepPhysics(dt: number) {
   stepVehicle3D(
     pose,
     (x, z) => {
-      const gH = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE);
+      const gH = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, pose.y);
       if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
         return Math.max(gH, waterBuoyancy.buoyantWaterlineY + TRACK_CONTACT_OFFSET);
       }
@@ -3870,13 +3868,13 @@ function stepPhysics(dt: number) {
   chassis.rotation.set(0, 0, 0);
 
   // Position contact shadow on ground beneath vehicle
-  const groundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE);
+  const groundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
   const contactPatches = getContactPatches(pose.x, pose.z, pose.yaw);
   const supportGroundY = (
-    evaluateCourseHeight(contactPatches.frontLeft.x / MAP_SCALE, contactPatches.frontLeft.z / MAP_SCALE)
-    + evaluateCourseHeight(contactPatches.frontRight.x / MAP_SCALE, contactPatches.frontRight.z / MAP_SCALE)
-    + evaluateCourseHeight(contactPatches.rearLeft.x / MAP_SCALE, contactPatches.rearLeft.z / MAP_SCALE)
-    + evaluateCourseHeight(contactPatches.rearRight.x / MAP_SCALE, contactPatches.rearRight.z / MAP_SCALE)
+    evaluateCourseHeight(contactPatches.frontLeft.x / MAP_SCALE, contactPatches.frontLeft.z / MAP_SCALE, pose.y)
+    + evaluateCourseHeight(contactPatches.frontRight.x / MAP_SCALE, contactPatches.frontRight.z / MAP_SCALE, pose.y)
+    + evaluateCourseHeight(contactPatches.rearLeft.x / MAP_SCALE, contactPatches.rearLeft.z / MAP_SCALE, pose.y)
+    + evaluateCourseHeight(contactPatches.rearRight.x / MAP_SCALE, contactPatches.rearRight.z / MAP_SCALE, pose.y)
   ) / 4;
   shadow.position.set(pose.x, groundY + 0.015, pose.z);
   shadow.rotation.z = pose.yaw;
@@ -3898,14 +3896,14 @@ function stepPhysics(dt: number) {
     turntableRadius: TURNTABLE_RADIUS,
     waterBuoyancy,
     groundContact: {
-      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE),
+      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y),
       supportY: supportGroundY,
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
       probes: {
-        frontLeft: evaluateCourseHeight(contactPatches.frontLeft.x / MAP_SCALE, contactPatches.frontLeft.z / MAP_SCALE),
-        frontRight: evaluateCourseHeight(contactPatches.frontRight.x / MAP_SCALE, contactPatches.frontRight.z / MAP_SCALE),
-        rearLeft: evaluateCourseHeight(contactPatches.rearLeft.x / MAP_SCALE, contactPatches.rearLeft.z / MAP_SCALE),
-        rearRight: evaluateCourseHeight(contactPatches.rearRight.x / MAP_SCALE, contactPatches.rearRight.z / MAP_SCALE),
+        frontLeft: evaluateCourseHeight(contactPatches.frontLeft.x / MAP_SCALE, contactPatches.frontLeft.z / MAP_SCALE, pose.y),
+        frontRight: evaluateCourseHeight(contactPatches.frontRight.x / MAP_SCALE, contactPatches.frontRight.z / MAP_SCALE, pose.y),
+        rearLeft: evaluateCourseHeight(contactPatches.rearLeft.x / MAP_SCALE, contactPatches.rearLeft.z / MAP_SCALE, pose.y),
+        rearRight: evaluateCourseHeight(contactPatches.rearRight.x / MAP_SCALE, contactPatches.rearRight.z / MAP_SCALE, pose.y),
       },
       sideDropTime: pose.sideDropTime,
     },

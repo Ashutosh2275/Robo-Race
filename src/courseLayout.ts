@@ -92,8 +92,8 @@ export const SPIRAL_CONFIG = {
 
 /**
  * Calculates height and surface characteristics on the compact cardboard spiral ramp.
- * Incorporates authentic climbing physics with alternating left-right switchback camber
- * so tacking (zigzagging) dynamically reduces effective grade resistance.
+ * Incorporates continuous monotonic helical ascent with authentic inward superelevation
+ * banking so the robot climbs smoothly without spinning, sliding, or cliff discontinuities.
  */
 export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
   // 1. Connected Descending Viaduct Ramp: x in [3.45, 10.45], |z| <= descentWidth / 2 + 0.15
@@ -104,51 +104,51 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: h, grip: 1.05 };
   }
 
-  // 2. Upper Rooftop Observation Deck & Elevated Turntable Viaduct: x in [-3.45, 3.45], |z| <= deckWidthZ / 2
-  if (x >= -3.45 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2) {
-    return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
-  }
-
-  // 3. Compact Helical Cardboard Spiral Ramp around Single Central Stake (cx = -4.50, cz = 0.00)
+  // 2. Compact Helical Cardboard Spiral Ramp around Single Central Stake (cx = -4.50, cz = 0.00)
   const dx = x - SPIRAL_CONFIG.cx;
   const dz = z - SPIRAL_CONFIG.cz;
   const dist = Math.hypot(dx, dz);
 
   if (dist >= SPIRAL_CONFIG.rInner - 0.20 && dist <= SPIRAL_CONFIG.rOuter + 0.25) {
-    // Angle in radians relative to center
-    const rawAngle = Math.atan2(dz, dx);
-    const normAngle = rawAngle < 0 ? rawAngle + 2 * Math.PI : rawAngle;
+    const u = Math.max(-1, Math.min(1, dx / Math.max(1e-6, dist)));
+    const alpha = Math.acos(u); // in [0, PI]: 0 at East, PI at West
 
-    // Disambiguate Level 0 (ground approach to mid climb) vs Level 1 (upper climb to summit)
-    let activeAngle = normAngle;
-    const midHeightThreshold = (SPIRAL_CONFIG.yGround + SPIRAL_CONFIG.yTop) * 0.45; // ~1.25m
-    if (poseY > midHeightThreshold) {
-      // Vehicle is on upper tier (turns 1.0 to 1.5)
-      activeAngle = (normAngle < Math.PI ? normAngle : normAngle) + 2 * Math.PI;
-      if (activeAngle < SPIRAL_CONFIG.startAngle + 2 * Math.PI) {
-        activeAngle += 2 * Math.PI;
-      }
-    } else {
-      // Vehicle is on ground / lower tier (turns 0.0 to 1.0)
-      if (dz > 0.05 && normAngle < Math.PI) {
-        activeAngle = normAngle + 2 * Math.PI;
+    let progress = 0;
+    // 1. Summit exit protection: when vehicle is at summit elevation (> 2.0m) and near East (dx > 0),
+    // it is finishing the spiral climb and transitioning to the bridge deck (progress ~ 3*PI, h ~ 3.20m).
+    if (poseY > 2.0 && dx > 0 && dz > -0.40) {
+      progress = 3 * Math.PI - alpha;
+    }
+    // 2. Ground entrance protection: when vehicle is on ground/lower tier (< 1.20m) and near West (dx < 0),
+    // it enters at progress = 0 and climbs North (h ~ -0.33m).
+    else if (poseY < 1.20 && dx < 0 && dz < 0.40) {
+      progress = Math.max(0, Math.PI - alpha);
+    }
+    // 3. Southern half: single tier (turn 0.5 to 1.0, progress in [PI, 2*PI])
+    else if (dz > 0.0) {
+      progress = Math.PI + alpha;
+    }
+    // 4. Northern half (dz <= 0.0): double tier
+    else {
+      if (poseY > 1.40) {
+        progress = 3 * Math.PI - alpha; // Tier 1: progress in [2*PI, 3*PI]
       } else {
-        activeAngle = normAngle;
+        progress = Math.PI - alpha;     // Tier 0: progress in [0, PI]
       }
     }
 
-    const t = Math.max(0, Math.min(1, (activeAngle - SPIRAL_CONFIG.startAngle) / (SPIRAL_CONFIG.endAngle - SPIRAL_CONFIG.startAngle)));
-    // Base helical ascent height
-    let h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
+    const t = Math.max(0, Math.min(1, progress / (3 * Math.PI)));
+    const h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
+    // Smooth inward superelevation banking (outer edge slightly elevated, zero camber oscillations)
+    const bank = 0.020 * (dist - SPIRAL_CONFIG.rCenter) / (SPIRAL_CONFIG.roadWidth * 0.5);
+    return { inSpiral: true, height: h + bank, grip: 1.15 };
+  }
 
-    // Left-right zigzag banked switchback camber:
-    // Alternating switchback pockets encourage and reward left-right tacking maneuvers
-    const radialFrac = (dist - SPIRAL_CONFIG.rCenter) / (SPIRAL_CONFIG.roadWidth * 0.5); // -1.0 (inner) to +1.0 (outer)
-    const zigzagWave = Math.sin(t * 6 * Math.PI); // 6 switchback waves along the 1.5 turns
-    const camber = 0.045 * zigzagWave * Math.max(-1, Math.min(1, radialFrac));
-    h += camber;
-
-    return { inSpiral: true, height: h, grip: 1.15 };
+  // 3. Elevated Summit Bridge & Turntable Platter Viaduct: x in [-3.45, 3.45]
+  const isApproachBridge = x >= -3.45 && x < -1.45 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.roadWidth / 2 + 0.15;
+  const isTurntableDeck = x >= -1.45 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2;
+  if ((isApproachBridge || isTurntableDeck) && (poseY > 1.40 || x >= -1.45)) {
+    return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
   }
 
   return { inSpiral: false, height: ARENA_FLOOR_HEIGHT, grip: 1.0 };

@@ -285,10 +285,10 @@ export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
     // Lane 2: Mid-South Straight (ground level)
     { id: 'lane2_straight', label: 'Mid-South Straight', x: 14.5 * scale, z: 6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 4 },
     // Lane 3: Parking-Garage Spiral Tower & Rooftop Deck
-    { id: 'spiral_entrance', label: 'Spiral Entrance', x: -7.70 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
-    { id: 'spiral_mid', label: 'Spiral Mid-Climb', x: -3.5 * scale, z: 4.20 * scale, y: 1.78 - TRACK_CONTACT_OFFSET, yaw: 0, checkpointIndex: 6 },
-    { id: 'turntable', label: 'Spiral Rooftop Deck', x: 1.0 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
-    { id: 'mixed_terrain', label: 'Descent Ramp Landing', x: 12.50 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
+    { id: 'spiral_entrance', label: 'Spiral Entrance', x: -5.60 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
+    { id: 'spiral_mid', label: 'Spiral Mid-Climb', x: -4.50 * scale, z: 1.10 * scale, y: 1.44 - TRACK_CONTACT_OFFSET, yaw: 0, checkpointIndex: 6 },
+    { id: 'turntable', label: 'Spiral Rooftop Deck', x: 1.00 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
+    { id: 'mixed_terrain', label: 'Descent Ramp Landing', x: 10.45 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
     // Lane 4: Technical North Straight (ground level)
     { id: 'north_straight', label: 'North Straight', x: 14.5 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
     // Lane 5: Final Mandatory Sequence (Fire -> Water -> Finish)
