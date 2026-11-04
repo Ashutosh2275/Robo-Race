@@ -60,18 +60,18 @@ test('mixed elevation distribution: 70-80% ground-level, 20-30% elevated on each
 });
 
 test('spiral ramp geometry: continuous helical climb, parking garage gradient, and rooftop deck', () => {
-  // Ground entrance at west tangent (x = -7.70, z = 0.0)
-  const entrance = evaluateSpiralRamp(-7.70, 0.0, -0.33);
+  // Ground entrance at west tangent (x = -5.60, z = 0.0)
+  const entrance = evaluateSpiralRamp(-5.60, 0.0, -0.33);
   assert.ok(entrance.inSpiral);
   assert.ok(Math.abs(entrance.height - SPIRAL_CONFIG.yGround) < 0.05, `entrance should match ground elevation -0.33m, got ${entrance.height}`);
 
-  // Quarter-turn at south quadrant (x = -3.5, z = -4.20)
-  const quarterTurn = evaluateSpiralRamp(-3.5, -4.20, 0.10);
+  // Quarter-turn at south quadrant (x = -4.5, z = -1.10)
+  const quarterTurn = evaluateSpiralRamp(-4.5, -1.10, 0.10);
   assert.ok(quarterTurn.inSpiral);
   assert.ok(quarterTurn.height > SPIRAL_CONFIG.yGround && quarterTurn.height < SPIRAL_CONFIG.yTop);
 
-  // Midway climb at north quadrant (x = -3.5, z = 4.20)
-  const midClimb = evaluateSpiralRamp(-3.5, 4.20, 0.60);
+  // Midway climb at north quadrant (x = -4.5, z = 1.10)
+  const midClimb = evaluateSpiralRamp(-4.5, 1.10, 0.60);
   assert.ok(midClimb.inSpiral);
   assert.ok(midClimb.height > quarterTurn.height && midClimb.height < SPIRAL_CONFIG.yTop);
 
@@ -80,24 +80,24 @@ test('spiral ramp geometry: continuous helical climb, parking garage gradient, a
   assert.ok(rooftop.inSpiral);
   assert.ok(Math.abs(rooftop.height - SPIRAL_CONFIG.yTop) < 0.01, `rooftop deck should rest at ${SPIRAL_CONFIG.yTop}m, got ${rooftop.height}`);
 
-  // Connected descending ramp midpoint at x = 8.125, z = 0.0
-  const midDescent = evaluateSpiralRamp(8.125, 0.0, 1.50);
+  // Connected descending ramp midpoint at x = 6.95, z = 0.0
+  const midDescent = evaluateSpiralRamp(6.95, 0.0, 1.50);
   assert.ok(midDescent.inSpiral);
   assert.ok(midDescent.height < SPIRAL_CONFIG.yTop && midDescent.height > SPIRAL_CONFIG.yGround);
 
-  // Descent ramp touchdown at ground (x = 12.50, z = 0.0)
-  const touchdown = evaluateSpiralRamp(12.50, 0.0, -0.30);
+  // Descent ramp touchdown at ground (x = 10.45, z = 0.0)
+  const touchdown = evaluateSpiralRamp(10.45, 0.0, -0.30);
   assert.ok(touchdown.inSpiral);
   assert.ok(Math.abs(touchdown.height - SPIRAL_CONFIG.yGround) < 0.05, `descent ramp must return smoothly to ground -0.33m, got ${touchdown.height}`);
 
-  // Gradient check: climb rise of 3.53m over 33m circumference yields ~10.7% realistic slope
+  // Gradient check: steep trial climb where robot power requires zigzag tacking
   const rise = SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround;
   const rampLength = SPIRAL_CONFIG.turns * 2 * Math.PI * SPIRAL_CONFIG.rCenter;
   const gradient = (rise / rampLength) * 100;
-  assert.ok(gradient >= 8.0 && gradient <= 15.0, `spiral gradient should be 8-15%, got ${gradient.toFixed(2)}%`);
+  assert.ok(gradient >= 20.0 && gradient <= 45.0, `spiral gradient should reflect steep trial climb requiring zigzag tacking, got ${gradient.toFixed(2)}%`);
 
-  // Clearance check: road width >= 3.8m provides >= 2.5x robot clearance
-  assert.ok(SPIRAL_CONFIG.roadWidth >= 3.80);
+  // Clearance check: compact road width matches ~1.15x bot width (1.75m to 2.20m)
+  assert.ok(SPIRAL_CONFIG.roadWidth >= 1.75 && SPIRAL_CONFIG.roadWidth <= 2.20, `compact road width should match 1.15x bot width, got ${SPIRAL_CONFIG.roadWidth}`);
 });
 
 test('spiral ramp ascending and descending paths have zero physical overlap', () => {
@@ -137,7 +137,7 @@ test('ground-level roads sit on arena floor and raised obstacles provide authent
 
 test('evaluateCourseSurface implements mandatory sequence: spiral -> fire -> water', () => {
   // Spiral ramp high traction
-  const spiralSurf = evaluateCourseSurface(-3.5, 4.20, 0.60);
+  const spiralSurf = evaluateCourseSurface(-4.5, 1.10, 0.60);
   assert.ok(spiralSurf.grip >= 1.05, 'spiral ramp has high traction surface');
 
   // Fire hazard on Lane 5

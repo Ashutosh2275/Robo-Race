@@ -67,64 +67,69 @@ export const ELEVATION_TIER_MAJOR = 3.20;  // 3.0 - 4.0m: e.g. Spiral Climbing T
 // PARKING-GARAGE-STYLE SPIRAL RAMP SPECIFICATIONS
 // ---------------------------------------------------------------------------
 export const SPIRAL_CONFIG = {
-  cx: -3.5,
-  cz: 0.0,
-  rCenter: 4.20,       // Centerline driving radius (circumference = 26.4m per turn)
-  roadWidth: 3.80,     // Usable road width (2.5x robot width in world space)
-  rInner: 2.30,        // Central concrete core radius
-  rOuter: 6.10,        // Outer edge radius
-  turns: 1.25,         // 1.25 revolutions (450 degrees of continuous climb)
+  cx: -4.50,
+  cz: 0.00,
+  rCenter: 1.10,       // Centerline driving radius ((rInner + rOuter) / 2 = 1.10m)
+  roadWidth: 1.80,     // Compact road width: exactly 1.15x robot width (1.52m in course units)
+  rInner: 0.20,        // Single central vertical stake/pole (radius 20cm, not a drum)
+  rOuter: 2.00,        // Outer edge radius (rInner + roadWidth = 2.00m)
+  turns: 1.50,         // 1.5 revolutions (540 degrees continuous helical climb)
   yGround: ARENA_FLOOR_HEIGHT, // Ground entrance: -0.33m
-  yTop: 3.20,          // Approx 3.53m elevation rise above ground (-0.33m), 3.75m above floor
-  startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -7.70, z = 0.0)
-  endAngle: Math.PI + 1.25 * 2 * Math.PI, // 3.5 * Math.PI
-  // Upper rooftop deck
-  deckX: 1.0,
-  deckZ: 0.0,
-  deckWidthX: 5.5,
-  deckWidthZ: 5.5,
-  // Connected descending viaduct ramp
-  descentX0: 3.75,
-  descentX1: 12.50,
-  descentZ: 0.0,
-  descentWidth: 3.80,
+  yTop: 3.20,          // Large climb to summit elevation (3.53m above ground)
+  startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -5.60, z = 0.00)
+  endAngle: Math.PI + 1.50 * 2 * Math.PI, // 4.0 * Math.PI (exits at east tangent: x = cx + rCenter = -3.40, z = 0.00)
+  // Summit Platform & Connecting Bridge to Turntable
+  deckX: 1.00,
+  deckZ: 0.00,
+  deckWidthX: 6.90,    // Spans from x = -3.45 to x = 3.45 at y = 3.20m
+  deckWidthZ: 5.20,    // Accommodates the 4.90m diameter turntable flush
+  // Connected descending viaduct ramp (from summit deck down to ground runway)
+  descentX0: 3.45,
+  descentX1: 10.45,    // 7.0m smooth downhill grade back to ground level
+  descentZ: 0.00,
+  descentWidth: 1.80,  // Compact 1.15x bot width
 } as const;
 
 /**
- * Calculates height and surface characteristics on the parking-garage-style spiral ramp.
+ * Calculates height and surface characteristics on the compact cardboard spiral ramp.
+ * Incorporates authentic climbing physics with alternating left-right switchback camber
+ * so tacking (zigzagging) dynamically reduces effective grade resistance.
  */
 export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
-  // 1. Connected Descending Viaduct Ramp: x in [3.75, 12.50], |z| <= descentWidth / 2
-  if (x >= SPIRAL_CONFIG.descentX0 && x <= SPIRAL_CONFIG.descentX1 && Math.abs(z - SPIRAL_CONFIG.descentZ) <= SPIRAL_CONFIG.descentWidth / 2) {
+  // 1. Connected Descending Viaduct Ramp: x in [3.45, 10.45], |z| <= descentWidth / 2 + 0.15
+  if (x >= SPIRAL_CONFIG.descentX0 && x <= SPIRAL_CONFIG.descentX1 && Math.abs(z - SPIRAL_CONFIG.descentZ) <= SPIRAL_CONFIG.descentWidth / 2 + 0.15) {
     const u = (x - SPIRAL_CONFIG.descentX0) / (SPIRAL_CONFIG.descentX1 - SPIRAL_CONFIG.descentX0);
     const eased = u * u * (3 - 2 * u);
     const h = SPIRAL_CONFIG.yTop + (SPIRAL_CONFIG.yGround - SPIRAL_CONFIG.yTop) * eased;
     return { inSpiral: true, height: h, grip: 1.05 };
   }
 
-  // 2. Upper Rooftop Observation Deck: x in [-1.2, 3.75], |z| <= deckWidthZ / 2
-  if (x >= -1.2 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2) {
+  // 2. Upper Rooftop Observation Deck & Elevated Turntable Viaduct: x in [-3.45, 3.45], |z| <= deckWidthZ / 2
+  if (x >= -3.45 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
   }
 
-  // 3. Helical Spiral Ramp around Central Core (cx, cz)
+  // 3. Compact Helical Cardboard Spiral Ramp around Single Central Stake (cx = -4.50, cz = 0.00)
   const dx = x - SPIRAL_CONFIG.cx;
   const dz = z - SPIRAL_CONFIG.cz;
   const dist = Math.hypot(dx, dz);
 
-  if (dist >= SPIRAL_CONFIG.rInner - 0.25 && dist <= SPIRAL_CONFIG.rOuter + 0.25) {
+  if (dist >= SPIRAL_CONFIG.rInner - 0.20 && dist <= SPIRAL_CONFIG.rOuter + 0.25) {
     // Angle in radians relative to center
     const rawAngle = Math.atan2(dz, dx);
     const normAngle = rawAngle < 0 ? rawAngle + 2 * Math.PI : rawAngle;
 
-    // Disambiguate Level 0 (ground approach to mid climb) vs Level 1 (upper climb to rooftop)
+    // Disambiguate Level 0 (ground approach to mid climb) vs Level 1 (upper climb to summit)
     let activeAngle = normAngle;
-    const midHeightThreshold = (SPIRAL_CONFIG.yGround + SPIRAL_CONFIG.yTop) * 0.45; // ~1.29m
+    const midHeightThreshold = (SPIRAL_CONFIG.yGround + SPIRAL_CONFIG.yTop) * 0.45; // ~1.25m
     if (poseY > midHeightThreshold) {
-      // Vehicle is on upper tier
+      // Vehicle is on upper tier (turns 1.0 to 1.5)
       activeAngle = (normAngle < Math.PI ? normAngle : normAngle) + 2 * Math.PI;
+      if (activeAngle < SPIRAL_CONFIG.startAngle + 2 * Math.PI) {
+        activeAngle += 2 * Math.PI;
+      }
     } else {
-      // Vehicle is on ground / lower tier
+      // Vehicle is on ground / lower tier (turns 0.0 to 1.0)
       if (dz > 0.05 && normAngle < Math.PI) {
         activeAngle = normAngle + 2 * Math.PI;
       } else {
@@ -133,8 +138,17 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     }
 
     const t = Math.max(0, Math.min(1, (activeAngle - SPIRAL_CONFIG.startAngle) / (SPIRAL_CONFIG.endAngle - SPIRAL_CONFIG.startAngle)));
-    const h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
-    return { inSpiral: true, height: h, grip: 1.10 };
+    // Base helical ascent height
+    let h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
+
+    // Left-right zigzag banked switchback camber:
+    // Alternating switchback pockets encourage and reward left-right tacking maneuvers
+    const radialFrac = (dist - SPIRAL_CONFIG.rCenter) / (SPIRAL_CONFIG.roadWidth * 0.5); // -1.0 (inner) to +1.0 (outer)
+    const zigzagWave = Math.sin(t * 6 * Math.PI); // 6 switchback waves along the 1.5 turns
+    const camber = 0.045 * zigzagWave * Math.max(-1, Math.min(1, radialFrac));
+    h += camber;
+
+    return { inSpiral: true, height: h, grip: 1.15 };
   }
 
   return { inSpiral: false, height: ARENA_FLOOR_HEIGHT, grip: 1.0 };
@@ -261,18 +275,21 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   // Hairpin 2: Ground-Level Semicircular Viaduct
   ...circularArc(-17.50, 3.375, 3.375, Math.PI / 2, Math.PI * 1.5, 12).slice(1),
 
-  // Lane 3: Spiral Tower Approach & Climb (Center: cx = -3.5, cz = 0.0)
+  // Lane 3: Compact Spiral Tower Approach & Climb (Center: cx = -4.50, cz = 0.00)
   { x: -12.0, z: 0.00 },  // Approach to Spiral Entrance
-  { x: -7.70, z: 0.00 },  // Gate 05 - Spiral Ground Entrance (y = -0.33m)
-  // Helical climb around central core (R = 4.20m, 1.25 turns, climb to y = 1.45m)
-  ...circularArc(-3.5, 0.0, 4.20, Math.PI, Math.PI * 2.0, 10).slice(1),
-  { x: -3.5, z: 4.20 },   // Gate 06 - Spiral Mid-Climb (y = 0.56m)
-  ...circularArc(-3.5, 0.0, 4.20, 0.0, Math.PI, 8).slice(1),
-  { x: 1.0, z: 0.00 },    // Gate 07 - Spiral Rooftop Deck (y = 3.20m, Summit Turntable)
-  { x: 3.75, z: 0.00 },   // Descent ramp start
-  { x: 8.125, z: 0.00 },  // Downhill viaduct ramp
-  { x: 12.50, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
-  { x: 17.5, z: 0.00 },   // Lane 3 exit to Hairpin 3
+  { x: -5.60, z: 0.00 },  // Gate 05 - Compact Spiral Ground Entrance (y = -0.33m)
+  // Helical climb around central stake (R = 1.10m, 1.5 turns, climb to y = 3.20m)
+  // Arc 1: West tangent to North quadrant (y rises to 1.44m at Gate 06)
+  ...circularArc(-4.50, 0.0, 1.10, Math.PI, Math.PI * 2.5, 12).slice(1),
+  // Arc 2: North quadrant through summit exit at East tangent (y rises to 3.20m)
+  ...circularArc(-4.50, 0.0, 1.10, Math.PI * 2.5, Math.PI * 4.0, 12).slice(1),
+  { x: -2.00, z: 0.00 },  // Elevated connecting bridge
+  { x: 1.00, z: 0.00 },   // Gate 07 - Spiral Rooftop Deck (y = 3.20m, Summit Turntable)
+  { x: 3.45, z: 0.00 },   // Descent ramp start
+  { x: 6.95, z: 0.00 },   // Downhill viaduct ramp midpoint
+  { x: 10.45, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
+  { x: 14.00, z: 0.00 },  // Ground runway
+  { x: 17.50, z: 0.00 },  // Lane 3 exit to Hairpin 3
 
   // Hairpin 3: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, -3.375, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
@@ -303,10 +320,10 @@ export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
   { id: 2, label: 'Gate 02 - Slalom Exit', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 3, label: 'Gate 03 - Rock Field', x: 6.0, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 4, label: 'Gate 04 - Mid-South Straight', x: 14.5, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 5, label: 'Gate 05 - Spiral Entrance', x: -7.70, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -3.5, z: 4.20, yaw: 0, width: 5.6 },
-  { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.0, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
-  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 12.50, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 5, label: 'Gate 05 - Spiral Entrance', x: -5.60, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -4.50, z: 1.10, yaw: 0, width: 5.6 },
+  { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.00, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
+  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 10.45, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
   { id: 9, label: 'Gate 09 - North Straight', x: 14.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
   { id: 10, label: 'Gate 10 - Fire Hazard', x: -5.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 11, label: 'Gate 11 - Deep Water Basin', x: 0.5, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
@@ -318,7 +335,7 @@ export const TRACK_B_OBSTACLES: TrackObstacle[] = [
   { id: 'slalom_hurdles', name: 'Precision Slaloms', kind: 'slalom', x: -8.0, z: 13.50, elevation: 0.0 },
   { id: 'speed_breakers', name: 'Speed Breakers', kind: 'speed_breakers', x: 2.2, z: 13.50, elevation: 0.0 },
   { id: 'rock_field', name: 'Sculpted Rock Field', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
-  { id: 'spiral_tower', name: 'Parking-Garage Spiral Ramp', kind: 'spiral', x: -3.5, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
+  { id: 'spiral_tower', name: 'Compact Cardboard Spiral Stake', kind: 'spiral', x: -4.50, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'rooftop_turntable', name: 'Rooftop Turntable Platform', kind: 'turntable', x: 1.0, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'fire_hazard', name: 'Refractory Fire Hearth', kind: 'fire', x: -3.0, z: -13.50, elevation: 0.38 },
   { id: 'water_basin', name: 'Deep Water Testing Basin', kind: 'water', x: 5.0, z: -13.50, elevation: -0.30 },

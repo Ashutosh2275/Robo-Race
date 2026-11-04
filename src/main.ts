@@ -347,6 +347,22 @@ const mats = {
   trussRed: new THREE.MeshStandardMaterial({ color: '#c92a2a', roughness: 0.35, metalness: 0.75 }),
   trussWhite: new THREE.MeshStandardMaterial({ color: '#f1f3f5', roughness: 0.40, metalness: 0.60 }),
   concretePier: new THREE.MeshStandardMaterial({ color: '#52585c', roughness: 0.92, map: generateSurfaceTexture('#52585c', ['#60666a', '#44494c'], 'stone') }),
+  cardboard: new THREE.MeshStandardMaterial({
+    color: '#c49a6c',
+    roughness: 0.84,
+    metalness: 0.04,
+    map: generateSurfaceTexture('#c49a6c', ['#d4ab7c', '#b18759', '#dfb88c'], 'wood'),
+  }),
+  cardboardEdge: new THREE.MeshStandardMaterial({
+    color: '#8a6238',
+    roughness: 0.92,
+    metalness: 0.04,
+  }),
+  stakeMetal: new THREE.MeshStandardMaterial({
+    color: '#495057',
+    roughness: 0.28,
+    metalness: 0.88,
+  }),
   oil: new THREE.MeshStandardMaterial({ color: '#0d1318', roughness: 0.08, metalness: 0.88, map: oilSlickTexture }),
   water: new THREE.MeshStandardMaterial({
     color: '#0e7e9e',
@@ -846,17 +862,17 @@ const corridorLane2: CoursePoint[] = [
 const hairpin2Arc = circularArcPoints(-17.50, 3.375, 3.375, Math.PI / 2, Math.PI * 1.5, 24);
 
 // Lane 3: Center Straight Ground Approach & Landing Exit
-// Ground Approach to Spiral: x in [-17.5, -7.70]
+// Ground Approach to Spiral: x in [-17.5, -5.60]
 const corridorLane3Approach: CoursePoint[] = [
   { x: -17.5, z: 0.00 },
-  { x: -14.0, z: 0.00 },
-  { x: -11.0, z: 0.00 },
-  { x: -7.70, z: 0.00 },
+  { x: -13.0, z: 0.00 },
+  { x: -9.00, z: 0.00 },
+  { x: -5.60, z: 0.00 },
 ];
-// Landing Exit from Descending Ramp to Hairpin 3: x in [12.50, 17.5]
+// Landing Exit from Descending Ramp to Hairpin 3: x in [10.45, 17.5]
 const corridorLane3Exit: CoursePoint[] = [
-  { x: 12.50, z: 0.00 },
-  { x: 15.00, z: 0.00 },
+  { x: 10.45, z: 0.00 },
+  { x: 14.00, z: 0.00 },
   { x: 17.50, z: 0.00 },
 ];
 
@@ -1011,29 +1027,42 @@ const hazardRevolvingBeacons: THREE.Group[] = [];
 function buildSpiralClimbingStructure() {
   const cfg = SPIRAL_CONFIG;
 
-  // 1. Central Monolithic Concrete Core Column (R = 2.30m, H rises from arena floor to deck summit)
-  const coreH = (cfg.yTop + 0.15) - ARENA_FLOOR_HEIGHT;
-  cyl(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + coreH / 2, cfg.cz), cfg.rInner, coreH, 'y', 48);
-  // Octagonal footing foundation pad on arena floor
-  box(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.18, cfg.cz), V(cfg.rInner * 2 + 1.1, 0.36, cfg.rInner * 2 + 1.1));
-  // Circumferential structural steel tension bands up to summit
-  for (const ty of [0.15, 0.75, 1.35, 1.95, 2.55, 3.15]) {
-    cyl(course, mats.black, V(cfg.cx, ty, cfg.cz), cfg.rInner + 0.03, 0.05, 'y', 48);
-  }
+  // 1. Single Central Vertical Stake (R = 0.20m, slender high-tensile steel pole - NOT a drum)
+  const stakeH = (cfg.yTop + 0.65) - ARENA_FLOOR_HEIGHT;
+  cyl(course, mats.stakeMetal, V(cfg.cx, ARENA_FLOOR_HEIGHT + stakeH / 2, cfg.cz), cfg.rInner, stakeH, 'y', 32);
+  // Heavy floor anchor collar
+  cyl(course, mats.stakeMetal, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.10, cfg.cz), cfg.rInner + 0.16, 0.20, 'y', 32);
+  // Aerodynamic cone summit stake cap
+  cyl(course, mats.stakeMetal, V(cfg.cx, cfg.yTop + 0.35, cfg.cz), cfg.rInner + 0.05, 0.08, 'y', 24);
+  const capGeo = new THREE.ConeGeometry(cfg.rInner, 0.30, 24);
+  const capMesh = new THREE.Mesh(capGeo, mats.stakeMetal);
+  capMesh.position.set(cfg.cx, cfg.yTop + 0.54, cfg.cz);
+  course.add(capMesh);
 
-  // 2. Continuous Ascending Helical Viaduct Slab (96 Segments over 1.25 turns, 450 degrees)
-  // Climbs smoothly from ground entrance (y = -0.33m at x = -7.70, z = 0.0) up to rooftop (y = 3.20m at x = 1.0, z = 0.0)
-  const segments = 96;
+  // 2. Compact Rotated Cardboard Ribbon Climbing Surface (120 Segments over 1.5 turns, 540 degrees)
+  // Continuous cantilevered spiral around central stake. ZERO under-deck pillars or pier bents.
+  // Climbs from ground entrance (y = -0.33m at x = -5.60, z = 0.0) up to summit (y = 3.20m at x = -3.40, z = 0.0)
+  const segments = 120;
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
-  const totalAngle = cfg.endAngle - cfg.startAngle; // 1.25 * 2 * PI = 2.5 * PI (450 deg)
+  const totalAngle = cfg.endAngle - cfg.startAngle; // 1.5 * 2 * PI = 3 * PI (540 deg)
 
   for (let s = 0; s <= segments; s++) {
     const t = s / segments;
     const theta = cfg.startAngle + t * totalAngle;
-    const yTop = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const yBot = yTop - 0.18; // 18cm reinforced slab thickness
+    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+
+    // Left-right zigzag banked switchback camber:
+    const zigzagWave = Math.sin(t * 6 * Math.PI);
+    const camberInner = -0.045 * zigzagWave;
+    const camberOuter = 0.045 * zigzagWave;
+
+    const yTopIn = yBase + camberInner;
+    const yTopOut = yBase + camberOuter;
+    const yBotIn = yTopIn - 0.06; // Sleek structural composite cardboard ply
+    const yBotOut = yTopOut - 0.06;
+
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
 
@@ -1042,26 +1071,26 @@ function buildSpiralClimbingStructure() {
     const xOut = cfg.cx + cfg.rOuter * cosT;
     const zOut = cfg.cz + cfg.rOuter * sinT;
 
-    positions.push(xIn, yTop, zIn);   // 0
-    positions.push(xOut, yTop, zOut);  // 1
-    positions.push(xOut, yBot, zOut);  // 2
-    positions.push(xIn, yBot, zIn);   // 3
+    positions.push(xIn, yTopIn, zIn);   // 0
+    positions.push(xOut, yTopOut, zOut); // 1
+    positions.push(xOut, yBotOut, zOut); // 2
+    positions.push(xIn, yBotIn, zIn);   // 3
 
-    uvs.push(0, t * 12);
-    uvs.push(1, t * 12);
-    uvs.push(1, t * 12);
-    uvs.push(0, t * 12);
+    uvs.push(0, t * 16);
+    uvs.push(1, t * 16);
+    uvs.push(1, t * 16);
+    uvs.push(0, t * 16);
 
     if (s < segments) {
       const b = s * 4;
       const n = (s + 1) * 4;
-      // Top driving surface
+      // Top cardboard driving deck
       indices.push(b, n, b + 1, b + 1, n, n + 1);
-      // Outer vertical side
+      // Outer vertical cardboard edge ply
       indices.push(b + 1, n + 1, b + 2, b + 2, n + 1, n + 2);
-      // Bottom underside slab
+      // Bottom underside cardboard
       indices.push(b + 2, n + 2, b + 3, b + 3, n + 2, n + 3);
-      // Inner vertical side
+      // Inner vertical edge at stake
       indices.push(b + 3, n + 3, b, b, n + 3, n);
     }
   }
@@ -1071,35 +1100,31 @@ function buildSpiralClimbingStructure() {
   rampGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   rampGeo.setIndex(indices);
   rampGeo.computeVertexNormals();
-  const rampMesh = new THREE.Mesh(rampGeo, mats.asphalt);
+  const rampMesh = new THREE.Mesh(rampGeo, mats.cardboard);
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
-  // 3. Cantilever Radial Structural Steel I-Beams & Outer Columns Extending Down to Arena Floor
-  for (let b = 0; b <= 24; b++) {
-    const t = b / 24;
+  // 3. Tactile Chevron Friction Plates (Every 15 degrees, 36 chevron treads along the spiral climb)
+  // These visual and physical grip treads mark the alternating left-right switchback lines
+  const chevronCount = 36;
+  for (let c = 0; c <= chevronCount; c++) {
+    const t = c / chevronCount;
     const theta = cfg.startAngle + t * totalAngle;
-    const yTop = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const zigzagWave = Math.sin(t * 6 * Math.PI);
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
     const midR = (cfg.rInner + cfg.rOuter) / 2;
-    const beamLen = cfg.rOuter - cfg.rInner;
+    const treadW = cfg.rOuter - cfg.rInner - 0.12;
 
-    const bx = cfg.cx + midR * cosT;
-    const bz = cfg.cz + midR * sinT;
-    const beam = box(course, mats.metal, V(bx, yTop - 0.22, bz), V(beamLen, 0.12, 0.18));
-    beam.rotation.y = -theta;
-
-    if (yTop > ARENA_FLOOR_HEIGHT + 0.45) {
-      const colX = cfg.cx + (cfg.rOuter - 0.22) * cosT;
-      const colZ = cfg.cz + (cfg.rOuter - 0.22) * sinT;
-      const colH = yTop - 0.18 - ARENA_FLOOR_HEIGHT;
-      cyl(course, mats.metal, V(colX, ARENA_FLOOR_HEIGHT + colH / 2, colZ), 0.10, colH, 'y', 16);
-      box(course, mats.concretePier, V(colX, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.44, 0.36, 0.44));
-    }
+    const tx = cfg.cx + midR * cosT;
+    const tz = cfg.cz + midR * sinT;
+    const tread = box(course, c % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(tx, yBase + 0.008, tz), V(treadW, 0.012, 0.14), 0, false);
+    tread.rotation.y = -theta;
+    tread.rotation.z = zigzagWave * 0.05;
   }
 
-  // 4. Open-Air Fall-Off Hazard Road Markings (Zero Boundary Barriers: Robot Will Fall if Steered Off)
+  // 4. Borderless Fall-Off Hazard Edge Stripes (ZERO curbs or walls: robot falls if steered off)
   const edgeSegments = 48;
   for (let r = 0; r < edgeSegments; r++) {
     const t0 = r / edgeSegments;
@@ -1110,92 +1135,38 @@ function buildSpiralClimbingStructure() {
     const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
 
     // Flush Outer Hazard Verge Stripe (Zero vertical barrier)
-    const outX = cfg.cx + (cfg.rOuter - 0.10) * Math.cos(midTheta);
-    const outZ = cfg.cz + (cfg.rOuter - 0.10) * Math.sin(midTheta);
+    const outX = cfg.cx + (cfg.rOuter - 0.08) * Math.cos(midTheta);
+    const outZ = cfg.cz + (cfg.rOuter - 0.08) * Math.sin(midTheta);
     const chord = (cfg.rOuter * totalAngle) / edgeSegments;
-    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.black, V(outX, yMid + 0.006, outZ), V(chord + 0.02, 0.008, 0.16), 0, false);
+    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(outX, yMid + 0.008, outZ), V(chord + 0.02, 0.008, 0.12), 0, false);
     outerStripe.rotation.y = Math.PI / 2 - midTheta;
-
-    // Flush Inner Edge Stripe (Zero curb)
-    const inX = cfg.cx + (cfg.rInner + 0.10) * Math.cos(midTheta);
-    const inZ = cfg.cz + (cfg.rInner + 0.10) * Math.sin(midTheta);
-    const inChord = (cfg.rInner * totalAngle) / edgeSegments;
-    const innerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.black, V(inX, yMid + 0.006, inZ), V(inChord + 0.02, 0.008, 0.16), 0, false);
-    innerStripe.rotation.y = Math.PI / 2 - midTheta;
   }
 
-  // 5. Upper Rooftop Observation Deck (5.5m x 5.5m at y = 3.20m, Summit Platform)
-  const deckX = cfg.deckX; // 1.0
-  const deckZ = cfg.deckZ; // 0.0
-  const deckW = cfg.deckWidthX; // 5.5
-  const deckD = cfg.deckWidthZ; // 5.5
-  const deckY = cfg.yTop; // 3.20
+  // 5. Elevated Approach Bridge connecting Spiral Summit (x = -3.40) to Turntable Deck (x = -1.45)
+  // Continuous 1.80m wide cantilevered cardboard deck at y = 3.20m
+  box(course, mats.cardboard, V(-2.45, cfg.yTop - 0.03, 0.0), V(2.00, 0.06, cfg.roadWidth));
+  // Beveled transition plate
+  box(course, mats.yellow, V(-3.40, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
 
-  // Deck slab
-  box(course, mats.diamondPlate, V(deckX, deckY - 0.04, deckZ), V(deckW, 0.08, deckD));
-  // Deck heavy foundation frame
-  box(course, mats.concretePier, V(deckX, deckY - 0.16, deckZ), V(deckW + 0.20, 0.16, deckD + 0.20));
+  // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
+  // Continuous downhill sloped deck. NO pier bents or clutter underneath!
+  const dX0 = cfg.descentX0; // 3.45
+  const dX1 = cfg.descentX1; // 10.45
+  const dLen = dX1 - dX0;    // 7.0m
+  const dWidth = cfg.descentWidth; // 1.80m
 
-  // 4 Massive Concrete Support Columns under Deck Extending Down to Arena Floor
-  const colLegH = deckY - 0.24 - ARENA_FLOOR_HEIGHT;
-  for (const cx of [deckX - deckW / 2 + 0.6, deckX + deckW / 2 - 0.6]) {
-    for (const cz of [deckZ - deckD / 2 + 0.6, deckZ + deckD / 2 - 0.6]) {
-      box(course, mats.concretePier, V(cx, ARENA_FLOOR_HEIGHT + colLegH / 2, cz), V(0.55, colLegH, 0.55));
-      box(course, mats.concretePier, V(cx, ARENA_FLOOR_HEIGHT + 0.20, cz), V(0.90, 0.40, 0.90));
-    }
-  }
-
-  // Flush Deck Perimeter Hazard Markings (Zero vertical borders: robot will fall if driven off)
-  for (const side of [-1, 1]) {
-    const rZ = deckZ + side * (deckD / 2 - 0.10);
-    box(course, mats.yellow, V(deckX, deckY + 0.006, rZ), V(deckW, 0.008, 0.18), 0, false);
-  }
-
-  // 4 Revolving Amber Strobe Beacons at Rooftop Corners
-  for (const cx of [deckX - deckW / 2 + 0.25, deckX + deckW / 2 - 0.25]) {
-    for (const cz of [deckZ - deckD / 2 + 0.25, deckZ + deckD / 2 - 0.25]) {
-      cyl(course, mats.metal, V(cx, deckY + 0.40, cz), 0.05, 0.80, 'y');
-      const bGroup = new THREE.Group();
-      bGroup.position.set(cx, deckY + 0.85, cz);
-      course.add(bGroup);
-      const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.16, 12), mats.beaconAmber);
-      bGroup.add(dome);
-      hazardRevolvingBeacons.push(bGroup);
-    }
-  }
-
-  // 6. Connected Descending Viaduct Ramp (x in [3.75, 12.50], slopes smoothly from 3.20m down to -0.33m)
-  const dX0 = cfg.descentX0; // 3.75
-  const dX1 = cfg.descentX1; // 12.50
-  const dLen = dX1 - dX0; // 8.75m
-  const dWidth = cfg.descentWidth; // 3.80m
-
-  // Continuous downhill sloped deck
-  slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.18, mats.asphalt);
-
-  // Descending Ramp Pier Bents (at x = 5.25, 7.0, 8.75, 10.5, 12.0) Extending to Arena Floor
-  for (const px of [5.25, 7.0, 8.75, 10.5, 12.0]) {
-    const u = (px - dX0) / dLen;
-    const h = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
-    const legH = h - 0.18 - ARENA_FLOOR_HEIGHT;
-    if (legH > 0.35) {
-      box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + legH / 2, cfg.descentZ), V(0.44, legH, dWidth - 0.4));
-      for (const side of [-1, 1]) {
-        box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.18, cfg.descentZ + side * (dWidth / 2 - 0.6)), V(0.68, 0.36, 0.68));
-      }
-    }
-  }
+  slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.08, mats.cardboard);
 
   // Flush Descending Ramp Shoulder Markings (Zero vertical barriers: pure fall-off hazard)
   for (const side of [-1, 1]) {
-    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.10);
+    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.08);
     const dSteps = 16;
     const dStepW = dLen / dSteps;
     for (let s = 0; s < dSteps; s++) {
       const rx = dX0 + (s + 0.5) * dStepW;
       const u = (rx - dX0) / dLen;
       const ry = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
-      box(course, s % 2 === 0 ? mats.yellow : mats.black, V(rx, ry + 0.006, rZ), V(dStepW + 0.02, 0.008, 0.18), 0, false);
+      box(course, s % 2 === 0 ? mats.yellow : mats.cardboardEdge, V(rx, ry + 0.006, rZ), V(dStepW + 0.02, 0.008, 0.12), 0, false);
     }
   }
 }
@@ -2146,8 +2117,8 @@ const straightLaneSpecs = [
   { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
   { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 2 West Approach (Ground)
   { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
-  { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -7.70, dir: 1 as const },  // Lane 3 Ground Approach
-  { laneId: 3, z: 0.00,  xMin: 12.50, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
+  { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
+  { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
   { laneId: 4, z: -6.75, xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 4 West Planks / Steps
   { laneId: 4, z: -6.75, xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 4 East Approach (Ground)
   { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
@@ -3462,7 +3433,7 @@ function recoverVehicle() {
 
   if (config.handPoints < 999 && remainingHandPoints <= 0) {
     tone(200, 0.25, 0.08);
-    displayToast('NO HAND POINTS REMAINING · CANNOT RECOVER');
+    displayToast('HAND POINTS EXHAUSTED · HOLD [R] TO RESTART');
     return;
   }
 
@@ -3507,7 +3478,11 @@ function recoverVehicle() {
   displayToast(`RECOVERED TO ${anchor.label.toUpperCase()} · [${hpStr} HAND POINTS] · +${config.penalty}s`);
 }
 
-// Global Key Listeners
+// Global Key Listeners & R Long-Press Restart Handling
+let rKeyPressed = false;
+let rHoldDuration = 0;
+const R_HOLD_RESTART_THRESHOLD = 1.2; // seconds to hold R to cleanly restart the entire race
+
 const CAMERA_KEY_CODES = new Set(['Numpad4', 'Numpad6', 'Numpad8', 'Numpad2', 'NumpadAdd', 'NumpadSubtract']);
 window.addEventListener('keydown', e => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyT', 'KeyD', 'KeyB'].includes(e.code)) {
@@ -3519,6 +3494,13 @@ window.addEventListener('keydown', e => {
     cameraFreeLookIdle = 4.5;
   }
   controller.handleKeyDown(e.code);
+
+  if (e.code === 'KeyR' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
+    if (!e.repeat) {
+      rKeyPressed = true;
+      rHoldDuration = 0;
+    }
+  }
 
   if (e.repeat) return;
   if (e.code === 'Escape') {
@@ -3534,7 +3516,6 @@ window.addEventListener('keydown', e => {
       togglePause();
     }
   }
-  if (e.code === 'KeyR' && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) recoverVehicle();
   if (e.code === 'KeyC' && raceState !== 'menu') cycleCamera();
   if (e.code === 'F2') {
     diagnosticsModalOpen = !diagnosticsModalOpen;
@@ -3555,8 +3536,21 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => {
   controller.handleKeyUp(e.code);
   cameraKeys.delete(e.code);
+
+  if (e.code === 'KeyR') {
+    if (rKeyPressed) {
+      const wasShort = rHoldDuration < R_HOLD_RESTART_THRESHOLD;
+      rKeyPressed = false;
+      rHoldDuration = 0;
+      if (wasShort && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
+        recoverVehicle();
+      }
+    }
+  }
 });
 window.addEventListener('blur', () => {
+  rKeyPressed = false;
+  rHoldDuration = 0;
   cameraKeys.clear();
   cameraPointerId = null;
 });
@@ -3645,6 +3639,18 @@ function stepPhysics(dt: number) {
       trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
     },
   };
+
+  // Continuous R Key Hold for Full Race Restart
+  if (rKeyPressed) {
+    rHoldDuration += dt;
+    if (rHoldDuration >= R_HOLD_RESTART_THRESHOLD) {
+      rKeyPressed = false;
+      rHoldDuration = 0;
+      restartRace();
+      tone(660, 0.3, 0.08);
+      displayToast('🏁 GAME RESTARTED · READY TO RACE');
+    }
+  }
 
   if (raceState === 'countdown') {
     countdown -= dt;
@@ -4110,15 +4116,20 @@ function updateHUD(dt: number) {
   if (mot) mot.textContent = `${Math.round(Math.max(subsystems.motors.leftTemp, subsystems.motors.rightTemp))}°C`;
   if (hlt) hlt.textContent = `${Math.round(subsystems.integrity.chassis)}%`;
 
-  // Rollover warning banner
+  // Rollover warning banner & R Long-Press Progress Feedback
   if (rolloverBanner) {
-    rolloverBanner.classList.toggle('hidden', !pose.isFlipped);
-    if (pose.isFlipped) {
-      if (config.handPoints < 999 && remainingHandPoints <= 0) {
-        rolloverBanner.textContent = '⚠️ ROBOT OVERTURNED · OUT OF HAND POINTS (RESTART REQUIRED)';
+    const showBanner = pose.isFlipped || (rKeyPressed && rHoldDuration > 0.05);
+    rolloverBanner.classList.toggle('hidden', !showBanner);
+    if (showBanner) {
+      if (rKeyPressed && rHoldDuration > 0.05) {
+        const pct = Math.min(100, Math.round((rHoldDuration / R_HOLD_RESTART_THRESHOLD) * 100));
+        const rem = Math.max(0, R_HOLD_RESTART_THRESHOLD - rHoldDuration).toFixed(1);
+        rolloverBanner.textContent = `🔄 RESTARTING GAME IN ${rem}s [${pct}%]... KEEP HOLDING [R]`;
+      } else if (config.handPoints < 999 && remainingHandPoints <= 0) {
+        rolloverBanner.textContent = '⚠️ ROBOT OVERTURNED · OUT OF HAND POINTS · HOLD [R] TO RESTART';
       } else {
         const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
-        rolloverBanner.textContent = `⚠️ ROBOT OVERTURNED · PRESS [R] TO RECOVER (${hpMsg} HAND POINTS)`;
+        rolloverBanner.textContent = `⚠️ ROBOT OVERTURNED · TAP [R] TO RECOVER (${hpMsg}) · HOLD [R] TO RESTART`;
       }
     }
   }
