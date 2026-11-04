@@ -853,10 +853,10 @@ const corridorLane3Approach: CoursePoint[] = [
   { x: -11.0, z: 0.00 },
   { x: -7.70, z: 0.00 },
 ];
-// Landing Exit from Descending Ramp to Hairpin 3: x in [10.75, 17.5]
+// Landing Exit from Descending Ramp to Hairpin 3: x in [12.50, 17.5]
 const corridorLane3Exit: CoursePoint[] = [
-  { x: 10.75, z: 0.00 },
-  { x: 13.50, z: 0.00 },
+  { x: 12.50, z: 0.00 },
+  { x: 15.00, z: 0.00 },
   { x: 17.50, z: 0.00 },
 ];
 
@@ -1011,18 +1011,18 @@ const hazardRevolvingBeacons: THREE.Group[] = [];
 function buildSpiralClimbingStructure() {
   const cfg = SPIRAL_CONFIG;
 
-  // 1. Central Monolithic Concrete Core Column (R = 2.30m, H = 2.20m)
-  const coreH = 2.20;
+  // 1. Central Monolithic Concrete Core Column (R = 2.30m, H rises from arena floor to deck summit)
+  const coreH = (cfg.yTop + 0.15) - ARENA_FLOOR_HEIGHT;
   cyl(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + coreH / 2, cfg.cz), cfg.rInner, coreH, 'y', 48);
   // Octagonal footing foundation pad on arena floor
   box(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.18, cfg.cz), V(cfg.rInner * 2 + 1.1, 0.36, cfg.rInner * 2 + 1.1));
-  // Circumferential structural steel tension bands
-  for (const ty of [0.15, 0.65, 1.15]) {
+  // Circumferential structural steel tension bands up to summit
+  for (const ty of [0.15, 0.75, 1.35, 1.95, 2.55, 3.15]) {
     cyl(course, mats.black, V(cfg.cx, ty, cfg.cz), cfg.rInner + 0.03, 0.05, 'y', 48);
   }
 
   // 2. Continuous Ascending Helical Viaduct Slab (96 Segments over 1.25 turns, 450 degrees)
-  // Climbs smoothly from ground entrance (y = -0.33m at x = -7.70, z = 0.0) up to rooftop (y = 1.45m at x = 1.0, z = 0.0)
+  // Climbs smoothly from ground entrance (y = -0.33m at x = -7.70, z = 0.0) up to rooftop (y = 3.20m at x = 1.0, z = 0.0)
   const segments = 96;
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -1075,7 +1075,7 @@ function buildSpiralClimbingStructure() {
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
-  // 3. Cantilever Radial Structural Steel I-Beams & Outer Columns
+  // 3. Cantilever Radial Structural Steel I-Beams & Outer Columns Extending Down to Arena Floor
   for (let b = 0; b <= 24; b++) {
     const t = b / 24;
     const theta = cfg.startAngle + t * totalAngle;
@@ -1099,52 +1099,44 @@ function buildSpiralClimbingStructure() {
     }
   }
 
-  // 4. Outer Curved Steel Guardrail & Inner Curb
-  const railSegments = 48;
-  for (let r = 0; r < railSegments; r++) {
-    const t0 = r / railSegments;
-    const t1 = (r + 1) / railSegments;
+  // 4. Open-Air Fall-Off Hazard Road Markings (Zero Boundary Barriers: Robot Will Fall if Steered Off)
+  const edgeSegments = 48;
+  for (let r = 0; r < edgeSegments; r++) {
+    const t0 = r / edgeSegments;
+    const t1 = (r + 1) / edgeSegments;
     const theta0 = cfg.startAngle + t0 * totalAngle;
     const theta1 = cfg.startAngle + t1 * totalAngle;
     const midTheta = (theta0 + theta1) / 2;
     const yMid = cfg.yGround + ((t0 + t1) / 2) * (cfg.yTop - cfg.yGround);
 
-    // Outer Guardrail
-    const outX = cfg.cx + (cfg.rOuter - 0.12) * Math.cos(midTheta);
-    const outZ = cfg.cz + (cfg.rOuter - 0.12) * Math.sin(midTheta);
-    const chord = (cfg.rOuter * totalAngle) / railSegments;
-    const rail = box(course, mats.barrier, V(outX, yMid + 0.22, outZ), V(chord + 0.05, 0.36, 0.18));
-    rail.rotation.y = Math.PI / 2 - midTheta;
-    const yellowCap = box(course, mats.yellow, V(outX, yMid + 0.41, outZ), V(chord + 0.05, 0.03, 0.20), 0, false);
-    yellowCap.rotation.y = Math.PI / 2 - midTheta;
+    // Flush Outer Hazard Verge Stripe (Zero vertical barrier)
+    const outX = cfg.cx + (cfg.rOuter - 0.10) * Math.cos(midTheta);
+    const outZ = cfg.cz + (cfg.rOuter - 0.10) * Math.sin(midTheta);
+    const chord = (cfg.rOuter * totalAngle) / edgeSegments;
+    const outerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.black, V(outX, yMid + 0.006, outZ), V(chord + 0.02, 0.008, 0.16), 0, false);
+    outerStripe.rotation.y = Math.PI / 2 - midTheta;
 
-    // Amber cat-eye reflectors
-    if (r % 2 === 0) {
-      const eye = box(course, mats.beaconAmber, V(outX - 0.08 * Math.cos(midTheta), yMid + 0.28, outZ - 0.08 * Math.sin(midTheta)), V(0.06, 0.06, 0.02), 0, false);
-      eye.rotation.y = Math.PI / 2 - midTheta;
-    }
-
-    // Inner Safety Curb
+    // Flush Inner Edge Stripe (Zero curb)
     const inX = cfg.cx + (cfg.rInner + 0.10) * Math.cos(midTheta);
     const inZ = cfg.cz + (cfg.rInner + 0.10) * Math.sin(midTheta);
-    const inChord = (cfg.rInner * totalAngle) / railSegments;
-    const curb = box(course, mats.concreteCurb, V(inX, yMid + 0.08, inZ), V(inChord + 0.04, 0.14, 0.18));
-    curb.rotation.y = Math.PI / 2 - midTheta;
+    const inChord = (cfg.rInner * totalAngle) / edgeSegments;
+    const innerStripe = box(course, r % 2 === 0 ? mats.yellow : mats.black, V(inX, yMid + 0.006, inZ), V(inChord + 0.02, 0.008, 0.16), 0, false);
+    innerStripe.rotation.y = Math.PI / 2 - midTheta;
   }
 
-  // 5. Upper Rooftop Observation Deck (5.5m x 5.5m at y = 1.45m)
+  // 5. Upper Rooftop Observation Deck (5.5m x 5.5m at y = 3.20m, Summit Platform)
   const deckX = cfg.deckX; // 1.0
   const deckZ = cfg.deckZ; // 0.0
   const deckW = cfg.deckWidthX; // 5.5
   const deckD = cfg.deckWidthZ; // 5.5
-  const deckY = cfg.yTop; // 1.45
+  const deckY = cfg.yTop; // 3.20
 
   // Deck slab
   box(course, mats.diamondPlate, V(deckX, deckY - 0.04, deckZ), V(deckW, 0.08, deckD));
   // Deck heavy foundation frame
   box(course, mats.concretePier, V(deckX, deckY - 0.16, deckZ), V(deckW + 0.20, 0.16, deckD + 0.20));
 
-  // 4 Massive Concrete Support Columns under Deck
+  // 4 Massive Concrete Support Columns under Deck Extending Down to Arena Floor
   const colLegH = deckY - 0.24 - ARENA_FLOOR_HEIGHT;
   for (const cx of [deckX - deckW / 2 + 0.6, deckX + deckW / 2 - 0.6]) {
     for (const cz of [deckZ - deckD / 2 + 0.6, deckZ + deckD / 2 - 0.6]) {
@@ -1153,11 +1145,10 @@ function buildSpiralClimbingStructure() {
     }
   }
 
-  // Deck Perimeter Safety Railings (North and South borders)
+  // Flush Deck Perimeter Hazard Markings (Zero vertical borders: robot will fall if driven off)
   for (const side of [-1, 1]) {
-    const rZ = deckZ + side * (deckD / 2 - 0.14);
-    box(course, mats.barrier, V(deckX, deckY + 0.22, rZ), V(deckW, 0.36, 0.24));
-    box(course, mats.yellow, V(deckX, deckY + 0.41, rZ), V(deckW, 0.03, 0.26), 0, false);
+    const rZ = deckZ + side * (deckD / 2 - 0.10);
+    box(course, mats.yellow, V(deckX, deckY + 0.006, rZ), V(deckW, 0.008, 0.18), 0, false);
   }
 
   // 4 Revolving Amber Strobe Beacons at Rooftop Corners
@@ -1173,17 +1164,17 @@ function buildSpiralClimbingStructure() {
     }
   }
 
-  // 6. Connected Descending Viaduct Ramp (x in [3.75, 10.75], slopes from 1.45m down to -0.33m)
+  // 6. Connected Descending Viaduct Ramp (x in [3.75, 12.50], slopes smoothly from 3.20m down to -0.33m)
   const dX0 = cfg.descentX0; // 3.75
-  const dX1 = cfg.descentX1; // 10.75
-  const dLen = dX1 - dX0; // 7.0m
+  const dX1 = cfg.descentX1; // 12.50
+  const dLen = dX1 - dX0; // 8.75m
   const dWidth = cfg.descentWidth; // 3.80m
 
   // Continuous downhill sloped deck
   slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.18, mats.asphalt);
 
-  // Descending Ramp Pier Bents (at x = 5.5, 7.5, 9.5)
-  for (const px of [5.5, 7.5, 9.5]) {
+  // Descending Ramp Pier Bents (at x = 5.25, 7.0, 8.75, 10.5, 12.0) Extending to Arena Floor
+  for (const px of [5.25, 7.0, 8.75, 10.5, 12.0]) {
     const u = (px - dX0) / dLen;
     const h = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
     const legH = h - 0.18 - ARENA_FLOOR_HEIGHT;
@@ -1195,17 +1186,16 @@ function buildSpiralClimbingStructure() {
     }
   }
 
-  // Descending Ramp Safety Railings (North and South shoulders)
+  // Flush Descending Ramp Shoulder Markings (Zero vertical barriers: pure fall-off hazard)
   for (const side of [-1, 1]) {
-    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.14);
-    const dSteps = 14;
+    const rZ = cfg.descentZ + side * (dWidth / 2 - 0.10);
+    const dSteps = 16;
     const dStepW = dLen / dSteps;
     for (let s = 0; s < dSteps; s++) {
       const rx = dX0 + (s + 0.5) * dStepW;
       const u = (rx - dX0) / dLen;
       const ry = cfg.yTop + (cfg.yGround - cfg.yTop) * (u * u * (3 - 2 * u));
-      box(course, mats.barrier, V(rx, ry + 0.20, rZ), V(dStepW + 0.04, 0.36, 0.22));
-      box(course, mats.yellow, V(rx, ry + 0.39, rZ), V(dStepW + 0.04, 0.03, 0.24), 0, false);
+      box(course, s % 2 === 0 ? mats.yellow : mats.black, V(rx, ry + 0.006, rZ), V(dStepW + 0.02, 0.008, 0.18), 0, false);
     }
   }
 }
@@ -2157,7 +2147,7 @@ const straightLaneSpecs = [
   { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 2 West Approach (Ground)
   { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -7.70, dir: 1 as const },  // Lane 3 Ground Approach
-  { laneId: 3, z: 0.00,  xMin: 10.75, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
+  { laneId: 3, z: 0.00,  xMin: 12.50, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
   { laneId: 4, z: -6.75, xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 4 West Planks / Steps
   { laneId: 4, z: -6.75, xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 4 East Approach (Ground)
   { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
@@ -2630,7 +2620,10 @@ const config = {
   cameraSensitivity: clamp(Number(savedPrefs.cameraSensitivity ?? 1.0), 0.3, 2.0),
   cameraFov: clamp(Number(savedPrefs.cameraFov ?? 54), 40, 80),
   preset: (['Low', 'Medium', 'High', 'Custom'].includes(savedPrefs.preset) ? savedPrefs.preset : 'Medium') as 'Low' | 'Medium' | 'High' | 'Custom',
+  handPoints: clamp(Number(savedPrefs.handPoints ?? 5), 1, 999),
 };
+
+let remainingHandPoints = config.handPoints;
 
 const tuning: VehicleTuning = {
   ...CONTROL_PRESETS[config.preset === 'Custom' ? 'Medium' : config.preset],
@@ -2694,6 +2687,7 @@ const cameraKeys = new Set<string>();
 let cameraPointerId: number | null = null;
 let cameraPointerX = 0;
 let cameraPointerY = 0;
+let isPointerLocked = false;
 let bestTime = Number(localStorage.getItem('robo-race-best-v2') || '0');
 let toastTimer = 0;
 let recoveryCooldown = 0;
@@ -2743,6 +2737,7 @@ function savePreferences() {
     cameraSensitivity: config.cameraSensitivity,
     cameraFov: config.cameraFov,
     preset: config.preset,
+    handPoints: config.handPoints,
   }));
 }
 
@@ -2757,6 +2752,7 @@ function renderUI() {
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
         <div class="pill"><small>GATES</small><strong id="gates">00 / 11</strong></div>
         <div class="pill"><small>SPEED</small><strong id="speed">0.0 <span style="font-size:9px">m/s</span></strong></div>
+        <div class="pill" id="pillHandPoints"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
         <div class="pill" id="pillBat"><small>BATTERY</small><strong id="bat">100%</strong></div>
         <div class="pill" id="pillMot"><small>MOTOR</small><strong id="mot">28°C</strong></div>
         <div class="pill" id="pillHlt"><small>HEALTH</small><strong id="hlt">100%</strong></div>
@@ -2772,7 +2768,7 @@ function renderUI() {
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> PAUSE · CAMERA: RMB DRAG / NUMPAD
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK (CLICK CANVAS)
     </div>
     <div class="toast"></div>
     <div class="mobile-controls">
@@ -2796,6 +2792,14 @@ function renderUI() {
           <option value="track_a">Track A — Basic Elevation Challenge</option>
           <option value="track_c">Track C — Advanced Multi-Level Challenge</option>
           <option value="track_d">Track D — Extreme Climbing Challenge</option>
+        </select>
+      </label>
+      <label>Hand Points (Overturn Recovery)
+        <select id="handPointsSelect">
+          <option value="3">3 Hand Points</option>
+          <option value="4">4 Hand Points</option>
+          <option value="5" selected>5 Hand Points (Standard)</option>
+          <option value="999">Unlimited</option>
         </select>
       </label>
       <label>Controller Mode
@@ -2833,7 +2837,7 @@ function renderUI() {
       </label>
       <label>Camera Field of View <input id="cameraFov" type="range" min="40" max="80" step="1" value="54"></label>
       <label>Orbit Sensitivity <input id="cameraSens" type="range" min="0.3" max="2.0" step="0.1" value="1.0"></label>
-      <div class="control-diagram">FREE CAMERA: Hold right mouse and drag to look · Numpad 4/6 orbit · Numpad 8/2 tilt · Numpad +/- zoom · wheel zoom. It eases back to the selected view after 4.5 seconds. Camera movement never drives the robot.</div>
+      <div class="control-diagram">360° MOUSE CAMERA: Click canvas to lock pointer for full 360° mouse look · Move mouse to rotate camera freely around robot · Press ESC or Pause to release mouse cursor for settings · Wheel zooms · Overturning allows limited Hand Points recovery.</div>
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
@@ -2845,7 +2849,7 @@ function renderUI() {
         A alone: Pivot left · D/T/B: Pivot right<br>
         A+D: Opposing steering cancels to 0<br>
         W+S: Opposing throttle cancels to 0<br>
-        Space: Mechanical brake · R: Safe checkpoint recovery
+        Space: Mechanical brake · R: Safe checkpoint recovery (uses 1 Hand Point)
       </div>
       <button id="openCalibBtn" class="action" style="width:100%;margin-top:10px;background:#eab449;color:#101512;font-weight:800;border:none;">🎮 CONTROLLER CALIBRATION & DIAGNOSTICS</button>
     </div>
@@ -3048,7 +3052,42 @@ function renderUI() {
     savePreferences();
   });
 
+  const handPointsSelect = $<HTMLSelectElement>('#handPointsSelect');
+  if (handPointsSelect) {
+    handPointsSelect.value = String(config.handPoints);
+    handPointsSelect.addEventListener('change', e => {
+      const val = Number((e.target as HTMLSelectElement).value);
+      config.handPoints = val;
+      remainingHandPoints = val;
+      savePreferences();
+      updateHandPointsDisplay();
+      displayToast(`HAND POINTS: ${val >= 999 ? 'UNLIMITED' : val}`);
+    });
+  }
+
+  document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = document.pointerLockElement === canvas;
+  });
+
+  canvas.addEventListener('click', () => {
+    if (raceState === 'racing' && !isPointerLocked && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
+      try {
+        void canvas.requestPointerLock();
+      } catch {}
+    }
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (isPointerLocked) {
+      const scale = 0.0035 * config.cameraSensitivity;
+      cameraFreeYaw -= e.movementX * scale;
+      cameraFreePitch = clamp(cameraFreePitch + e.movementY * scale, -1.25, 1.25);
+      cameraFreeLookIdle = 999999;
+    }
+  });
+
   canvas.addEventListener('pointerdown', e => {
+    if (isPointerLocked) return;
     if (e.button !== 2 && !(cameraMode === 3 && e.button === 0)) return;
     cameraPointerId = e.pointerId;
     cameraPointerX = e.clientX;
@@ -3057,7 +3096,7 @@ function renderUI() {
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', e => {
-    if (cameraPointerId !== e.pointerId) return;
+    if (isPointerLocked || cameraPointerId !== e.pointerId) return;
     const scale = 0.004 * config.cameraSensitivity;
     cameraFreeYaw -= (e.clientX - cameraPointerX) * scale;
     cameraFreePitch = clamp(cameraFreePitch + (e.clientY - cameraPointerY) * scale, -1.25, 1.25);
@@ -3264,7 +3303,11 @@ function showPaused() {
       </div>
     </div>
   `;
-  $('#btnResume', o).addEventListener('click', () => { raceState = 'racing'; hideOverlays(); });
+  $('#btnResume', o).addEventListener('click', () => {
+    raceState = 'racing';
+    hideOverlays();
+    try { void canvas.requestPointerLock(); } catch {}
+  });
   $('#btnRestart', o).addEventListener('click', startRace);
   $('#btnMainMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
 }
@@ -3328,12 +3371,14 @@ function formatTime(sec: number) {
 
 function togglePause() {
   if (raceState === 'racing') {
+    if (document.pointerLockElement) document.exitPointerLock();
     raceState = 'paused';
     controller.neutralize();
     showPaused();
   } else if (raceState === 'paused') {
     raceState = 'racing';
     hideOverlays();
+    try { void canvas.requestPointerLock(); } catch {}
   }
 }
 
@@ -3367,6 +3412,13 @@ function setGraphicsQuality(q: string) {
   renderer.setSize(innerWidth, innerHeight);
 }
 
+function updateHandPointsDisplay() {
+  const hp = $<HTMLElement>('#handPoints');
+  if (hp) {
+    hp.textContent = config.handPoints >= 999 ? '🖐️ ∞' : `🖐️ ${remainingHandPoints} / ${config.handPoints}`;
+  }
+}
+
 // -------------------------------------------------------------
 // 10. Start, Restart, and Checkpoint Recovery Logic
 // -------------------------------------------------------------
@@ -3376,6 +3428,8 @@ function startRace() {
   elapsed = 0;
   penaltyTime = 0;
   currentCheckpoint = 0;
+  remainingHandPoints = config.handPoints;
+  updateHandPointsDisplay();
   subsystems = createInitialSubsystems();
 
   checkpointMeshes.forEach(c => {
@@ -3405,6 +3459,13 @@ function restartRace() {
 
 function recoverVehicle() {
   if (raceState !== 'racing' || isRobotDestroyed(subsystems) || recoveryCooldown > 0) return;
+
+  if (config.handPoints < 999 && remainingHandPoints <= 0) {
+    tone(200, 0.25, 0.08);
+    displayToast('NO HAND POINTS REMAINING · CANNOT RECOVER');
+    return;
+  }
+
   recoveryCooldown = 1.0;
 
   const anchor = getSafeRecoveryAnchor(currentCheckpoint, recoveryAnchors, candidate => {
@@ -3419,6 +3480,12 @@ function recoverVehicle() {
     displayToast('NO CLEAR RECOVERY POINT · MOVE TO SAFETY');
     return;
   }
+
+  if (config.handPoints < 999) {
+    remainingHandPoints--;
+  }
+  updateHandPointsDisplay();
+
   currentCheckpoint = anchor.checkpointIndex;
   checkpointMeshes.forEach((checkpoint, i) => {
     checkpoint.passed = i < currentCheckpoint;
@@ -3436,7 +3503,8 @@ function recoverVehicle() {
 
   penaltyTime += config.penalty;
   tone(380, 0.18, 0.05);
-  displayToast(`RECOVERED TO ${anchor.label.toUpperCase()} · +${config.penalty}s`);
+  const hpStr = config.handPoints >= 999 ? '∞' : `${remainingHandPoints}/${config.handPoints}`;
+  displayToast(`RECOVERED TO ${anchor.label.toUpperCase()} · [${hpStr} HAND POINTS] · +${config.penalty}s`);
 }
 
 // Global Key Listeners
@@ -3454,9 +3522,14 @@ window.addEventListener('keydown', e => {
 
   if (e.repeat) return;
   if (e.code === 'Escape') {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
     if (diagnosticsModalOpen) {
       diagnosticsModalOpen = false;
       $('#diagnosticsModal').classList.add('hidden');
+    } else if (!$('#settings').classList.contains('hidden')) {
+      $('#settings').classList.add('hidden');
     } else {
       togglePause();
     }
@@ -3943,6 +4016,8 @@ function updateCamera(dt: number) {
     cameraFreePitch = clamp(cameraFreePitch + pitchKey * 0.9 * dt, -1.25, 1.25);
     cameraDistanceOffset = clamp(cameraDistanceOffset + zoomKey * 3.0 * dt, -4.5, 8.0);
     cameraFreeLookIdle = 4.5;
+  } else if (isPointerLocked) {
+    cameraFreeLookIdle = 999999;
   } else if (cameraFreeLookIdle > 0) {
     cameraFreeLookIdle = Math.max(0, cameraFreeLookIdle - dt);
   } else {
@@ -4038,6 +4113,14 @@ function updateHUD(dt: number) {
   // Rollover warning banner
   if (rolloverBanner) {
     rolloverBanner.classList.toggle('hidden', !pose.isFlipped);
+    if (pose.isFlipped) {
+      if (config.handPoints < 999 && remainingHandPoints <= 0) {
+        rolloverBanner.textContent = '⚠️ ROBOT OVERTURNED · OUT OF HAND POINTS (RESTART REQUIRED)';
+      } else {
+        const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
+        rolloverBanner.textContent = `⚠️ ROBOT OVERTURNED · PRESS [R] TO RECOVER (${hpMsg} HAND POINTS)`;
+      }
+    }
   }
 
   // Telemetry details panel

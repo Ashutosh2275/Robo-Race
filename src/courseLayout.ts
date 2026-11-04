@@ -61,7 +61,7 @@ export const ROUTE_HEIGHT_OFFSET = ROUTE_DECK_HEIGHT - 0.03;
 // Standard obstacle elevation tiers
 export const ELEVATION_TIER_SMALL = 0.45;  // 0.3 - 0.6m: e.g. Rock field platform (y = 0.12m)
 export const ELEVATION_TIER_MEDIUM = 0.95; // 0.7 - 1.2m: e.g. Warren Arch Bridge (y = 0.62m)
-export const ELEVATION_TIER_MAJOR = 1.78;  // 1.0 - 2.0m: e.g. Spiral Climbing Tower (y = 1.45m)
+export const ELEVATION_TIER_MAJOR = 3.20;  // 3.0 - 4.0m: e.g. Spiral Climbing Tower (y = 3.20m, 3.53m rise above ground)
 
 // ---------------------------------------------------------------------------
 // PARKING-GARAGE-STYLE SPIRAL RAMP SPECIFICATIONS
@@ -72,10 +72,10 @@ export const SPIRAL_CONFIG = {
   rCenter: 4.20,       // Centerline driving radius (circumference = 26.4m per turn)
   roadWidth: 3.80,     // Usable road width (2.5x robot width in world space)
   rInner: 2.30,        // Central concrete core radius
-  rOuter: 6.10,        // Outer railing radius
+  rOuter: 6.10,        // Outer edge radius
   turns: 1.25,         // 1.25 revolutions (450 degrees of continuous climb)
   yGround: ARENA_FLOOR_HEIGHT, // Ground entrance: -0.33m
-  yTop: 1.45,          // 1.78m elevation above ground
+  yTop: 3.20,          // Approx 3.53m elevation rise above ground (-0.33m), 3.75m above floor
   startAngle: Math.PI, // Enters at west tangent (x = cx - rCenter = -7.70, z = 0.0)
   endAngle: Math.PI + 1.25 * 2 * Math.PI, // 3.5 * Math.PI
   // Upper rooftop deck
@@ -85,7 +85,7 @@ export const SPIRAL_CONFIG = {
   deckWidthZ: 5.5,
   // Connected descending viaduct ramp
   descentX0: 3.75,
-  descentX1: 10.75,
+  descentX1: 12.50,
   descentZ: 0.0,
   descentWidth: 3.80,
 } as const;
@@ -94,7 +94,7 @@ export const SPIRAL_CONFIG = {
  * Calculates height and surface characteristics on the parking-garage-style spiral ramp.
  */
 export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral: boolean; height: number; grip: number } {
-  // 1. Connected Descending Viaduct Ramp: x in [3.75, 10.75], |z| <= descentWidth / 2
+  // 1. Connected Descending Viaduct Ramp: x in [3.75, 12.50], |z| <= descentWidth / 2
   if (x >= SPIRAL_CONFIG.descentX0 && x <= SPIRAL_CONFIG.descentX1 && Math.abs(z - SPIRAL_CONFIG.descentZ) <= SPIRAL_CONFIG.descentWidth / 2) {
     const u = (x - SPIRAL_CONFIG.descentX0) / (SPIRAL_CONFIG.descentX1 - SPIRAL_CONFIG.descentX0);
     const eased = u * u * (3 - 2 * u);
@@ -119,7 +119,8 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
 
     // Disambiguate Level 0 (ground approach to mid climb) vs Level 1 (upper climb to rooftop)
     let activeAngle = normAngle;
-    if (poseY > 0.65) {
+    const midHeightThreshold = (SPIRAL_CONFIG.yGround + SPIRAL_CONFIG.yTop) * 0.45; // ~1.29m
+    if (poseY > midHeightThreshold) {
       // Vehicle is on upper tier
       activeAngle = (normAngle < Math.PI ? normAngle : normAngle) + 2 * Math.PI;
     } else {
@@ -267,10 +268,10 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   ...circularArc(-3.5, 0.0, 4.20, Math.PI, Math.PI * 2.0, 10).slice(1),
   { x: -3.5, z: 4.20 },   // Gate 06 - Spiral Mid-Climb (y = 0.56m)
   ...circularArc(-3.5, 0.0, 4.20, 0.0, Math.PI, 8).slice(1),
-  { x: 1.0, z: 0.00 },    // Gate 07 - Spiral Rooftop Deck (y = 1.45m, Summit Turntable)
+  { x: 1.0, z: 0.00 },    // Gate 07 - Spiral Rooftop Deck (y = 3.20m, Summit Turntable)
   { x: 3.75, z: 0.00 },   // Descent ramp start
-  { x: 7.25, z: 0.00 },   // Downhill viaduct ramp
-  { x: 10.75, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
+  { x: 8.125, z: 0.00 },  // Downhill viaduct ramp
+  { x: 12.50, z: 0.00 },  // Gate 08 - Descent Ramp Landing (touchdown at y = -0.33m)
   { x: 17.5, z: 0.00 },   // Lane 3 exit to Hairpin 3
 
   // Hairpin 3: Ground-Level Semicircular Viaduct
@@ -305,7 +306,7 @@ export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
   { id: 5, label: 'Gate 05 - Spiral Entrance', x: -7.70, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
   { id: 6, label: 'Gate 06 - Spiral Mid-Climb', x: -3.5, z: 4.20, yaw: 0, width: 5.6 },
   { id: 7, label: 'Gate 07 - Spiral Rooftop Deck', x: 1.0, z: 0.00, yaw: Math.PI / 2, width: 5.8 },
-  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 10.75, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
+  { id: 8, label: 'Gate 08 - Descent Ramp Landing', x: 12.50, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
   { id: 9, label: 'Gate 09 - North Straight', x: 14.5, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
   { id: 10, label: 'Gate 10 - Fire Hazard', x: -5.0, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
   { id: 11, label: 'Gate 11 - Deep Water Basin', x: 0.5, z: -13.50, yaw: Math.PI / 2, width: 5.6 },

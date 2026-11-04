@@ -76,25 +76,25 @@ test('spiral ramp geometry: continuous helical climb, parking garage gradient, a
   assert.ok(midClimb.height > quarterTurn.height && midClimb.height < SPIRAL_CONFIG.yTop);
 
   // Upper rooftop observation deck at x = 1.0, z = 0.0
-  const rooftop = evaluateSpiralRamp(1.0, 0.0, 1.45);
+  const rooftop = evaluateSpiralRamp(1.0, 0.0, 3.20);
   assert.ok(rooftop.inSpiral);
   assert.ok(Math.abs(rooftop.height - SPIRAL_CONFIG.yTop) < 0.01, `rooftop deck should rest at ${SPIRAL_CONFIG.yTop}m, got ${rooftop.height}`);
 
-  // Connected descending ramp midpoint at x = 7.25, z = 0.0
-  const midDescent = evaluateSpiralRamp(7.25, 0.0, 0.50);
+  // Connected descending ramp midpoint at x = 8.125, z = 0.0
+  const midDescent = evaluateSpiralRamp(8.125, 0.0, 1.50);
   assert.ok(midDescent.inSpiral);
   assert.ok(midDescent.height < SPIRAL_CONFIG.yTop && midDescent.height > SPIRAL_CONFIG.yGround);
 
-  // Descent ramp touchdown at ground (x = 10.75, z = 0.0)
-  const touchdown = evaluateSpiralRamp(10.75, 0.0, -0.30);
+  // Descent ramp touchdown at ground (x = 12.50, z = 0.0)
+  const touchdown = evaluateSpiralRamp(12.50, 0.0, -0.30);
   assert.ok(touchdown.inSpiral);
   assert.ok(Math.abs(touchdown.height - SPIRAL_CONFIG.yGround) < 0.05, `descent ramp must return smoothly to ground -0.33m, got ${touchdown.height}`);
 
-  // Gradient check: climb rise of 1.78m over 33m circumference yields ~5.4% realistic slope
+  // Gradient check: climb rise of 3.53m over 33m circumference yields ~10.7% realistic slope
   const rise = SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround;
   const rampLength = SPIRAL_CONFIG.turns * 2 * Math.PI * SPIRAL_CONFIG.rCenter;
   const gradient = (rise / rampLength) * 100;
-  assert.ok(gradient >= 4.0 && gradient <= 8.0, `spiral gradient should be 4-8%, got ${gradient.toFixed(2)}%`);
+  assert.ok(gradient >= 8.0 && gradient <= 15.0, `spiral gradient should be 8-15%, got ${gradient.toFixed(2)}%`);
 
   // Clearance check: road width >= 3.8m provides >= 2.5x robot clearance
   assert.ok(SPIRAL_CONFIG.roadWidth >= 3.80);
@@ -102,7 +102,7 @@ test('spiral ramp geometry: continuous helical climb, parking garage gradient, a
 
 test('spiral ramp ascending and descending paths have zero physical overlap', () => {
   // Ascending helix is contained within x in [-9.6, -1.2]
-  // Descending ramp is contained within x in [3.75, 10.75]
+  // Descending ramp is contained within x in [3.75, 12.50]
   // They are completely separated horizontally
   assert.ok(SPIRAL_CONFIG.descentX0 > SPIRAL_CONFIG.cx + SPIRAL_CONFIG.rInner);
   assert.ok(SPIRAL_CONFIG.descentX1 > SPIRAL_CONFIG.descentX0);
@@ -119,9 +119,9 @@ test('ground-level roads sit on arena floor and raised obstacles provide authent
   const rockH = evaluateCourseHeight(10.25, 13.50);
   assert.ok(rockH > GROUND_DECK_HEIGHT + 0.40, `rock field platform should be elevated, got ${rockH}`);
 
-  // Spiral Rooftop Deck is elevated +1.78m tier (y = 1.45m)
-  const deckH = evaluateCourseHeight(1.0, 0.0, 1.45);
-  assert.ok(Math.abs(deckH - 1.45) < 0.02, `rooftop deck height expected 1.45m, got ${deckH}`);
+  // Spiral Rooftop Deck is elevated +3.53m tier (y = 3.20m)
+  const deckH = evaluateCourseHeight(1.0, 0.0, 3.20);
+  assert.ok(Math.abs(deckH - 3.20) < 0.02, `rooftop deck height expected 3.20m, got ${deckH}`);
 
   // Lane 5 Fire hazard hearth is at y = 0.05m (+0.38m above ground)
   const fireH = evaluateCourseHeight(-3.0, -13.50);
