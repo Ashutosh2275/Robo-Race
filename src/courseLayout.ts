@@ -27,6 +27,7 @@ export type CheckpointGate = {
   z: number;
   yaw: number;
   width: number;
+  elevation?: number;
 };
 
 export type CoursePoint = { x: number; z: number };
@@ -54,7 +55,7 @@ export const PENDULUM_CONFIG = {
   deckWidth: 2.00,      // Comfortable catwalk bridge width (~1.54x robot width, ~24cm clearance left & right, NO guardrails)
   ballPositionsX: [13.65, 10.00, 6.35] as const, // 3 balls spaced 3.65m apart (2.95m clear gap = 2.25x bot length)
   ballRadius: 0.35,     // Heavy metallic sphere radius (diameter 0.70m)
-  ballPivotY: 4.25,     // Overhead gantry suspension pivot
+  ballPivotY: 4.45,     // Overhead gantry suspension pivot (hangs at y=1.80m, bottom of ball clears deck at 1.45m)
   ballArmLength: 2.65,  // Pendulum length
   swingAmplitude: 1.55, // Swings +-1.55m across track (well beyond bridge width)
   swingOmega: 2.30,     // Swing frequency in rad/s
@@ -163,9 +164,9 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
   }
 
   // Generous physical deck catch envelope (supports wheels even if drifting near outer edge)
-  const maxElevatedDist = poseY > 0.40 ? (SPIRAL_CONFIG.rOuter + 0.65) : (SPIRAL_CONFIG.rOuter + 0.25);
+  const maxElevatedDist = poseY > 0.40 ? (SPIRAL_CONFIG.rOuter + 0.15) : (SPIRAL_CONFIG.rOuter + 0.10);
 
-  if (dist <= maxElevatedDist) {
+  if (dist <= maxElevatedDist && dist >= SPIRAL_CONFIG.rInner - 0.08) {
     // Angle along helical progression starting at West (dx < 0, dz = 0) climbing North -> East -> South
     let beta = Math.atan2(-dz, -dx);
     if (beta < 0) beta += 2 * Math.PI;
@@ -189,14 +190,20 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     const t = Math.max(0, Math.min(1, totalBeta / (3 * Math.PI)));
     let h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
 
+    // Ground-level bot under the elevated spiral tiers stays firmly on the ground (-0.33m)
+    // Only vehicles within active climbing range are supported on the helical ramp
+    if (poseY < 0 && poseY < h - 0.50 && h > SPIRAL_CONFIG.yGround + 0.35) {
+      return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
+    }
+
     // Smooth inward superelevation banking (outer edge slightly elevated)
     const effectiveDist = Math.max(SPIRAL_CONFIG.rInner, dist);
     const bank = 0.020 * (effectiveDist - SPIRAL_CONFIG.rCenter) / (SPIRAL_CONFIG.roadWidth * 0.5);
 
-    // Beveled outer safety warning slope beyond nominal deck rim
+    // Outer deck edge beveled transition
     if (dist > SPIRAL_CONFIG.rOuter) {
       const overhang = dist - SPIRAL_CONFIG.rOuter;
-      h -= Math.min(0.20, overhang * 0.35);
+      h -= Math.min(0.12, overhang * 0.40);
     }
 
     return { inSpiral: true, height: h + bank, grip: 1.15 };
@@ -351,7 +358,7 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   // Helical climb around central stake (R = 1.35m, 1.5 turns, climb to y = 3.20m)
   ...circularArc(-4.50, 0.0, 1.35, Math.PI, Math.PI * 2.5, 12).slice(1),
   ...circularArc(-4.50, 0.0, 1.35, Math.PI * 2.5, Math.PI * 4.0, 12).slice(1),
-  { x: -2.50, z: 0.00 },  // Gate 05 - Spiral Summit Cleared (Immediately after helical climb on summit deck)
+  { x: -1.40, z: 0.00 },  // Gate 05 - Spiral Summit Cleared (Immediately after helical climb on summit deck)
   { x: 1.00, z: 0.00 },   // Summit Turntable center (y = 3.20m)
   { x: 3.65, z: 0.00 },   // Gate 06 - Turntable Cleared (Immediately after turntable on summit deck)
   { x: 6.95, z: 0.00 },   // Downhill viaduct ramp midpoint
@@ -394,18 +401,18 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
 ];
 
 export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
-  { id: 1, label: 'Gate 01 - Start Straight', x: -17.5, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 2, label: 'Gate 02 - Slaloms Cleared', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 3, label: 'Gate 03 - Rock Field Cleared', x: 14.8, z: 13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 4, label: 'Gate 04 - Technical Straight Cleared', x: -14.8, z: 6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 5, label: 'Gate 05 - Spiral Summit Cleared', x: -2.50, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 6, label: 'Gate 06 - Turntable Cleared', x: 3.65, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 7, label: 'Gate 07 - Descent Ramp Cleared', x: 11.20, z: 0.00, yaw: Math.PI / 2, width: 5.6 },
-  { id: 8, label: 'Gate 08 - Pendulum Gauntlet Cleared', x: 3.20, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 9, label: 'Gate 09 - Suspension Bridges Cleared', x: -11.50, z: -6.75, yaw: -Math.PI / 2, width: 5.6 },
-  { id: 10, label: 'Gate 10 - Fire Hazard Cleared', x: -0.20, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 11, label: 'Gate 11 - Deep Water Basin Cleared', x: 10.50, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
-  { id: 12, label: 'Gate 12 - Grand Finish Line', x: 13.50, z: -13.50, yaw: Math.PI / 2, width: 5.6 },
+  { id: 1, label: 'Gate 01 - Start Straight', x: -17.5, z: 13.50, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 2, label: 'Gate 02 - Slaloms Cleared', x: 4.2, z: 13.50, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 3, label: 'Gate 03 - Rock Field Cleared', x: 14.8, z: 13.50, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 4, label: 'Gate 04 - Technical Straight Cleared', x: -14.8, z: 6.75, yaw: -Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 5, label: 'Gate 05 - Spiral Summit Cleared', x: -1.40, z: 0.00, yaw: Math.PI / 2, width: 5.2, elevation: 3.20 },
+  { id: 6, label: 'Gate 06 - Turntable Cleared', x: 3.65, z: 0.00, yaw: Math.PI / 2, width: 5.2, elevation: 3.20 },
+  { id: 7, label: 'Gate 07 - Descent Ramp Cleared', x: 11.20, z: 0.00, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 8, label: 'Gate 08 - Pendulum Gauntlet Cleared', x: 3.20, z: -6.75, yaw: -Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 9, label: 'Gate 09 - Suspension Bridges Cleared', x: -11.50, z: -6.75, yaw: -Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 10, label: 'Gate 10 - Fire Hazard Cleared', x: -0.20, z: -13.50, yaw: Math.PI / 2, width: 5.6, elevation: 0.05 },
+  { id: 11, label: 'Gate 11 - Deep Water Basin Cleared', x: 10.50, z: -13.50, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
+  { id: 12, label: 'Gate 12 - Grand Finish Line', x: 13.50, z: -13.50, yaw: Math.PI / 2, width: 5.6, elevation: -0.33 },
 ];
 
 export const TRACK_B_OBSTACLES: TrackObstacle[] = [
@@ -643,6 +650,9 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
           return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
         // Elevated catwalk bridge deck: x in [5.50, 14.50]
+        if (poseY < 0 && poseY < PENDULUM_CONFIG.deckY - 0.50) {
+          return GROUND_DECK_HEIGHT;
+        }
         return PENDULUM_CONFIG.deckY;
       }
 
@@ -677,6 +687,9 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
           return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
         // Dual Suspended Deck Spans: x in [-9.20, 0.80] (Length 10.0m)
+        if (poseY < 0 && poseY < HANGING_BRIDGE_CONFIG.deckY - 0.50) {
+          return GROUND_DECK_HEIGHT;
+        }
         const spanMid = x >= HANGING_BRIDGE_CONFIG.xBridgeMid
           ? (HANGING_BRIDGE_CONFIG.xBridgeEast + HANGING_BRIDGE_CONFIG.xBridgeMid) / 2
           : (HANGING_BRIDGE_CONFIG.xBridgeMid + HANGING_BRIDGE_CONFIG.xBridgeWest) / 2;
@@ -1023,7 +1036,13 @@ export function crossesCheckpointGate(
   gate: CheckpointGate,
   worldScale = MAP_SCALE,
   vehicleWidth = 1.98,
+  poseY?: number,
 ): boolean {
+  if (gate.elevation !== undefined && poseY !== undefined) {
+    if (Math.abs(poseY - gate.elevation) > 1.25) {
+      return false;
+    }
+  }
   const gx = gate.x * worldScale;
   const gz = gate.z * worldScale;
   const fx = Math.sin(gate.yaw);

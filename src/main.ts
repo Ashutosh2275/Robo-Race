@@ -1129,6 +1129,44 @@ function buildSpiralClimbingStructure() {
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
+  // Outer continuous cardboard safety lip along the helical perimeter
+  const kerbPositions: number[] = [];
+  const kerbIndices: number[] = [];
+  for (let s = 0; s <= segments; s++) {
+    const t = s / segments;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const yTopOut = yBase + 0.020;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const xBase = cfg.cx + cfg.rOuter * cosT;
+    const zBase = cfg.cz + cfg.rOuter * sinT;
+    const xOut = cfg.cx + (cfg.rOuter + 0.06) * cosT;
+    const zOut = cfg.cz + (cfg.rOuter + 0.06) * sinT;
+
+    kerbPositions.push(xBase, yTopOut, zBase);          // 0: base inner
+    kerbPositions.push(xBase, yTopOut + 0.12, zBase);   // 1: top inner
+    kerbPositions.push(xOut, yTopOut + 0.12, zOut);    // 2: top outer
+    kerbPositions.push(xOut, yTopOut - 0.06, zOut);    // 3: base outer
+
+    if (s < segments) {
+      const b = s * 4;
+      const n = (s + 1) * 4;
+      // Inner face
+      kerbIndices.push(b, b + 1, n, n, b + 1, n + 1);
+      // Top face
+      kerbIndices.push(b + 1, b + 2, n + 1, n + 1, b + 2, n + 2);
+      // Outer face
+      kerbIndices.push(b + 2, b + 3, n + 2, n + 2, b + 3, n + 3);
+    }
+  }
+  const kerbGeo = new THREE.BufferGeometry();
+  kerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(kerbPositions, 3));
+  kerbGeo.setIndex(kerbIndices);
+  kerbGeo.computeVertexNormals();
+  const kerbMesh = new THREE.Mesh(kerbGeo, mats.yellow);
+  course.add(kerbMesh);
+
   // 5. Elevated Approach Bridge connecting Spiral Summit (x = -3.15) to Turntable Deck (x = -1.45)
   // Continuous 2.30m wide cantilevered cardboard deck at y = 3.20m
   box(course, mats.cardboard, V(-2.30, cfg.yTop - 0.03, 0.0), V(2.30, 0.06, cfg.roadWidth));
@@ -1253,6 +1291,22 @@ for (let cx = pCfg.xRampDownStart + 0.50; cx <= pCfg.xRampUpEnd - 0.40; cx += 0.
 for (const side of [-1, 1]) {
   const zEdge = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
   box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.005, zEdge), V(pDeckLen, 0.012, 0.08), 0, false);
+}
+
+// Solid under-deck pier flank colliders for catwalk bridge (blocks ground vehicles from driving into deck structure from between lanes)
+for (const side of [-1, 1]) {
+  const zFlank = pCfg.zLane + side * (pCfg.deckWidth / 2 + 0.12);
+  colliders.push({
+    id: `catwalk_bridge_under_flank_${side > 0 ? 'north' : 'south'}`,
+    x: pDeckMidX,
+    z: zFlank,
+    hx: pDeckLen / 2,
+    hz: 0.14,
+    y: (ARENA_FLOOR_HEIGHT + pCfg.deckY - 0.15) / 2,
+    height: (pCfg.deckY - 0.15) - ARENA_FLOOR_HEIGHT,
+    rot: 0,
+    walkable: false,
+  });
 }
 
 // Heavy steel support piers underneath the bridge at ball locations
@@ -2104,6 +2158,24 @@ for (let bx = -8.8; bx <= 0.4; bx += 1.10) {
   box(course, mats.metal, V(bx, hCfg.deckY - 0.08, hCfg.zLane), V(0.10, 0.08, hCfg.totalDeckWidth));
 }
 
+// Solid under-deck flank colliders for suspension bridges (blocks ground vehicles from driving into deck structure from between lanes)
+const hSpanLen = hCfg.xBridgeEast - hCfg.xBridgeWest; // 10.0m
+const hMidX = (hCfg.xBridgeEast + hCfg.xBridgeWest) / 2; // -4.20m
+for (const side of [-1, 1]) {
+  const zFlank = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 + 0.12);
+  colliders.push({
+    id: `hanging_bridge_under_flank_${side > 0 ? 'north' : 'south'}`,
+    x: hMidX,
+    z: zFlank,
+    hx: hSpanLen / 2,
+    hz: 0.14,
+    y: (ARENA_FLOOR_HEIGHT + hCfg.deckY - 0.15) / 2,
+    height: (hCfg.deckY - 0.15) - ARENA_FLOOR_HEIGHT,
+    rot: 0,
+    walkable: false,
+  });
+}
+
 // 6. Main Catenary Suspension Cables (North and South at zLane +- 1.45m)
 for (const cZ of [towerZSouth, towerZNorth]) {
   // Span 1: x in [-4.2, 0.8] (Length 5.0m)
@@ -2258,6 +2330,7 @@ const straightLaneSpecs = [
   { laneId: 1, z: 13.50, xMin: -18.5, xMax: 5.80, dir: 1 as const },   // Lane 1 Approach (Ground)
   { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
   { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 2 West Approach (Ground)
+  { laneId: 2, z: 6.75,  xMin: 6.50,  xMax: 14.50, dir: -1 as const }, // Lane 2 Mid Section (Ground)
   { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
@@ -2376,7 +2449,7 @@ const checkpointBeacons: THREE.Mesh[] = [];
 
 const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   const g = new THREE.Group();
-  const gateY = evaluateCourseHeight(cp.x, cp.z);
+  const gateY = cp.elevation !== undefined ? cp.elevation : evaluateCourseHeight(cp.x, cp.z);
   g.position.set(cp.x, gateY, cp.z);
   g.rotation.y = cp.yaw;
   course.add(g);
@@ -2481,7 +2554,7 @@ const checkpointMeshes = CHECKPOINTS.map((cp, i) => {
   g.add(bar);
 
   // Soft vertical laser shimmer curtain (Only on full gantry gates, NEVER across climbing spiral or turntable)
-  if (i !== 5 && i !== 6) {
+  if (i !== 4 && i !== 5 && i !== 6) {
     const shimmer = new THREE.Mesh(
       new THREE.PlaneGeometry(beamSpan, 0.35),
       new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false })
@@ -4200,9 +4273,10 @@ function stepPhysics(dt: number) {
         motionState.vz = pose.vz;
         motionState.vx = pose.vx;
 
-        // Natural modest bounce & roll kick (NO artificial extreme roll rate that forces upside-down flip!)
-        pose.vy = Math.max(pose.vy, Math.min(1.0, impactSpeed * 0.25));
-        pose.rollRate = Math.max(-1.8, Math.min(1.8, throwDirection * 1.4));
+        // Clean horizontal lateral fling: zero spurious roll or vertical flip injection
+        pose.vy = 0;
+        pose.rollRate = 0;
+        pose.pitchRate = 0;
 
         // Chassis integrity reduction & audio-visual impact cues
         subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - 8.0);
@@ -4228,7 +4302,7 @@ function stepPhysics(dt: number) {
 
       if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
         // Automatic immediate checkpoint recovery to Lane 4 entry (before pendulums)
-        const g08Anchor = recoveryAnchors.find(a => a.checkpointIndex === 7 || a.checkpointIndex === 8) || recoveryAnchors[0];
+        const g08Anchor = recoveryAnchors.find(a => a.id === 'north_straight') || recoveryAnchors[0];
         applyRecovery(pose, g08Anchor, worldCourseHeight);
         currentCheckpoint = 7; // Reset back to Gate 08 target
         checkpointMeshes.forEach((checkpoint, i) => {
@@ -4464,7 +4538,7 @@ function stepPhysics(dt: number) {
   if (raceState === 'racing' && currentCheckpoint < checkpointMeshes.length) {
     const cp = checkpointMeshes[currentCheckpoint];
 
-    if (crossesCheckpointGate(previousRacePosition, { x: pose.x, z: pose.z }, cp)) {
+    if (crossesCheckpointGate(previousRacePosition, { x: pose.x, z: pose.z }, cp, MAP_SCALE, 1.98, pose.y)) {
       cp.passed = true;
       currentCheckpoint++;
       (cp.bar.material as THREE.MeshBasicMaterial).color.set('#f0bd53');
