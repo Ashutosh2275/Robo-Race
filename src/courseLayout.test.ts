@@ -386,3 +386,63 @@ test('turntable pier and base footing colliders provide solid ground barrier whi
   assert.ok(footingTop >= groundBotBottom && footingBottom <= groundBotTop, 'ground vehicle must intersect footing vertical collision envelope');
 });
 
+test('spiral central core pylon colliders provide snug barriers without intruding into driving curve', () => {
+  const pylonRadius = 0.25;
+  const pylonTopY = SPIRAL_CONFIG.yTop + 0.25;
+  const pylonHeight = pylonTopY - ARENA_FLOOR_HEIGHT;
+  const pylonCenterY = ARENA_FLOOR_HEIGHT + pylonHeight / 2;
+
+  const pylonColA: CourseCollider = {
+    id: 'spiral_central_pylon_a',
+    x: SPIRAL_CONFIG.cx,
+    z: SPIRAL_CONFIG.cz,
+    hx: 0.19,
+    hz: 0.19,
+    y: pylonCenterY,
+    height: pylonHeight,
+    rot: 0,
+    walkable: false,
+  };
+  const pylonColB: CourseCollider = {
+    id: 'spiral_central_pylon_b',
+    x: SPIRAL_CONFIG.cx,
+    z: SPIRAL_CONFIG.cz,
+    hx: 0.19,
+    hz: 0.19,
+    y: pylonCenterY,
+    height: pylonHeight,
+    rot: Math.PI / 4,
+    walkable: false,
+  };
+  const footingCol: CourseCollider = {
+    id: 'spiral_pylon_footing',
+    x: SPIRAL_CONFIG.cx,
+    z: SPIRAL_CONFIG.cz,
+    hx: 0.40,
+    hz: 0.40,
+    y: ARENA_FLOOR_HEIGHT + 0.175,
+    height: 0.35,
+    rot: 0,
+    walkable: false,
+  };
+
+  // 1. None of the pylon colliders intrude on any active checkpoint gates
+  const clearance = validateRouteClearance([pylonColA, pylonColB, footingCol]);
+  assert.equal(clearance.valid, true, `spiral pylon must not intrude on checkpoints: ${clearance.issues.join(', ')}`);
+
+  // 2. Maximum outer radius of the octagonal pylon prism stays within 0.29m of center
+  const maxCornerDistA = Math.hypot(pylonColA.hx, pylonColA.hz);
+  const maxCornerDistB = Math.hypot(pylonColB.hx, pylonColB.hz);
+  assert.ok(maxCornerDistA <= 0.29, `pylon box A corners (${maxCornerDistA.toFixed(3)}m) must stay inside 0.29m`);
+  assert.ok(maxCornerDistB <= 0.29, `pylon box B corners (${maxCornerDistB.toFixed(3)}m) must stay inside 0.29m`);
+
+  // 3. Centerline driving radius (1.35m) leaves >= 1.05m clearance from pylon outer corner
+  const drivingClearance = SPIRAL_CONFIG.rCenter - maxCornerDistA;
+  assert.ok(drivingClearance >= 1.05, `centerline driving clearance (${drivingClearance.toFixed(2)}m) must be >= 1.05m`);
+
+  // 4. Ground entrance at x = -5.85 leaves >= 0.90m clearance from foundation footing plinth (x = -4.50, hx = 0.40)
+  const footingWestEdge = SPIRAL_CONFIG.cx - footingCol.hx; // -4.90m
+  const entranceDist = Math.abs(-5.85 - footingWestEdge); // 0.95m
+  assert.ok(entranceDist >= 0.90, `ground approach clearance (${entranceDist.toFixed(2)}m) must be >= 0.90m`);
+});
+

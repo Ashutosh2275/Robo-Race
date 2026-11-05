@@ -1031,27 +1031,102 @@ const hazardRevolvingBeacons: THREE.Group[] = [];
 function buildSpiralClimbingStructure() {
   const cfg = SPIRAL_CONFIG;
 
-  // 1. Single Central Vertical Stake (R = 0.20m, slender high-tensile steel pole - NOT a drum)
-  const stakeH = (cfg.yTop + 0.65) - ARENA_FLOOR_HEIGHT;
-  cyl(course, mats.stakeMetal, V(cfg.cx, ARENA_FLOOR_HEIGHT + stakeH / 2, cfg.cz), cfg.rInner, stakeH, 'y', 32);
-  // Heavy floor anchor collar
-  cyl(course, mats.stakeMetal, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.10, cfg.cz), cfg.rInner + 0.16, 0.20, 'y', 32);
-  // Aerodynamic cone summit stake cap
-  cyl(course, mats.stakeMetal, V(cfg.cx, cfg.yTop + 0.35, cfg.cz), cfg.rInner + 0.05, 0.08, 'y', 24);
-  const capGeo = new THREE.ConeGeometry(cfg.rInner, 0.30, 24);
-  const capMesh = new THREE.Mesh(capGeo, mats.stakeMetal);
-  capMesh.position.set(cfg.cx, cfg.yTop + 0.54, cfg.cz);
-  course.add(capMesh);
+  // 1. Heavy Engineered Central Core Pylon & Foundation Pier Assembly (cx = -4.50, cz = 0.00)
+  // Replaces the slender flagpole/spindle with an authentic heavy industrial structural pylon.
+  const pylonRadius = 0.25;
+  const pylonTopY = cfg.yTop + 0.25; // y = 3.45m (harmonious with summit safety parapets)
+  const pylonHeight = pylonTopY - ARENA_FLOOR_HEIGHT; // 3.78m total structural height
+  const pylonCenterY = ARENA_FLOOR_HEIGHT + pylonHeight / 2;
 
-  // Solid physical collision cylinder for the central steel stake (prevents robot from driving inside the pole)
+  // A. Heavy Reinforced Concrete Foundation Pedestal on Arena Floor
+  // Chamfered octagonal/circular concrete footing plinth anchoring the structure to the ground
+  cyl(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.175, cfg.cz), 0.52, 0.35, 'y', 32);
+  cyl(course, mats.concretePier, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.36, cfg.cz), 0.44, 0.06, 'y', 32);
+  // Heavy cast-steel anchor base plate
+  cyl(course, mats.metal, V(cfg.cx, ARENA_FLOOR_HEIGHT + 0.40, cfg.cz), 0.36, 0.04, 'y', 32);
+  for (let b = 0; b < 8; b++) {
+    const bTheta = (b * Math.PI) / 4;
+    const bx = cfg.cx + 0.31 * Math.cos(bTheta);
+    const bz = cfg.cz + 0.31 * Math.sin(bTheta);
+    cyl(course, mats.chrome, V(bx, ARENA_FLOOR_HEIGHT + 0.43, bz), 0.022, 0.04, 'y', 8);
+  }
+
+  // B. Main Heavy Structural Steel Core Column Shaft
+  cyl(course, mats.metal, V(cfg.cx, pylonCenterY, cfg.cz), pylonRadius, pylonHeight, 'y', 32);
+
+  // C. 8 Longitudinal Structural Steel T-Flange Stiffener Ribs along Pylon Shaft
+  for (let f = 0; f < 8; f++) {
+    const fTheta = (f * Math.PI) / 4;
+    const fx = cfg.cx + (pylonRadius + 0.018) * Math.cos(fTheta);
+    const fz = cfg.cz + (pylonRadius + 0.018) * Math.sin(fTheta);
+    box(course, mats.metal, V(fx, pylonCenterY, fz), V(0.038, pylonHeight, 0.024), fTheta, false);
+  }
+
+  // D. Circumferential Structural Mounting Collar Hubs with Bolted Flanges
+  // Positioned directly at the three cantilever truss attachment horizons
+  for (const hubY of [0.65, 1.85, 3.05]) {
+    cyl(course, mats.metal, V(cfg.cx, hubY, cfg.cz), pylonRadius + 0.05, 0.16, 'y', 32);
+    cyl(course, mats.concretePier, V(cfg.cx, hubY, cfg.cz), pylonRadius + 0.065, 0.04, 'y', 32);
+  }
+
+  // E. Summit Architectural Crown & Rotating Industrial Warning Beacon Station
+  // Cleanly terminates at summit elevation without weird mid-air collars or pointy needles:
+  const crownY = pylonTopY;
+  cyl(course, mats.metal, V(cfg.cx, crownY, cfg.cz), pylonRadius + 0.06, 0.08, 'y', 32);
+  cyl(course, mats.concretePier, V(cfg.cx, crownY + 0.05, cfg.cz), pylonRadius + 0.02, 0.04, 'y', 32);
+  // Machined beacon pedestal mount
+  cyl(course, mats.metal, V(cfg.cx, crownY + 0.11, cfg.cz), 0.14, 0.08, 'y', 24);
+  // Hazard warning strobe beacon
+  const spiralBeaconGroup = new THREE.Group();
+  spiralBeaconGroup.position.set(cfg.cx, crownY + 0.23, cfg.cz);
+  const spiralBeaconDome = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.16, 16), mats.beaconAmber);
+  spiralBeaconGroup.add(spiralBeaconDome);
+  const spiralBeaconReflector = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.12, 0.07), mats.yellow);
+  spiralBeaconGroup.add(spiralBeaconReflector);
+  // Protective steel beacon cage bars
+  for (let cb = 0; cb < 4; cb++) {
+    const cbAng = (cb * Math.PI) / 2;
+    const cax = 0.11 * Math.cos(cbAng);
+    const caz = 0.11 * Math.sin(cbAng);
+    cyl(course, mats.metal, V(cfg.cx + cax, crownY + 0.23, cfg.cz + caz), 0.012, 0.18, 'y', 8);
+  }
+  cyl(course, mats.metal, V(cfg.cx, crownY + 0.32, cfg.cz), 0.12, 0.02, 'y', 16);
+  course.add(spiralBeaconGroup);
+  hazardRevolvingBeacons.push(spiralBeaconGroup);
+
+  // F. Regular Octagonal Collider Prism (Snug 8-Sided Footprint - ZERO Lane Protrusion)
+  // Replaces the crude 28cm AABB whose 40cm diagonal corners protruded into the driving curve:
   colliders.push({
-    id: 'spiral_central_stake',
+    id: 'spiral_central_pylon_a',
     x: cfg.cx,
     z: cfg.cz,
-    hx: cfg.rInner + 0.08,
-    hz: cfg.rInner + 0.08,
-    y: ARENA_FLOOR_HEIGHT + stakeH / 2,
-    height: stakeH,
+    hx: 0.19,
+    hz: 0.19,
+    y: pylonCenterY,
+    height: pylonHeight,
+    rot: 0,
+    walkable: false,
+  });
+  colliders.push({
+    id: 'spiral_central_pylon_b',
+    x: cfg.cx,
+    z: cfg.cz,
+    hx: 0.19,
+    hz: 0.19,
+    y: pylonCenterY,
+    height: pylonHeight,
+    rot: Math.PI / 4,
+    walkable: false,
+  });
+  // Ground foundation footing collider (stays well clear of the approach road at x = -5.85)
+  colliders.push({
+    id: 'spiral_pylon_footing',
+    x: cfg.cx,
+    z: cfg.cz,
+    hx: 0.40,
+    hz: 0.40,
+    y: ARENA_FLOOR_HEIGHT + 0.175,
+    height: 0.35,
     rot: 0,
     walkable: false,
   });
@@ -1129,22 +1204,69 @@ function buildSpiralClimbingStructure() {
   course.add(rampMesh);
 
   // 12 Heavy Structural Steel Cantilever Outrigger Trusses supporting Spiral Ramp from Central Pylon
+  // Positioned cleanly BENEATH the 0.20m thick composite deck girder slab so they physically support it from below
   for (let b = 1; b <= 11; b++) {
     const t = b / 12;
     const theta = cfg.startAngle + t * totalAngle;
     const yDeck = cfg.yGround + t * (cfg.yTop - cfg.yGround);
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
-    const outX = cfg.cx + (cfg.rOuter - 0.20) * cosT;
-    const outZ = cfg.cz + (cfg.rOuter - 0.20) * sinT;
-    const inX = cfg.cx + (cfg.rInner + 0.05) * cosT;
-    const inZ = cfg.cz + (cfg.rInner + 0.05) * sinT;
+    const outX = cfg.cx + (cfg.rOuter - 0.18) * cosT;
+    const outZ = cfg.cz + (cfg.rOuter - 0.18) * sinT;
+    const inX = cfg.cx + (pylonRadius + 0.02) * cosT;
+    const inZ = cfg.cz + (pylonRadius + 0.02) * sinT;
 
-    // Horizontal structural steel cantilever outrigger arm
-    tubeBetween(V(inX, yDeck - 0.12, inZ), V(outX, yDeck - 0.12, outZ), 0.065, mats.metal);
-    // Diagonal gusset strut anchoring back to the central column
-    tubeBetween(V(inX, Math.max(ARENA_FLOOR_HEIGHT + 0.15, yDeck - 0.55), inZ), V(outX, yDeck - 0.12, outZ), 0.050, mats.metal);
+    // Horizontal structural steel cantilever outrigger arm supporting underside of 0.20m deck
+    const yUnderSlab = yDeck - 0.24;
+    tubeBetween(V(inX, yUnderSlab, inZ), V(outX, yUnderSlab, outZ), 0.065, mats.metal);
+    // Bolted end-cap bracket at outer deck rim
+    cyl(course, mats.concretePier, V(outX, yUnderSlab, outZ), 0.08, 0.14, 'y', 12);
+    // Diagonal structural gusset strut anchoring from pylon hub collar up to outrigger arm
+    const midX = inX * 0.35 + outX * 0.65;
+    const midZ = inZ * 0.35 + outZ * 0.65;
+    tubeBetween(V(inX, Math.max(ARENA_FLOOR_HEIGHT + 0.25, yUnderSlab - 0.48), inZ), V(midX, yUnderSlab, midZ), 0.050, mats.metal);
+    // Bolted mounting shoe at pylon connection
+    box(course, mats.metal, V(inX, yUnderSlab, inZ), V(0.08, 0.16, 0.08), -theta, false);
   }
+
+  // Inner continuous steel safety rub-rail along the helical pylon perimeter
+  // Keeps vehicle tracks safely guided away from pylon stiffener ribs and ensures a clean, polished inner joint
+  const innerKerbPositions: number[] = [];
+  const innerKerbIndices: number[] = [];
+  for (let s = 0; s <= segments; s++) {
+    const t = s / segments;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const yTopIn = yBase - 0.020;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const xBase = cfg.cx + (pylonRadius + 0.01) * cosT;
+    const zBase = cfg.cz + (pylonRadius + 0.01) * sinT;
+    const xIn = cfg.cx + (pylonRadius + 0.08) * cosT;
+    const zIn = cfg.cz + (pylonRadius + 0.08) * sinT;
+
+    innerKerbPositions.push(xBase, yTopIn, zBase);          // 0: base at pylon
+    innerKerbPositions.push(xBase, yTopIn + 0.14, zBase);   // 1: top at pylon
+    innerKerbPositions.push(xIn, yTopIn + 0.12, zIn);       // 2: top outer edge
+    innerKerbPositions.push(xIn, yTopIn - 0.04, zIn);       // 3: base at deck
+
+    if (s < segments) {
+      const b = s * 4;
+      const n = (s + 1) * 4;
+      // Front face
+      innerKerbIndices.push(b + 2, b + 3, n + 2, n + 2, b + 3, n + 3);
+      // Top face
+      innerKerbIndices.push(b + 1, b + 2, n + 1, n + 1, b + 2, n + 2);
+      // Back face
+      innerKerbIndices.push(b, b + 1, n, n, b + 1, n + 1);
+    }
+  }
+  const innerKerbGeo = new THREE.BufferGeometry();
+  innerKerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(innerKerbPositions, 3));
+  innerKerbGeo.setIndex(innerKerbIndices);
+  innerKerbGeo.computeVertexNormals();
+  const innerKerbMesh = new THREE.Mesh(innerKerbGeo, mats.metal);
+  course.add(innerKerbMesh);
 
   // Outer continuous concrete safety parapet wall (0.36m high) along the helical perimeter
   const kerbPositions: number[] = [];
