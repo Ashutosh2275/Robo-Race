@@ -1068,6 +1068,14 @@ export function validateRouteClearance(colliders: CourseCollider[], robotWidth =
     const cpZ = cp.z * MAP_SCALE;
     for (const c of colliders) {
       if (c.walkable) continue;
+      // 3D vertical elevation clearance: under-deck piers or ground objects below an elevated gate do not obstruct it
+      if (cp.elevation !== undefined) {
+        const gateBottom = cp.elevation - 0.20;
+        const gateTop = cp.elevation + 2.00;
+        const colliderBottom = c.y - c.height / 2;
+        const colliderTop = c.y + c.height / 2;
+        if (colliderTop < gateBottom || colliderBottom > gateTop) continue;
+      }
       const dx = cpX - c.x * MAP_SCALE;
       const dz = cpZ - c.z * MAP_SCALE;
       const dist = Math.hypot(dx, dz);

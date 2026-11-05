@@ -1179,6 +1179,38 @@ function buildSpiralClimbingStructure() {
   const dX1 = cfg.descentX1; // 10.45
   const dWidth = cfg.descentWidth; // 2.30m matching roadWidth
   slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.08, mats.cardboard);
+
+  // Solid under-deck abutment bulkhead beneath the summit transition at x = 3.45
+  box(course, mats.concretePier, V(dX0, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.20) / 2, cfg.descentZ), V(0.36, (cfg.yTop - 0.20) - ARENA_FLOOR_HEIGHT, dWidth));
+  colliders.push({
+    id: 'spiral_descent_abutment_under',
+    x: dX0,
+    z: cfg.descentZ,
+    hx: 0.22,
+    hz: dWidth / 2,
+    y: (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.35) / 2,
+    height: (cfg.yTop - 0.35) - ARENA_FLOOR_HEIGHT,
+    rot: 0,
+    walkable: false,
+  });
+
+  // Solid under-deck flank colliders beneath descending ramp (prevents ground bots wedging under descending deck)
+  const descUnderLen = 8.50 - dX0; // 5.05m
+  const descUnderMidX = (dX0 + 8.50) / 2; // 5.975m
+  for (const side of [-1, 1]) {
+    const zFlank = cfg.descentZ + side * (dWidth / 2 + 0.10);
+    colliders.push({
+      id: `spiral_descent_under_flank_${side > 0 ? 'north' : 'south'}`,
+      x: descUnderMidX,
+      z: zFlank,
+      hx: descUnderLen / 2,
+      hz: 0.14,
+      y: (ARENA_FLOOR_HEIGHT + 1.60) / 2,
+      height: 1.60 - ARENA_FLOOR_HEIGHT,
+      rot: 0,
+      walkable: false,
+    });
+  }
 }
 
 
@@ -1243,6 +1275,18 @@ for (const x of [9.5, 10.5, 11.5]) {
   for (const side of [-1, 1]) {
     box(course, mats.concretePier, V(x, ARENA_FLOOR_HEIGHT + 0.18, 6.75 + side * 1.05), V(0.68, 0.36, 0.68));
   }
+  // Solid obstacle collider for timber pier bent under climbing hill deck
+  colliders.push({
+    id: `climbing_hill_pier_bent_${x}`,
+    x: x,
+    z: 6.75,
+    hx: 0.25,
+    hz: (DRIVE_ROUTE_WIDTH - 0.5) / 2,
+    y: (ARENA_FLOOR_HEIGHT + deckBottom - 0.20) / 2,
+    height: (deckBottom - 0.20) - ARENA_FLOOR_HEIGHT,
+    rot: 0,
+    walkable: false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1313,6 +1357,17 @@ for (const side of [-1, 1]) {
 for (const px of pCfg.ballPositionsX) {
   cyl(course, mats.metal, V(px, (ARENA_FLOOR_HEIGHT + pCfg.deckY) / 2, pCfg.zLane), 0.12, pCfg.deckY - ARENA_FLOOR_HEIGHT, 'y');
   box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.10, pCfg.zLane), V(0.50, 0.20, 0.50));
+  colliders.push({
+    id: `catwalk_bridge_under_pier_${px}`,
+    x: px,
+    z: pCfg.zLane,
+    hx: 0.28,
+    hz: 0.28,
+    y: (ARENA_FLOOR_HEIGHT + pCfg.deckY - 0.30) / 2,
+    height: (pCfg.deckY - 0.30) - ARENA_FLOOR_HEIGHT,
+    rot: 0,
+    walkable: false,
+  });
 }
 
 // 4. Descent Ramp (x in [3.8, 5.5]): Westbound vehicle descends from 1.35m to ground -0.33m
@@ -1543,6 +1598,54 @@ for (let o = 0; o < 4; o++) {
   const oRimZ = TURNTABLE_CENTER.z + 2.30 * Math.sin(oAngle);
   tubeBetween(V(TURNTABLE_CENTER.x, ARENA_FLOOR_HEIGHT + 0.40, TURNTABLE_CENTER.z), V(oRimX, ttY - 0.08, oRimZ), 0.10, mats.metal);
 }
+
+// Solid non-walkable colliders for Turntable structural column and base footing pad
+// Vertical envelope: arena floor to underside of elevated turntable superstructure (ttY - 0.35m = 2.85m)
+const pierColHeight = (ttY - 0.35) - ARENA_FLOOR_HEIGHT;
+colliders.push({
+  id: 'turntable_pier_footing',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z,
+  hx: 1.15,
+  hz: 1.15,
+  y: ARENA_FLOOR_HEIGHT + 0.25,
+  height: 0.50,
+  rot: 0,
+  walkable: false,
+});
+colliders.push({
+  id: 'turntable_pier_footing_diag',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z,
+  hx: 1.15,
+  hz: 1.15,
+  y: ARENA_FLOOR_HEIGHT + 0.25,
+  height: 0.50,
+  rot: Math.PI / 4,
+  walkable: false,
+});
+colliders.push({
+  id: 'turntable_pier_column',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z,
+  hx: 0.82,
+  hz: 0.82,
+  y: ARENA_FLOOR_HEIGHT + pierColHeight / 2,
+  height: pierColHeight,
+  rot: 0,
+  walkable: false,
+});
+colliders.push({
+  id: 'turntable_pier_column_oct45',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z,
+  hx: 0.82,
+  hz: 0.82,
+  y: ARENA_FLOOR_HEIGHT + pierColHeight / 2,
+  height: pierColHeight,
+  rot: Math.PI / 4,
+  walkable: false,
+});
 
 // 4D Animated Directional Chasing Chevron Signs along Hairpin Curves
 const chevronSignArrows: THREE.Mesh[] = [];
@@ -2376,6 +2479,17 @@ for (const fx of [-12.0, 0.0, 12.0]) {
   cyl(course, mats.metal, V(fx, ARENA_FLOOR_HEIGHT + 3.0, pz), 0.12, 6.0, 'y');
   box(course, mats.concretePier, V(fx, ARENA_FLOOR_HEIGHT + 0.35, pz), V(0.9, 0.7, 0.9));
   box(course, mats.yellow, V(fx, ARENA_FLOOR_HEIGHT + 5.9, pz), V(1.4, 0.18, 0.35), 0, false);
+  colliders.push({
+    id: `floodlight_base_${fx}`,
+    x: fx,
+    z: pz,
+    hx: 0.48,
+    hz: 0.48,
+    y: ARENA_FLOOR_HEIGHT + 0.35,
+    height: 0.70,
+    rot: 0,
+    walkable: false,
+  });
   const towerLight = new THREE.DirectionalLight('#fff0d4', 0.85);
   towerLight.position.set(fx, ARENA_FLOOR_HEIGHT + 6.0, pz);
   towerLight.target.position.set(fx, ROUTE_DECK_HEIGHT, 0.0);
@@ -3998,7 +4112,11 @@ function collidesWithBarrier(x: number, z: number, y: number) {
 (window as unknown as Record<string, unknown>).__setCameraPose = (cx: number, cy: number, cz: number, tx: number, ty: number, tz: number) => {
   (window as unknown as Record<string, unknown>).__overrideCamera = { cx, cy, cz, tx, ty, tz };
 };
-(window as unknown as Record<string, unknown>).__teleportRobot = (x: number, z: number, yaw: number) => {
+(window as unknown as Record<string, unknown>).__setRaceState = (state: string) => {
+  raceState = state as any;
+  if (state === 'racing') hideOverlays();
+};
+(window as unknown as Record<string, unknown>).__teleportRobot = (x: number, z: number, yaw: number, targetY?: number) => {
   motionState.x = x;
   motionState.z = z;
   motionState.yaw = yaw;
@@ -4008,8 +4126,12 @@ function collidesWithBarrier(x: number, z: number, y: number) {
   pose.x = x;
   pose.z = z;
   pose.yaw = yaw;
-  const groundY = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE);
-  pose.y = groundY - 0.05;
+  if (targetY !== undefined) {
+    pose.y = targetY;
+  } else {
+    const groundY = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, pose.y);
+    pose.y = groundY - 0.05;
+  }
   pose.vx = 0;
   pose.vz = 0;
   pose.yawRate = 0;
@@ -4034,6 +4156,7 @@ function stepPhysics(dt: number) {
     getActiveTrack,
     raceState,
     countdown,
+    setRaceState: (state: string) => { raceState = state as any; },
     pose,
     motionState,
     subsystems,
@@ -4155,7 +4278,8 @@ function stepPhysics(dt: number) {
 
   // Genuine Motorized Mechanical Turntable Surface Interaction
   // (transfers tangential deck velocity, yaw torque, and centrifugal drift to robot tracks)
-  if (!pose.isFlipped) {
+  // CRITICAL FIX: Only apply when vehicle is actually elevated ON the turntable deck (y >= 1.50m)
+  if (!pose.isFlipped && pose.y >= 1.50) {
     const ttResult = applyTurntableSurfaceInteraction(
       motionState.x,
       motionState.z,
