@@ -346,7 +346,7 @@ test('Lane 4 Dual Hanging Suspension Bridges: ascent ramp, 10m suspended deck, a
 });
 
 test('turntable pier and base footing colliders provide solid ground barrier while leaving summit deck clear', () => {
-  const pierColHeight = (SPIRAL_CONFIG.yTop - 0.35) - ARENA_FLOOR_HEIGHT;
+  const pierColHeight = 1.90;
   const pierCollider: CourseCollider = {
     id: 'turntable_pier_column',
     x: 1.0,
@@ -374,9 +374,9 @@ test('turntable pier and base footing colliders provide solid ground barrier whi
   const clearance = validateRouteClearance([pierCollider, footingCollider]);
   assert.equal(clearance.valid, true, `pier and footing must not intrude on checkpoints: ${clearance.issues.join(', ')}`);
 
-  // 2. Pier column top (2.85m) is below elevated summit deck (3.20m) by >= 0.30m
+  // 2. Pier column top (1.57m) is below elevated summit deck (3.20m) by >= 1.50m
   const pierTop = pierCollider.y + pierCollider.height / 2;
-  assert.ok(pierTop <= SPIRAL_CONFIG.yTop - 0.30, `pier top (${pierTop.toFixed(2)}m) must leave clearance under summit deck (${SPIRAL_CONFIG.yTop}m)`);
+  assert.ok(pierTop <= SPIRAL_CONFIG.yTop - 1.50, `pier top (${pierTop.toFixed(2)}m) must leave clearance under summit deck (${SPIRAL_CONFIG.yTop}m)`);
 
   // 3. Ground-level bot contact (y = -0.33m) overlaps vertical barrier envelope of footing and column
   const groundBotBottom = ARENA_FLOOR_HEIGHT - 0.05;

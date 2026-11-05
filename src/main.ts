@@ -1564,19 +1564,19 @@ for (let ar = 0; ar < 8; ar++) {
   discGroup.add(arrowMesh);
 }
 
-// 3. Heavy Industrial Center Bearing Spindle Hub
-cyl(discGroup, mats.metal, V(0, 0.055, 0), 0.55, 0.042, 'y', 36);
-cyl(discGroup, mats.chrome, V(0, 0.082, 0), 0.38, 0.035, 'y', 32);
-cyl(discGroup, mats.wheel, V(0, 0.105, 0), 0.24, 0.030, 'y', 24);
+// 3. Heavy Industrial Center Bearing Spindle Hub (sleek low-profile flush bearing plate)
+cyl(discGroup, mats.metal, V(0, 0.024, 0), 0.55, 0.016, 'y', 36);
+cyl(discGroup, mats.chrome, V(0, 0.032, 0), 0.38, 0.014, 'y', 32);
+cyl(discGroup, mats.wheel, V(0, 0.039, 0), 0.24, 0.012, 'y', 24);
 // 16 Chrome hex bolts in bolt circle (R = 0.44m)
 for (let b = 0; b < 16; b++) {
   const bt = b * Math.PI / 8;
-  cyl(discGroup, mats.metal, V(Math.sin(bt) * 0.44, 0.085, Math.cos(bt) * 0.44), 0.026, 0.03, 'y', 8);
+  cyl(discGroup, mats.metal, V(Math.sin(bt) * 0.44, 0.035, Math.cos(bt) * 0.44), 0.026, 0.014, 'y', 8);
 }
-// Central rotary slip-ring beacon housing
-cyl(discGroup, mats.metal, V(0, 0.135, 0), 0.12, 0.05, 'y', 16);
-const discCenterBeacon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.10, 16), mats.beaconAmber);
-discCenterBeacon.position.set(0, 0.19, 0);
+// Central rotary slip-ring beacon housing (sleek low profile, flush with deck)
+cyl(discGroup, mats.metal, V(0, 0.046, 0), 0.12, 0.016, 'y', 16);
+const discCenterBeacon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.025, 16), mats.beaconAmber);
+discCenterBeacon.position.set(0, 0.058, 0);
 discGroup.add(discCenterBeacon);
 
 // 8 Embedded rotating amber navigation markers at platter perimeter (R = 2.32m)
@@ -1600,8 +1600,9 @@ for (let o = 0; o < 4; o++) {
 }
 
 // Solid non-walkable colliders for Turntable structural column and base footing pad
-// Vertical envelope: arena floor to underside of elevated turntable superstructure (ttY - 0.35m = 2.85m)
-const pierColHeight = (ttY - 0.35) - ARENA_FLOOR_HEIGHT;
+// Vertical envelope: arena floor (-0.33m) to y = 1.57m (height = 1.90m)
+// Solid barrier against ground vehicles on Lane 3, while leaving a 1.63m clear air gap below summit deck (3.20m)
+const pierColHeight = 1.90;
 colliders.push({
   id: 'turntable_pier_footing',
   x: TURNTABLE_CENTER.x,
@@ -1646,6 +1647,74 @@ colliders.push({
   rot: Math.PI / 4,
   walkable: false,
 });
+
+// 5. Heavy Concrete Safety Parapets on Elevated Turntable Rooftop Deck
+// Prevents centrifugal or tangential slide off the elevated deck while keeping approach & descent corridors open
+// North Safety Parapet (z = +2.70m, span x in [-1.60, 3.60])
+box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ttY + 0.18, TURNTABLE_CENTER.z + 2.70), V(5.20, 0.36, 0.28));
+box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.38, TURNTABLE_CENTER.z + 2.70), V(5.20, 0.04, 0.30), 0, false);
+colliders.push({
+  id: 'turntable_north_parapet',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z + 2.70,
+  hx: 2.60,
+  hz: 0.14,
+  y: ttY + 0.20,
+  height: 0.40,
+  rot: 0,
+  walkable: false,
+});
+
+// South Safety Parapet (z = -2.70m, span x in [-1.60, 3.60])
+box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ttY + 0.18, TURNTABLE_CENTER.z - 2.70), V(5.20, 0.36, 0.28));
+box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.38, TURNTABLE_CENTER.z - 2.70), V(5.20, 0.04, 0.30), 0, false);
+colliders.push({
+  id: 'turntable_south_parapet',
+  x: TURNTABLE_CENTER.x,
+  z: TURNTABLE_CENTER.z - 2.70,
+  hx: 2.60,
+  hz: 0.14,
+  y: ttY + 0.20,
+  height: 0.40,
+  rot: 0,
+  walkable: false,
+});
+
+// West Return Parapets (flanking Approach Bridge opening at x = -1.55m, |z| in [1.25, 2.65])
+for (const side of [-1, 1]) {
+  const zRet = side * 1.95;
+  box(course, mats.concretePier, V(-1.55, ttY + 0.18, zRet), V(0.24, 0.36, 1.40));
+  box(course, mats.yellow, V(-1.55, ttY + 0.38, zRet), V(0.26, 0.04, 1.40), 0, false);
+  colliders.push({
+    id: `turntable_west_return_${side > 0 ? 'north' : 'south'}`,
+    x: -1.55,
+    z: zRet,
+    hx: 0.12,
+    hz: 0.70,
+    y: ttY + 0.20,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+}
+
+// East Return Parapets (flanking Descent Ramp opening at x = 3.55m, |z| in [1.25, 2.65])
+for (const side of [-1, 1]) {
+  const zRet = side * 1.95;
+  box(course, mats.concretePier, V(3.55, ttY + 0.18, zRet), V(0.24, 0.36, 1.40));
+  box(course, mats.yellow, V(3.55, ttY + 0.38, zRet), V(0.26, 0.04, 1.40), 0, false);
+  colliders.push({
+    id: `turntable_east_return_${side > 0 ? 'north' : 'south'}`,
+    x: 3.55,
+    z: zRet,
+    hx: 0.12,
+    hz: 0.70,
+    y: ttY + 0.20,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+}
 
 // 4D Animated Directional Chasing Chevron Signs along Hairpin Curves
 const chevronSignArrows: THREE.Mesh[] = [];

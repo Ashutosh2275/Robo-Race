@@ -158,6 +158,14 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
   const dz = z - SPIRAL_CONFIG.cz;
   const dist = Math.hypot(dx, dz);
 
+  // 1. Elevated Turntable Platter & Foundation Deck (5.6m x 5.6m centered at x=1.0, z=0.0)
+  // Evaluated first for elevated vehicles (poseY > 1.30m) so rotating platter surface is 100% solid and continuous
+  const inTurntableEnvelope = Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z) <= (TURNTABLE_RADIUS + 0.80)
+    || (x >= -1.60 && x <= 4.20 && Math.abs(z - TURNTABLE_CENTER.z) <= 3.80);
+  if (inTurntableEnvelope && poseY > 1.30) {
+    return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
+  }
+
   // Ground approach lane west of spiral perimeter (x <= -7.00, |z| <= 2.50 at ground grade)
   if (poseY < 0.60 && x <= (SPIRAL_CONFIG.cx - SPIRAL_CONFIG.rOuter) && Math.abs(dz) <= 2.50) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
@@ -214,14 +222,15 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
   }
 
-  // 5. Elevated Summit Bridge & Turntable Platter Viaduct: x in [-3.45, 3.45]
+  // 5. Approach Bridge Viaduct (x in [-3.45, -1.45]) and Ground Grade under Turntable
   const isApproachBridge = x >= -3.45 && x < -1.45 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.roadWidth / 2 + 0.25;
-  const isTurntableDeck = x >= -1.45 && x < SPIRAL_CONFIG.descentX0 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.deckWidthZ / 2;
-  if (isApproachBridge || isTurntableDeck) {
+  if (isApproachBridge) {
     if (poseY > 1.30) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
-    // Ground-level bot under the elevated turntable deck stays firmly on the ground!
+    return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
+  }
+  if (inTurntableEnvelope) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
   }
 
