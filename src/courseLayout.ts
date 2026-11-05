@@ -166,6 +166,18 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
   }
 
+  // Elevated Summit Approach Bridge & Flared Transition Apron (x in [-3.55, -1.45])
+  // Supports elevated vehicles (poseY > 1.50m) crossing from spiral climb to turntable
+  // In the southern quadrant (z >= -0.15m), overrides the lower helical tier (h <= 2.02m) so bridge is 100% solid
+  if (poseY > 1.50) {
+    if (x >= -2.10 && x < -1.45 && Math.abs(z) <= 1.45) {
+      return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
+    }
+    if (x >= -3.55 && x < -2.10 && z >= -0.15 && z <= 1.45) {
+      return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
+    }
+  }
+
   // Ground approach lane west of spiral perimeter (x <= -7.00, |z| <= 2.50 at ground grade)
   if (poseY < 0.60 && x <= (SPIRAL_CONFIG.cx - SPIRAL_CONFIG.rOuter) && Math.abs(dz) <= 2.50) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };

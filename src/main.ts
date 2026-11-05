@@ -1065,8 +1065,8 @@ function buildSpiralClimbingStructure() {
   // Smooth flush approach plate leading directly onto the continuous helical cardboard deck
   box(course, mats.diamondPlate, V(-6.30, ARENA_FLOOR_HEIGHT + 0.008, 0.00), V(0.90, 0.012, cfg.roadWidth), 0, false);
 
-  // 4. Compact Rotated Cardboard Ribbon Climbing Surface (144 Segments over 1.5 turns, 540 degrees)
-  // Continuous cantilevered spiral around central stake. ZERO under-deck pillars or pier bents.
+  // 4. Heavy Engineered Composite Spiral Climbing Surface (144 Segments over 1.5 turns, 540 degrees)
+  // Continuous cantilevered spiral around central stake with structural steel bracket trusses.
   // Climbs from ground entrance (y = -0.33m at x = -5.60, z = 0.0) up to summit (y = 3.20m at x = -3.40, z = 0.0)
   const segments = 144;
   const positions: number[] = [];
@@ -1085,8 +1085,8 @@ function buildSpiralClimbingStructure() {
 
     const yTopIn = yBase + camberInner;
     const yTopOut = yBase + camberOuter;
-    const yBotIn = yTopIn - 0.08; // Sturdy 8cm structural composite deck girder
-    const yBotOut = yTopOut - 0.08;
+    const yBotIn = yTopIn - 0.20; // Massive 20cm heavy structural composite deck girder
+    const yBotOut = yTopOut - 0.20;
 
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
@@ -1109,11 +1109,11 @@ function buildSpiralClimbingStructure() {
     if (s < segments) {
       const b = s * 4;
       const n = (s + 1) * 4;
-      // Top cardboard driving deck
+      // Top high-traction driving deck
       indices.push(b, n, b + 1, b + 1, n, n + 1);
-      // Outer vertical cardboard edge ply
+      // Outer vertical concrete edge girder
       indices.push(b + 1, n + 1, b + 2, b + 2, n + 1, n + 2);
-      // Bottom underside cardboard
+      // Bottom reinforced underside
       indices.push(b + 2, n + 2, b + 3, b + 3, n + 2, n + 3);
       // Inner vertical edge at stake
       indices.push(b + 3, n + 3, b, b, n + 3, n);
@@ -1125,11 +1125,29 @@ function buildSpiralClimbingStructure() {
   rampGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   rampGeo.setIndex(indices);
   rampGeo.computeVertexNormals();
-  const rampMesh = new THREE.Mesh(rampGeo, mats.cardboard);
+  const rampMesh = new THREE.Mesh(rampGeo, mats.diamondPlate);
   rampMesh.receiveShadow = true;
   course.add(rampMesh);
 
-  // Outer continuous cardboard safety lip along the helical perimeter
+  // 12 Heavy Structural Steel Cantilever Outrigger Trusses supporting Spiral Ramp from Central Pylon
+  for (let b = 1; b <= 11; b++) {
+    const t = b / 12;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yDeck = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const outX = cfg.cx + (cfg.rOuter - 0.20) * cosT;
+    const outZ = cfg.cz + (cfg.rOuter - 0.20) * sinT;
+    const inX = cfg.cx + (cfg.rInner + 0.05) * cosT;
+    const inZ = cfg.cz + (cfg.rInner + 0.05) * sinT;
+
+    // Horizontal structural steel cantilever outrigger arm
+    tubeBetween(V(inX, yDeck - 0.12, inZ), V(outX, yDeck - 0.12, outZ), 0.065, mats.metal);
+    // Diagonal gusset strut anchoring back to the central column
+    tubeBetween(V(inX, Math.max(ARENA_FLOOR_HEIGHT + 0.15, yDeck - 0.55), inZ), V(outX, yDeck - 0.12, outZ), 0.050, mats.metal);
+  }
+
+  // Outer continuous concrete safety parapet wall (0.36m high) along the helical perimeter
   const kerbPositions: number[] = [];
   const kerbIndices: number[] = [];
   for (let s = 0; s <= segments; s++) {
@@ -1141,13 +1159,13 @@ function buildSpiralClimbingStructure() {
     const sinT = Math.sin(theta);
     const xBase = cfg.cx + cfg.rOuter * cosT;
     const zBase = cfg.cz + cfg.rOuter * sinT;
-    const xOut = cfg.cx + (cfg.rOuter + 0.06) * cosT;
-    const zOut = cfg.cz + (cfg.rOuter + 0.06) * sinT;
+    const xOut = cfg.cx + (cfg.rOuter + 0.14) * cosT;
+    const zOut = cfg.cz + (cfg.rOuter + 0.14) * sinT;
 
     kerbPositions.push(xBase, yTopOut, zBase);          // 0: base inner
-    kerbPositions.push(xBase, yTopOut + 0.12, zBase);   // 1: top inner
-    kerbPositions.push(xOut, yTopOut + 0.12, zOut);    // 2: top outer
-    kerbPositions.push(xOut, yTopOut - 0.06, zOut);    // 3: base outer
+    kerbPositions.push(xBase, yTopOut + 0.36, zBase);   // 1: top inner
+    kerbPositions.push(xOut, yTopOut + 0.36, zOut);    // 2: top outer
+    kerbPositions.push(xOut, yTopOut - 0.15, zOut);    // 3: base outer
 
     if (s < segments) {
       const b = s * 4;
@@ -1164,21 +1182,160 @@ function buildSpiralClimbingStructure() {
   kerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(kerbPositions, 3));
   kerbGeo.setIndex(kerbIndices);
   kerbGeo.computeVertexNormals();
-  const kerbMesh = new THREE.Mesh(kerbGeo, mats.yellow);
+  const kerbMesh = new THREE.Mesh(kerbGeo, mats.concretePier);
   course.add(kerbMesh);
 
-  // 5. Elevated Approach Bridge connecting Spiral Summit (x = -3.15) to Turntable Deck (x = -1.45)
-  // Continuous 2.30m wide cantilevered cardboard deck at y = 3.20m
-  box(course, mats.cardboard, V(-2.30, cfg.yTop - 0.03, 0.0), V(2.30, 0.06, cfg.roadWidth));
-  // Beveled transition plate
-  box(course, mats.yellow, V(-3.15, cfg.yTop + 0.006, 0.0), V(0.12, 0.008, cfg.roadWidth), 0, false);
+  // High-visibility yellow warning cap on outer parapet
+  for (let s = 0; s < 12; s++) {
+    const t = (s + 0.5) / 12;
+    const theta = cfg.startAngle + t * totalAngle;
+    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const cxP = cfg.cx + (cfg.rOuter + 0.07) * cosT;
+    const czP = cfg.cz + (cfg.rOuter + 0.07) * sinT;
+    box(course, s % 2 === 0 ? mats.yellow : mats.black, V(cxP, yBase + 0.39, czP), V(0.55, 0.03, 0.16), -theta, false);
+  }
+
+  // 5. Flared Summit Transition Apron & Fully Engineered Viaduct Approach Bridge
+  // Continuous heavy reinforced concrete deck connecting Spiral Summit (x = -3.55) to Turntable Deck (x = -1.45)
+  // Monolithic concrete deck slab (thickness 0.35m, width 2.60m)
+  box(course, mats.concretePier, V(-2.50, cfg.yTop - 0.175, 0.0), V(2.10, 0.35, 2.60));
+  // High-traction diamond plate driving surface flush with summit elevation (y = 3.20m)
+  box(course, mats.diamondPlate, V(-2.50, cfg.yTop + 0.005, 0.0), V(2.10, 0.015, 2.30));
+  // Yellow race track centerline stripe
+  box(course, mats.laneStripeYellow, V(-2.50, cfg.yTop + 0.012, 0.0), V(2.10, 0.006, 0.12), 0, false);
+
+  // Transition apron deck wedge at spiral exit joint (x in [-3.75, -3.45])
+  box(course, mats.concretePier, V(-3.60, cfg.yTop - 0.175, 0.0), V(0.30, 0.35, 2.70));
+  box(course, mats.diamondPlate, V(-3.60, cfg.yTop + 0.005, 0.0), V(0.30, 0.015, 2.45));
+  box(course, mats.yellow, V(-3.55, cfg.yTop + 0.014, 0.0), V(0.10, 0.006, 2.30), 0, false);
+
+  // Dual heavy longitudinal steel wide-flange I-beam girders underneath approach bridge
+  box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, 0.95), V(2.10, 0.20, 0.18));
+  box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, -0.95), V(2.10, 0.20, 0.18));
+
+  // Solid reinforced concrete support column bent under approach bridge
+  cyl(course, mats.concretePier, V(-2.50, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.48) / 2, 0.0), 0.50, (cfg.yTop - 0.48) - ARENA_FLOOR_HEIGHT, 'y', 24);
+  box(course, mats.concretePier, V(-2.50, ARENA_FLOOR_HEIGHT + 0.25, 0.0), V(1.60, 0.50, 1.60));
+  colliders.push({
+    id: 'spiral_approach_under_pier',
+    x: -2.50,
+    z: 0.0,
+    hx: 0.32,
+    hz: 0.92,
+    y: ARENA_FLOOR_HEIGHT + 0.95,
+    height: 1.90,
+    rot: 0,
+    walkable: false,
+  });
+
+  // Solid concrete safety parapets along North and South edges of the approach bridge
+  // North Parapet (z = +1.30m, span x in [-3.55, -1.45])
+  box(course, mats.concretePier, V(-2.50, cfg.yTop + 0.18, 1.30), V(2.10, 0.36, 0.26));
+  box(course, mats.yellow, V(-2.50, cfg.yTop + 0.38, 1.30), V(2.10, 0.04, 0.28), 0, false);
+  colliders.push({
+    id: 'spiral_approach_parapet_north',
+    x: -2.50,
+    z: 1.30,
+    hx: 1.05,
+    hz: 0.14,
+    y: cfg.yTop + 0.20,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+
+  // South Parapet (z = -1.30m, span x in [-3.55, -1.45])
+  box(course, mats.concretePier, V(-2.50, cfg.yTop + 0.18, -1.30), V(2.10, 0.36, 0.26));
+  box(course, mats.yellow, V(-2.50, cfg.yTop + 0.38, -1.30), V(2.10, 0.04, 0.28), 0, false);
+  colliders.push({
+    id: 'spiral_approach_parapet_south',
+    x: -2.50,
+    z: -1.30,
+    hx: 1.05,
+    hz: 0.14,
+    y: cfg.yTop + 0.20,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+
+  // Cast-steel bullnose crash attenuators at west approach entrances
+  cyl(course, mats.metal, V(-3.55, cfg.yTop + 0.20, 1.30), 0.16, 0.40, 'y', 16);
+  cyl(course, mats.yellow, V(-3.55, cfg.yTop + 0.40, 1.30), 0.18, 0.06, 'y', 16);
+  cyl(course, mats.metal, V(-3.55, cfg.yTop + 0.20, -1.30), 0.16, 0.40, 'y', 16);
+  cyl(course, mats.yellow, V(-3.55, cfg.yTop + 0.40, -1.30), 0.18, 0.06, 'y', 16);
 
   // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
-  // Continuous downhill sloped deck. NO pier bents or clutter underneath!
+  // High-traction diamond plate deck with concrete under-girder slab and continuous flank parapets
   const dX0 = cfg.descentX0; // 3.45
   const dX1 = cfg.descentX1; // 10.45
   const dWidth = cfg.descentWidth; // 2.30m matching roadWidth
-  slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.08, mats.cardboard);
+  slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.16, mats.diamondPlate);
+  slopedDeck('spiral_descent_stripe', dX0, dX1, cfg.descentZ, 0.12, cfg.yTop + 0.006, cfg.yGround + 0.006, 0.006, mats.laneStripeYellow);
+
+  // Concrete safety parapet curbs along both North and South flanks of the descending ramp
+  for (const side of [-1, 1]) {
+    const zP = cfg.descentZ + side * 1.30;
+    const segCount = 7;
+    const segW = (dX1 - dX0) / segCount;
+    for (let i = 0; i < segCount; i++) {
+      const segX0 = dX0 + i * segW;
+      const segX1 = segX0 + segW;
+      const midX = (segX0 + segX1) / 2;
+      const tMid = (midX - dX0) / (dX1 - dX0);
+      const yMid = cfg.yTop - tMid * (cfg.yTop - cfg.yGround);
+      box(course, mats.concretePier, V(midX, yMid + 0.18, zP), V(segW + 0.04, 0.36, 0.26));
+      box(course, i % 2 === 0 ? mats.yellow : mats.black, V(midX, yMid + 0.38, zP), V(segW + 0.04, 0.04, 0.28), 0, false);
+    }
+  }
+
+  // Segmented colliders along the descending ramp
+  colliders.push({
+    id: 'spiral_descent_parapet_n0',
+    x: 5.20,
+    z: 1.30,
+    hx: 1.65,
+    hz: 0.14,
+    y: 2.45,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+  colliders.push({
+    id: 'spiral_descent_parapet_s0',
+    x: 5.20,
+    z: -1.30,
+    hx: 1.65,
+    hz: 0.14,
+    y: 2.45,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+  colliders.push({
+    id: 'spiral_descent_parapet_n1',
+    x: 8.70,
+    z: 1.30,
+    hx: 1.65,
+    hz: 0.14,
+    y: 0.65,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+  colliders.push({
+    id: 'spiral_descent_parapet_s1',
+    x: 8.70,
+    z: -1.30,
+    hx: 1.65,
+    hz: 0.14,
+    y: 0.65,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
 
   // Solid under-deck abutment bulkhead beneath the summit transition at x = 3.45
   box(course, mats.concretePier, V(dX0, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.20) / 2, cfg.descentZ), V(0.36, (cfg.yTop - 0.20) - ARENA_FLOOR_HEIGHT, dWidth));
