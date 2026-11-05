@@ -484,15 +484,6 @@ export const WATER_POOLS: WaterPoolConfig[] = [
     waterLevelY: 0.16,
     bedLevelY: -0.30,
   },
-  // Lane 2: Legacy Mid-South Water Basin
-  {
-    xMin: -9.5,
-    xMax: 1.5,
-    zCenter: 6.75,
-    width: 4.40,
-    waterLevelY: 0.16,
-    bedLevelY: -0.30,
-  },
 ];
 
 export const WATER_POOL_CONFIG: WaterPoolConfig = WATER_POOLS[0];

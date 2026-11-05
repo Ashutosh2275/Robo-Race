@@ -753,8 +753,7 @@ function createRouteRibbon(
     // Suppress highway road markings inside off-road rock quarry, hazard zones, and motorized turntable
     const inTurntable = Math.hypot(p.x - TURNTABLE_CENTER.x, p.z - TURNTABLE_CENTER.z) <= TURNTABLE_RADIUS + 0.15;
     const inRockField = p.x >= 6.0 && p.x <= 14.5 && Math.abs(p.z - 13.50) <= 2.2;
-    const inHazardZone = p.x >= -9.5 && p.x <= 6.5 && Math.abs(p.z - 6.75) <= 2.2;
-    const suppressMarkings = inRockField || inHazardZone || inTurntable;
+    const suppressMarkings = inRockField || inTurntable;
     const centerY = evaluateCourseHeight(p.x, p.z);
 
     if (withSkirts) {
@@ -1390,61 +1389,10 @@ for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
 buildSpiralClimbingStructure();
 
 // ---------------------------------------------------------------------------
-// SECTION 4: Climbing Section & Zigzag Hill on Lane 2 (Z = 6.75, X in [6.5, 14.5])
+// SECTION 4: Lane 2 Ground Technical Straight (Z = 6.75, X in [-17.5, 17.5])
+// Fully engineered continuous asphalt road corridor with parapets, centerline,
+// and the Section 8 polished steel sheet obstacle leading to Gate 04.
 // ---------------------------------------------------------------------------
-// Ascent from x = 14.5 down to 11.5, climbing from ROUTE_DECK_HEIGHT (0.67m) to summit (1.85m)
-// Summit crest shelf at x in [9.5, 11.5] at 1.85m elevation
-// Descent ramp from x = 9.5 down to 6.5, descending smoothly from 1.85m to fire platform (0.38m)
-const hillPlankCount = 32;
-for (let p = 0; p < hillPlankCount; p++) {
-  const step = 8.0 / hillPlankCount;
-  const x0 = 6.5 + p * step;
-  const x1 = Math.min(14.5, x0 + step + 0.02);
-  slopedDeck(`climb_hill_plank_${p}`, x0, x1, 6.75, DRIVE_ROUTE_WIDTH,
-    evaluateCourseHeight(x0, 6.75), evaluateCourseHeight(x1, 6.75), 0.09, mats.wood);
-}
-// Physical colliders for the climbing hill
-colliders.push({ id: 'climb_hill_ascent', x: 13.0, z: 6.75, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 0.59, height: 1.18, rot: 0, walkable: true });
-colliders.push({ id: 'climb_hill_summit', x: 10.5, z: 6.75, hx: 1.0, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 1.18, height: 0.22, rot: 0, walkable: true });
-colliders.push({ id: 'climb_hill_descent', x: 8.0, z: 6.75, hx: 1.5, hz: DRIVE_ROUTE_WIDTH / 2, y: (ROUTE_DECK_HEIGHT + 1.18 + 0.38) / 2, height: (ROUTE_DECK_HEIGHT + 1.18 - 0.38), rot: 0, walkable: true });
-
-// Heavy continuous engineered safety parapets following the hill elevation profile
-for (const side of [-1, 1]) {
-  const zWall = 6.75 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.12);
-  const wallSegments = 24;
-  const segW = 8.0 / wallSegments;
-  for (let p = 0; p < wallSegments; p++) {
-    const px = 6.5 + (p + 0.5) * segW;
-    const deckY = evaluateCourseHeight(px, 6.75);
-    solidBox(`hill_barrier_${side}_${p}`, px, zWall, segW + 0.04, 0.16, 0.36, mats.concretePier, 0, deckY + 0.18);
-    box(course, mats.yellow, V(px, deckY + 0.37, zWall), V(segW + 0.04, 0.03, 0.18), 0, false);
-    if (p % 3 === 0) {
-      box(course, side === 1 ? mats.red : mats.laneStripeWhite, V(px, deckY + 0.22, zWall - side * 0.09), V(0.06, 0.06, 0.02), 0, false);
-    }
-  }
-}
-
-// Heavy structural timber pier bents supporting the climbing hill summit crown
-for (const x of [9.5, 10.5, 11.5]) {
-  const deckBottom = evaluateCourseHeight(x, 6.75) - 0.09;
-  const legHeight = Math.max(0.12, deckBottom - ARENA_FLOOR_HEIGHT);
-  box(course, mats.concretePier, V(x, ARENA_FLOOR_HEIGHT + legHeight / 2, 6.75), V(0.42, legHeight, DRIVE_ROUTE_WIDTH - 0.5));
-  for (const side of [-1, 1]) {
-    box(course, mats.concretePier, V(x, ARENA_FLOOR_HEIGHT + 0.18, 6.75 + side * 1.05), V(0.68, 0.36, 0.68));
-  }
-  // Solid obstacle collider for timber pier bent under climbing hill deck
-  colliders.push({
-    id: `climbing_hill_pier_bent_${x}`,
-    x: x,
-    z: 6.75,
-    hx: 0.25,
-    hz: (DRIVE_ROUTE_WIDTH - 0.5) / 2,
-    y: (ARENA_FLOOR_HEIGHT + deckBottom - 0.20) / 2,
-    height: (deckBottom - 0.20) - ARENA_FLOOR_HEIGHT,
-    rot: 0,
-    walkable: false,
-  });
-}
 
 // ---------------------------------------------------------------------------
 // SECTION 5A: Swinging Pendulum Gauntlet on Lane 4 (Z = -6.75, X in [3.8, 16.2])
