@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { TRACK_LENGTH } from './vehicleDynamics.ts';
 import {
   evaluateCourseHeight,
   evaluateCourseSurface,
@@ -285,58 +286,61 @@ test('validateRouteClearance catches any collider placed inside a checkpoint gat
   assert.equal(blockedResult.valid, false);
 });
 
-test('Lane 4 Swinging Pendulum Gauntlet: compressed 1.45m bridge catwalk, 1.35m elevated deck, counter-swinging balls with gaps, and edge fall-off', () => {
-  assert.equal(PENDULUM_CONFIG.deckWidth, 1.45, 'compressed bridge width should be 1.45m (~1.24x robot width)');
+test('Lane 4 Swinging Pendulum Gauntlet: comfortable 2.00m catwalk bridge, 1.35m elevated deck, counter-swinging balls with 2.25x bot length gaps, and edge fall-off', () => {
+  assert.equal(PENDULUM_CONFIG.deckWidth, 2.00, 'catwalk bridge width should be 2.00m');
   assert.equal(PENDULUM_CONFIG.deckY, 1.35, 'elevated bridge deck height should be 1.35m');
   assert.equal(PENDULUM_CONFIG.ballPositionsX.length, 3, 'should feature 3 swinging pendulum balls');
 
-  // Verify clear gaps between balls are 1.5 times the length/diameter of a ball
+  // Verify clear gaps between balls are ~2.25 times the bot length (1.70m world / 1.3 = 1.308m course)
   const ballDiameter = PENDULUM_CONFIG.ballRadius * 2;
+  const botLengthCourse = TRACK_LENGTH / MAP_SCALE; // ~1.308m
   const gap12 = Math.abs(PENDULUM_CONFIG.ballPositionsX[0] - PENDULUM_CONFIG.ballPositionsX[1]) - ballDiameter;
   const gap23 = Math.abs(PENDULUM_CONFIG.ballPositionsX[1] - PENDULUM_CONFIG.ballPositionsX[2]) - ballDiameter;
-  assert.ok(Math.abs(gap12 - 1.5 * ballDiameter) < 0.01, `gap between Ball 1 & 2 (${gap12.toFixed(2)}m) must be 1.5x ball diameter (${(1.5 * ballDiameter).toFixed(2)}m)`);
-  assert.ok(Math.abs(gap23 - 1.5 * ballDiameter) < 0.01, `gap between Ball 2 & 3 (${gap23.toFixed(2)}m) must be 1.5x ball diameter (${(1.5 * ballDiameter).toFixed(2)}m)`);
+  const ratio12 = gap12 / botLengthCourse;
+  const ratio23 = gap23 / botLengthCourse;
+  assert.ok(Math.abs(ratio12 - 2.25) < 0.05, `gap between Ball 1 & 2 (${gap12.toFixed(2)}m) must be ~2.25x bot length (${(2.25 * botLengthCourse).toFixed(2)}m), got ${ratio12.toFixed(2)}x`);
+  assert.ok(Math.abs(ratio23 - 2.25) < 0.05, `gap between Ball 2 & 3 (${gap23.toFixed(2)}m) must be ~2.25x bot length (${(2.25 * botLengthCourse).toFixed(2)}m), got ${ratio23.toFixed(2)}x`);
 
   // Verify parallel and opposite swing phase: Ball 1 and 3 in phase (parallel), Ball 2 in anti-phase (opposite)
   assert.equal(PENDULUM_CONFIG.phaseOffsets[0], PENDULUM_CONFIG.phaseOffsets[2], 'Ball 1 and Ball 3 must swing parallelly in phase');
   const phaseDiff12 = Math.abs(PENDULUM_CONFIG.phaseOffsets[1] - PENDULUM_CONFIG.phaseOffsets[0]);
   assert.ok(Math.abs(phaseDiff12 - Math.PI) < 0.01, 'Ball 2 (middle) must swing opposite to Ball 1 and 3');
 
-  // Entrance at Gate 09 (x = 14.50, z = -6.75) is ground level
-  const hEntry = evaluateCourseHeight(14.50, -6.75);
+  // Entrance before ascent ramp (x = 16.20, z = -6.75) is ground level
+  const hEntry = evaluateCourseHeight(16.20, -6.75);
   assert.ok(Math.abs(hEntry - GROUND_DECK_HEIGHT) < 0.02);
 
-  // Midway up the ascent ramp (x = 13.50, z = -6.75)
-  const hAscent = evaluateCourseHeight(13.50, -6.75);
+  // Midway up the ascent ramp (x = 15.35, z = -6.75)
+  const hAscent = evaluateCourseHeight(15.35, -6.75);
   assert.ok(hAscent > GROUND_DECK_HEIGHT + 0.30 && hAscent < PENDULUM_CONFIG.deckY);
 
-  // Center of narrow elevated deck (x = 10.50, z = -6.75)
-  const hDeckCenter = evaluateCourseHeight(10.50, -6.75, PENDULUM_CONFIG.deckY);
+  // Center of elevated catwalk deck (x = 10.00, z = -6.75)
+  const hDeckCenter = evaluateCourseHeight(10.00, -6.75, PENDULUM_CONFIG.deckY);
   assert.ok(Math.abs(hDeckCenter - PENDULUM_CONFIG.deckY) < 0.02);
 
-  // Falling off the edge: lateral distance > 0.725m (deckWidth / 2)
-  const hFallenOff = evaluateCourseHeight(10.50, -6.75 + 0.85, PENDULUM_CONFIG.deckY);
-  assert.equal(hFallenOff, ARENA_FLOOR_HEIGHT, 'drifting beyond 1.45m narrow bridge deck edge must drop to arena floor');
+  // Falling off the edge: lateral distance > 1.00m (deckWidth / 2)
+  const hFallenOff = evaluateCourseHeight(10.00, -6.75 + 1.15, PENDULUM_CONFIG.deckY);
+  assert.equal(hFallenOff, ARENA_FLOOR_HEIGHT, 'drifting beyond 2.00m catwalk bridge deck edge must drop to arena floor');
 
-  // Exit ramp touchdown (x = 6.50, z = -6.75) is ground level
-  const hExit = evaluateCourseHeight(6.50, -6.75);
+  // Exit ramp touchdown (x = 3.80, z = -6.75) is ground level
+  const hExit = evaluateCourseHeight(3.80, -6.75);
   assert.ok(Math.abs(hExit - GROUND_DECK_HEIGHT) < 0.02);
 });
 
-test('Lane 4 Dual Hanging Suspension Bridges: ascent ramp, 11m suspended deck, and descent ramp', () => {
-  // Approach ramp start at ground (x = 5.50, z = -6.75)
-  const hRampStart = evaluateCourseHeight(5.50, -6.75);
+test('Lane 4 Dual Hanging Suspension Bridges: ascent ramp, 10m suspended deck, and descent ramp', () => {
+  // Approach ramp start at ground (x = 2.40, z = -6.75)
+  const hRampStart = evaluateCourseHeight(2.40, -6.75);
   assert.ok(Math.abs(hRampStart - GROUND_DECK_HEIGHT) < 0.02);
 
-  // Top of ascent ramp / East tower (x = 3.50, z = -6.75)
-  const hEastTower = evaluateCourseHeight(3.50, -6.75);
+  // Top of ascent ramp / East tower (x = 0.80, z = -6.75)
+  const hEastTower = evaluateCourseHeight(0.80, -6.75);
   assert.ok(Math.abs(hEastTower - HANGING_BRIDGE_CONFIG.deckY) < 0.02);
 
   // Suspended bridge span midpoint with authentic catenary deflection
-  const hBridgeMid = evaluateCourseHeight(0.75, -6.75, HANGING_BRIDGE_CONFIG.deckY);
+  const hBridgeMid = evaluateCourseHeight(-1.70, -6.75, HANGING_BRIDGE_CONFIG.deckY);
   assert.ok(hBridgeMid <= HANGING_BRIDGE_CONFIG.deckY && hBridgeMid >= HANGING_BRIDGE_CONFIG.deckY - 0.05);
 
-  // Descent ramp touchdown at ground (x = -9.50, z = -6.75)
-  const hExit = evaluateCourseHeight(-9.50, -6.75);
+  // Descent ramp touchdown at ground (x = -10.80, z = -6.75)
+  const hExit = evaluateCourseHeight(-10.80, -6.75);
   assert.ok(Math.abs(hExit - GROUND_DECK_HEIGHT) < 0.02);
 });
