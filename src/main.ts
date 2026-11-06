@@ -1336,20 +1336,11 @@ function buildSpiralClimbingStructure() {
   box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, 0.95), V(2.10, 0.20, 0.18));
   box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, -0.95), V(2.10, 0.20, 0.18));
 
-  // Solid reinforced concrete support column bent under approach bridge
-  cyl(course, mats.concretePier, V(-2.50, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.48) / 2, 0.0), 0.50, (cfg.yTop - 0.48) - ARENA_FLOOR_HEIGHT, 'y', 24);
-  box(course, mats.concretePier, V(-2.50, ARENA_FLOOR_HEIGHT + 0.25, 0.0), V(1.60, 0.50, 1.60));
-  colliders.push({
-    id: 'spiral_approach_under_pier',
-    x: -2.50,
-    z: 0.0,
-    hx: 0.32,
-    hz: 0.92,
-    y: ARENA_FLOOR_HEIGHT + 0.95,
-    height: 1.90,
-    rot: 0,
-    walkable: false,
-  });
+  // Transverse cross-tie steel beams under approach bridge deck (provides authentic structural support
+  // while maintaining full 1.95m vertical headroom over the lower helical ramp underneath)
+  for (const cx of [-3.10, -2.50, -1.90]) {
+    box(course, mats.metal, V(cx, cfg.yTop - 0.38, 0.0), V(0.12, 0.16, 1.90));
+  }
 
   // Solid concrete safety parapets along North and South edges of the approach bridge
   // North Parapet (z = +1.30m, span x in [-3.55, -1.45])
