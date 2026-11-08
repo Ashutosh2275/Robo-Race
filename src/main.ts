@@ -1229,44 +1229,6 @@ function buildSpiralClimbingStructure() {
     box(course, mats.metal, V(inX, yUnderSlab, inZ), V(0.08, 0.16, 0.08), -theta, false);
   }
 
-  // Inner continuous steel safety rub-rail along the helical pylon perimeter
-  // Keeps vehicle tracks safely guided away from pylon stiffener ribs and ensures a clean, polished inner joint
-  const innerKerbPositions: number[] = [];
-  const innerKerbIndices: number[] = [];
-  for (let s = 0; s <= segments; s++) {
-    const t = s / segments;
-    const theta = cfg.startAngle + t * totalAngle;
-    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const yTopIn = yBase - 0.020;
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-    const xBase = cfg.cx + (pylonRadius + 0.01) * cosT;
-    const zBase = cfg.cz + (pylonRadius + 0.01) * sinT;
-    const xIn = cfg.cx + (pylonRadius + 0.08) * cosT;
-    const zIn = cfg.cz + (pylonRadius + 0.08) * sinT;
-
-    innerKerbPositions.push(xBase, yTopIn, zBase);          // 0: base at pylon
-    innerKerbPositions.push(xBase, yTopIn + 0.14, zBase);   // 1: top at pylon
-    innerKerbPositions.push(xIn, yTopIn + 0.12, zIn);       // 2: top outer edge
-    innerKerbPositions.push(xIn, yTopIn - 0.04, zIn);       // 3: base at deck
-
-    if (s < segments) {
-      const b = s * 4;
-      const n = (s + 1) * 4;
-      // Front face
-      innerKerbIndices.push(b + 2, b + 3, n + 2, n + 2, b + 3, n + 3);
-      // Top face
-      innerKerbIndices.push(b + 1, b + 2, n + 1, n + 1, b + 2, n + 2);
-      // Back face
-      innerKerbIndices.push(b, b + 1, n, n, b + 1, n + 1);
-    }
-  }
-  const innerKerbGeo = new THREE.BufferGeometry();
-  innerKerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(innerKerbPositions, 3));
-  innerKerbGeo.setIndex(innerKerbIndices);
-  innerKerbGeo.computeVertexNormals();
-  const innerKerbMesh = new THREE.Mesh(innerKerbGeo, mats.metal);
-  course.add(innerKerbMesh);
 
   // Outer continuous concrete safety parapet wall (0.36m high) along the helical perimeter
   const kerbPositions: number[] = [];
@@ -1319,53 +1281,45 @@ function buildSpiralClimbingStructure() {
   }
 
   // 5. Flared Summit Transition Apron & Fully Engineered Viaduct Approach Bridge
-  // Continuous heavy reinforced concrete deck connecting Spiral Summit (x = -3.55) to Turntable Deck (x = -1.45)
-  // Monolithic concrete deck slab (thickness 0.35m, width 2.60m)
-  box(course, mats.concretePier, V(-2.50, cfg.yTop - 0.175, 0.0), V(2.10, 0.35, 2.60));
+  // Continuous heavy reinforced concrete deck connecting Spiral Summit (x = -4.25) to Turntable Deck (x = -1.45)
+  // Monolithic concrete deck slab (thickness 0.35m, width 2.60m, span x in [-4.25, -1.45])
+  box(course, mats.concretePier, V(-2.85, cfg.yTop - 0.175, 0.0), V(2.80, 0.35, 2.60));
   // High-traction diamond plate driving surface flush with summit elevation (y = 3.20m)
-  box(course, mats.diamondPlate, V(-2.50, cfg.yTop + 0.005, 0.0), V(2.10, 0.015, 2.30));
+  box(course, mats.diamondPlate, V(-2.85, cfg.yTop + 0.005, 0.0), V(2.80, 0.015, 2.30));
   // Yellow race track centerline stripe
-  box(course, mats.laneStripeYellow, V(-2.50, cfg.yTop + 0.012, 0.0), V(2.10, 0.006, 0.12), 0, false);
+  box(course, mats.laneStripeYellow, V(-2.85, cfg.yTop + 0.012, 0.0), V(2.80, 0.006, 0.12), 0, false);
 
-  // Transition apron deck wedge at spiral exit joint (x in [-3.75, -3.45])
-  box(course, mats.concretePier, V(-3.60, cfg.yTop - 0.175, 0.0), V(0.30, 0.35, 2.70));
-  box(course, mats.diamondPlate, V(-3.60, cfg.yTop + 0.005, 0.0), V(0.30, 0.015, 2.45));
-  box(course, mats.yellow, V(-3.55, cfg.yTop + 0.014, 0.0), V(0.10, 0.006, 2.30), 0, false);
+  // Transition apron deck wedge at spiral exit inner joint (x in [-4.35, -4.10])
+  box(course, mats.concretePier, V(-4.225, cfg.yTop - 0.175, 0.0), V(0.25, 0.35, 2.60));
+  box(course, mats.diamondPlate, V(-4.225, cfg.yTop + 0.005, 0.0), V(0.25, 0.015, 2.30));
 
   // Dual heavy longitudinal steel wide-flange I-beam girders underneath approach bridge
-  box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, 0.95), V(2.10, 0.20, 0.18));
-  box(course, mats.metal, V(-2.50, cfg.yTop - 0.38, -0.95), V(2.10, 0.20, 0.18));
+  box(course, mats.metal, V(-2.85, cfg.yTop - 0.38, 0.95), V(2.80, 0.20, 0.18));
+  box(course, mats.metal, V(-2.85, cfg.yTop - 0.38, -0.95), V(2.80, 0.20, 0.18));
 
   // Transverse cross-tie steel beams under approach bridge deck (provides authentic structural support
   // while maintaining full 1.95m vertical headroom over the lower helical ramp underneath)
-  for (const cx of [-3.10, -2.50, -1.90]) {
+  for (const cx of [-3.90, -3.30, -2.70, -2.10, -1.60]) {
     box(course, mats.metal, V(cx, cfg.yTop - 0.38, 0.0), V(0.12, 0.16, 1.90));
   }
 
-  // Solid concrete safety parapets along North and South edges of the approach bridge
-  // North Parapet (z = +1.30m, span x in [-3.55, -1.45])
-  box(course, mats.concretePier, V(-2.50, cfg.yTop + 0.18, 1.30), V(2.10, 0.36, 0.26));
-  box(course, mats.yellow, V(-2.50, cfg.yTop + 0.38, 1.30), V(2.10, 0.04, 0.28), 0, false);
-  colliders.push({
-    id: 'spiral_approach_parapet_north',
-    x: -2.50,
-    z: 1.30,
-    hx: 1.05,
-    hz: 0.14,
-    y: cfg.yTop + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
+  // Dual concrete support columns at x = -1.65m outside the spiral footprint (where no lower ramp exists below)
+  for (const sideZ of [-0.95, 0.95]) {
+    cyl(course, mats.concretePier, V(-1.65, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.38) / 2, sideZ), 0.18, (cfg.yTop - 0.38) - ARENA_FLOOR_HEIGHT, 'y', 24);
+    box(course, mats.concretePier, V(-1.65, ARENA_FLOOR_HEIGHT + 0.15, sideZ), V(0.55, 0.30, 0.55));
+  }
+  // Transverse concrete crosshead beam tying the columns together under the longitudinal I-beams
+  box(course, mats.concretePier, V(-1.65, cfg.yTop - 0.44, 0.0), V(0.36, 0.16, 2.20));
 
-  // South Parapet (z = -1.30m, span x in [-3.55, -1.45])
-  box(course, mats.concretePier, V(-2.50, cfg.yTop + 0.18, -1.30), V(2.10, 0.36, 0.26));
-  box(course, mats.yellow, V(-2.50, cfg.yTop + 0.38, -1.30), V(2.10, 0.04, 0.28), 0, false);
+  // Solid concrete safety parapets along North and South edges of the approach bridge
+  // South Parapet (z = +1.30m, continuous span x in [-4.25, -1.45])
+  box(course, mats.concretePier, V(-2.85, cfg.yTop + 0.18, 1.30), V(2.80, 0.36, 0.26));
+  box(course, mats.yellow, V(-2.85, cfg.yTop + 0.38, 1.30), V(2.80, 0.04, 0.28), 0, false);
   colliders.push({
     id: 'spiral_approach_parapet_south',
-    x: -2.50,
-    z: -1.30,
-    hx: 1.05,
+    x: -2.85,
+    z: 1.30,
+    hx: 1.40,
     hz: 0.14,
     y: cfg.yTop + 0.20,
     height: 0.40,
@@ -1373,11 +1327,26 @@ function buildSpiralClimbingStructure() {
     walkable: false,
   });
 
-  // Cast-steel bullnose crash attenuators at west approach entrances
-  cyl(course, mats.metal, V(-3.55, cfg.yTop + 0.20, 1.30), 0.16, 0.40, 'y', 16);
-  cyl(course, mats.yellow, V(-3.55, cfg.yTop + 0.40, 1.30), 0.18, 0.06, 'y', 16);
-  cyl(course, mats.metal, V(-3.55, cfg.yTop + 0.20, -1.30), 0.16, 0.40, 'y', 16);
-  cyl(course, mats.yellow, V(-3.55, cfg.yTop + 0.40, -1.30), 0.18, 0.06, 'y', 16);
+  // North Parapet (z = -1.30m, span x in [-2.10, -1.45], meeting spiral outer kerb with zero obstruction to climb)
+  box(course, mats.concretePier, V(-1.775, cfg.yTop + 0.18, -1.30), V(0.65, 0.36, 0.26));
+  box(course, mats.yellow, V(-1.775, cfg.yTop + 0.38, -1.30), V(0.65, 0.04, 0.28), 0, false);
+  colliders.push({
+    id: 'spiral_approach_parapet_north',
+    x: -1.775,
+    z: -1.30,
+    hx: 0.325,
+    hz: 0.14,
+    y: cfg.yTop + 0.20,
+    height: 0.40,
+    rot: 0,
+    walkable: false,
+  });
+
+  // Cast-steel bullnose crash attenuators at bridge approach entrances
+  cyl(course, mats.metal, V(-4.25, cfg.yTop + 0.20, 1.30), 0.16, 0.40, 'y', 16);
+  cyl(course, mats.yellow, V(-4.25, cfg.yTop + 0.40, 1.30), 0.18, 0.06, 'y', 16);
+  cyl(course, mats.metal, V(-2.10, cfg.yTop + 0.20, -1.30), 0.16, 0.40, 'y', 16);
+  cyl(course, mats.yellow, V(-2.10, cfg.yTop + 0.40, -1.30), 0.18, 0.06, 'y', 16);
 
   // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
   // High-traction diamond plate deck with concrete under-girder slab and continuous flank parapets
@@ -4421,9 +4390,17 @@ function collidesWithBarrier(x: number, z: number, y: number) {
   }
   pose.vx = 0;
   pose.vz = 0;
+  pose.vy = 0;
   pose.yawRate = 0;
   pose.pitch = 0;
   pose.roll = 0;
+  pose.pitchRate = 0;
+  pose.rollRate = 0;
+  pose.isFlipped = false;
+  pose.flippedTimer = 0;
+  pose.sideDropTime = 0;
+  pose.endDropTime = 0;
+  previousRacePosition = { x, z };
 };
 
 function stepPhysics(dt: number) {
@@ -4431,50 +4408,6 @@ function stepPhysics(dt: number) {
   const targetTurntableOmega = getTurntableOmega(config.difficulty as 'Beginner' | 'Intermediate' | 'Advanced' | 'Pro');
   turntableCurrentOmega += (targetTurntableOmega - turntableCurrentOmega) * (1 - Math.exp(-dt * 3.5));
   discGroup.rotation.y += turntableCurrentOmega * dt;
-
-  // Debug hook for automated verification
-  (window as unknown as Record<string, unknown>).__gameDebug = {
-    track: getActiveTrack().id,
-    trackName: getActiveTrack().name,
-    setTrack: (id: TrackId) => {
-      setActiveTrack(id);
-      displayToast(`TRACK: ${getActiveTrack().name.toUpperCase()}`);
-    },
-    getActiveTrack,
-    raceState,
-    countdown,
-    setRaceState: (state: string) => { raceState = state as any; },
-    pose,
-    motionState,
-    subsystems,
-    currentCheckpoint,
-    setPose: (newX: number, newZ: number, newYaw?: number) => {
-      pose.x = newX;
-      pose.z = newZ;
-      if (newYaw !== undefined) pose.yaw = newYaw;
-      motionState.x = newX;
-      motionState.z = newZ;
-      if (newYaw !== undefined) motionState.yaw = newYaw;
-      previousRacePosition = { x: newX, z: newZ };
-    },
-    setCurrentCheckpoint: (cp: number) => {
-      currentCheckpoint = cp;
-      checkpointMeshes.forEach((checkpoint, i) => {
-        checkpoint.passed = i < currentCheckpoint;
-        (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
-      });
-    },
-    getCurrentCheckpoint: () => currentCheckpoint,
-    routeClearanceAudit,
-    slalomClearanceAudit,
-    lastBarrierCollision,
-    turntableOmega: turntableCurrentOmega,
-    turntableRadius: TURNTABLE_RADIUS,
-    groundContact: {
-      terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y),
-      trackBottomY: pose.y + TRACK_CONTACT_OFFSET,
-    },
-  };
 
   // Continuous R Key Hold for Full Race Restart
   if (rKeyPressed) {
@@ -4831,6 +4764,14 @@ function stepPhysics(dt: number) {
 
   // Debug hook for automated verification
   (window as unknown as Record<string, unknown>).__gameDebug = {
+    track: getActiveTrack().id,
+    trackName: getActiveTrack().name,
+    setTrack: (id: TrackId) => {
+      setActiveTrack(id);
+      displayToast(`TRACK: ${getActiveTrack().name.toUpperCase()}`);
+    },
+    getActiveTrack,
+    evaluateCourseHeight: (x: number, z: number, y?: number) => evaluateCourseHeight(x, z, y),
     raceState,
     countdown,
     pose,

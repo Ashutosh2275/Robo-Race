@@ -159,21 +159,26 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
   const dist = Math.hypot(dx, dz);
 
   // 1. Elevated Turntable Platter & Foundation Deck (5.6m x 5.6m centered at x=1.0, z=0.0)
-  // Evaluated first for elevated vehicles (poseY > 1.30m) so rotating platter surface is 100% solid and continuous
+  // Evaluated first for elevated vehicles (poseY > 2.00m) so rotating platter surface is 100% solid and continuous
   const inTurntableEnvelope = Math.hypot(x - TURNTABLE_CENTER.x, z - TURNTABLE_CENTER.z) <= (TURNTABLE_RADIUS + 0.80)
     || (x >= -1.60 && x <= 4.20 && Math.abs(z - TURNTABLE_CENTER.z) <= 3.80);
-  if (inTurntableEnvelope && poseY > 1.30) {
+  if (inTurntableEnvelope && poseY > 2.00) {
     return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
   }
 
   // Elevated Summit Approach Bridge & Flared Transition Apron (x in [-3.55, -1.45])
-  // Supports elevated vehicles (poseY > 1.50m) crossing from spiral climb to turntable
-  // In the southern quadrant (z >= -0.15m), overrides the lower helical tier (h <= 2.02m) so bridge is 100% solid
-  if (poseY > 1.50) {
-    if (x >= -2.10 && x < -1.45 && Math.abs(z) <= 1.45) {
+  // Supports elevated vehicles (poseY > 2.20m) crossing from spiral climb to turntable
+  if (poseY > 2.20) {
+    // A. Full bridge span between spiral outer envelope (x = -2.10) and turntable (x = -1.45) across full deck width
+    if (x >= -2.10 && x <= -1.45 && Math.abs(z - SPIRAL_CONFIG.cz) <= 1.35) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
-    if (x >= -3.55 && x < -2.10 && z >= -0.15 && z <= 1.45) {
+    // B. Summit bridge deck in southern quadrant (where lower tier is 2m below)
+    if (x >= -3.55 && x < -2.10 && (z - SPIRAL_CONFIG.cz) >= 0 && (z - SPIRAL_CONFIG.cz) <= 1.35) {
+      return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
+    }
+    // C. Angled bridge boundary transitioning from helical exit into northern bridge half
+    if (x >= -3.15 && x < -2.10 && (z - SPIRAL_CONFIG.cz) < 0 && (z - SPIRAL_CONFIG.cz) >= -1.25 * (x + 3.15)) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
   }
@@ -210,9 +215,9 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     const t = Math.max(0, Math.min(1, totalBeta / (3 * Math.PI)));
     let h = SPIRAL_CONFIG.yGround + t * (SPIRAL_CONFIG.yTop - SPIRAL_CONFIG.yGround);
 
-    // Ground-level bot under the elevated spiral tiers stays firmly on the ground (-0.33m)
-    // Only vehicles within active climbing range are supported on the helical ramp
-    if (poseY < 0 && poseY < h - 0.50 && h > SPIRAL_CONFIG.yGround + 0.35) {
+    // Ground-level vehicles underneath elevated tiers stay firmly on the floor (-0.33m)
+    // Vehicles within active climbing range are always supported on the ramp surface
+    if (poseY < 0.10 && h > 0.45 && poseY < h - 0.50) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
     }
 
@@ -237,7 +242,7 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
   // 5. Approach Bridge Viaduct (x in [-3.45, -1.45]) and Ground Grade under Turntable
   const isApproachBridge = x >= -3.45 && x < -1.45 && Math.abs(z - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.roadWidth / 2 + 0.25;
   if (isApproachBridge) {
-    if (poseY > 1.30) {
+    if (poseY > 2.20) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
     return { inSpiral: true, height: SPIRAL_CONFIG.yGround, grip: 1.15 };
