@@ -166,19 +166,19 @@ export function evaluateSpiralRamp(x: number, z: number, poseY = 0): { inSpiral:
     return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
   }
 
-  // Elevated Summit Approach Bridge & Flared Transition Apron (x in [-3.55, -1.45])
+  // Elevated Summit Approach Bridge & Flared Transition Apron (x in [-3.25, -1.45])
   // Supports elevated vehicles (poseY > 2.20m) crossing from spiral climb to turntable
   if (poseY > 2.20) {
-    // A. Full bridge span between spiral outer envelope (x = -2.10) and turntable (x = -1.45) across full deck width
-    if (x >= -2.10 && x <= -1.45 && Math.abs(z - SPIRAL_CONFIG.cz) <= 1.35) {
+    // A. Full bridge span between spiral transition (x = -2.35) and turntable (x = -1.45) across full deck width
+    if (x >= -2.35 && x <= -1.45 && Math.abs(z - SPIRAL_CONFIG.cz) <= 1.35) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
-    // B. Summit bridge deck in southern quadrant (where lower tier is 2m below)
-    if (x >= -3.55 && x < -2.10 && (z - SPIRAL_CONFIG.cz) >= 0 && (z - SPIRAL_CONFIG.cz) <= 1.35) {
+    // B. Flared apron transition in southern quadrant matching chamfered wingwall (x in [-3.25, -2.35], z in [0, zSouth])
+    if (x >= -3.25 && x < -2.35 && (z - SPIRAL_CONFIG.cz) >= 0 && (z - SPIRAL_CONFIG.cz) <= (1.25 - 0.82 * (-(x + 2.35)) + 0.15)) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
     // C. Angled bridge boundary transitioning from helical exit into northern bridge half
-    if (x >= -3.15 && x < -2.10 && (z - SPIRAL_CONFIG.cz) < 0 && (z - SPIRAL_CONFIG.cz) >= -1.25 * (x + 3.15)) {
+    if (x >= -3.15 && x < -2.35 && (z - SPIRAL_CONFIG.cz) < 0 && (z - SPIRAL_CONFIG.cz) >= -1.25 * (x + 3.15)) {
       return { inSpiral: true, height: SPIRAL_CONFIG.yTop, grip: 1.05 };
     }
   }
