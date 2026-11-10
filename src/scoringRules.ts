@@ -339,8 +339,10 @@ export function classifyFallZone(localX: number, localZ: number, localY: number)
   if (Math.abs(localZ - (-13.50)) <= DRIVE_ROUTE_WIDTH * 0.5 + 0.15 && localX >= 0.5 && localX <= 9.5 && localY < 0.05) {
     return 'water_basin';
   }
-  if (localY > GROUND_DECK_HEIGHT + 0.25) return 'elevated_deck';
-  if (localY >= GROUND_DECK_HEIGHT - 0.12) return 'lower_track';
+  if (isLocalPointWithinBoundaryLines(localX, localZ, localY)) {
+    if (localY > GROUND_DECK_HEIGHT + 0.25) return 'elevated_deck';
+    return 'lower_track';
+  }
   return 'arena_floor';
 }
 
@@ -352,6 +354,23 @@ export function classifyFallOrigin(localX: number, localZ: number, peakY: number
   return 'track_edge';
 }
 
+/**
+ * Computes velocity component pressing perpendicularly into a sloped surface.
+ * Downhill sliding / ramp-aligned landings cancel vertical drop rate against slope run.
+ */
+export function computeSlopeNormalImpactMps(
+  verticalImpactMps: number,
+  vx: number,
+  vz: number,
+  slopeGx: number,
+  slopeGz: number,
+): number {
+  const down = Math.max(0, verticalImpactMps);
+  const norm = Math.sqrt(slopeGx * slopeGx + slopeGz * slopeGz + 1);
+  const rawNormal = (down + slopeGx * vx + slopeGz * vz) / norm;
+  return Math.max(0, Math.min(down, rawNormal));
+}
+
 export type FallEvaluationInput = {
   dropHeightM: number;
   impactSpeedMps: number;
@@ -359,10 +378,20 @@ export type FallEvaluationInput = {
   landingPlace: FallLandingPlace;
   originZone: FallOriginZone;
   isInverted: boolean;
+  /** Optional surface gradient dh/dx and dh/dz (world units) at the landing spot. */
+  slopeGx?: number;
+  slopeGz?: number;
+  /** Optional planar velocity (m/s) at touchdown for slope-parallel slide cancellation. */
+  vx?: number;
+  vz?: number;
+  /** True when plunging off an elevated overhang cliff (e.g. upper spiral/turntable onto ground below). */
+  isOverhangPlunge?: boolean;
 };
 
 export type FallOutcome = {
   significantFall: boolean;
+  isOnTrackDescent: boolean;
+  normalImpactMps: number;
   effectiveImpactMps: number;
   chassisDamageFactor: number;
   batteryShockPct: number;
@@ -371,14 +400,68 @@ export type FallOutcome = {
 };
 
 /**
- * Evaluates multi-factor fall consequences from height, landing place, impact & slide speed, and inversion.
- * Ground-level step-offs (< 0.40m drop & <= 2.3 m/s vertical landing velocity) incur zero damage or penalty.
+ * Evaluates multi-factor fall consequences:
+ * - Falling from an elevated structure off the track (arena floor, sand pit, water basin, or overhang cliff)
+ *   applies proper structural health loss, battery shock, and points penalty scaled by height, place, speed & inversion.
+ * - Sliding down ramps or jumping/bouncing along the drivable track itself uses slope-normal impact velocity
+ *   and heavy suspension damping so normal slides deal 0 damage and even large on-track jumps deal very little damage.
  */
 export function evaluateFallOutcome(input: FallEvaluationInput, config: ScoringConfig): FallOutcome {
-  if (input.dropHeightM < 0.40 && input.impactSpeedMps <= 2.30) {
+  const slopeGx = input.slopeGx ?? 0;
+  const slopeGz = input.slopeGz ?? 0;
+  const vx = input.vx ?? 0;
+  const vz = input.vz ?? 0;
+  const normalImpactMps = (slopeGx !== 0 || slopeGz !== 0)
+    ? computeSlopeNormalImpactMps(input.impactSpeedMps, vx, vz, slopeGx, slopeGz)
+    : Math.max(0, input.impactSpeedMps);
+
+  const isTrackSurface = input.landingPlace === 'lower_track' || input.landingPlace === 'elevated_deck';
+  const isOnTrackDescent = isTrackSurface && !input.isOverhangPlunge;
+
+  // On-track slides, speed-hump skips, and ramp jumps: keep damage minimal or zero.
+  if (isOnTrackDescent) {
+    const onTrackSafeMps = 3.10;
+    if (normalImpactMps <= onTrackSafeMps) {
+      return {
+        significantFall: false,
+        isOnTrackDescent: true,
+        normalImpactMps,
+        effectiveImpactMps: normalImpactMps,
+        chassisDamageFactor: 0,
+        batteryShockPct: 0,
+        pointsPenalty: 0,
+        summary: 'on-track slide/hop',
+      };
+    }
+
+    const excessOnTrack = normalImpactMps - onTrackSafeMps;
+    // Map heavy 3.5..7.5 m/s normal track slams into a soft ~0.6%..7.5% HP shock.
+    const clampedGain = Math.min(1.40, Math.sqrt(excessOnTrack) * 0.62 * (input.isInverted ? 1.25 : 1.0));
+    const effectiveImpactMps = 2.20 + clampedGain;
+    const batteryShockPct = Math.min(3.0, excessOnTrack * 0.65 * (input.isInverted ? 1.25 : 1.0));
+    const pointsPenalty = normalImpactMps >= 3.80
+      ? Math.max(1, Math.min(4, Math.round((config.fallBasePenaltyPoints * 0.15) * (0.5 + excessOnTrack * 0.45))))
+      : 0;
+
+    return {
+      significantFall: true,
+      isOnTrackDescent: true,
+      normalImpactMps,
+      effectiveImpactMps,
+      chassisDamageFactor: 0.20,
+      batteryShockPct,
+      pointsPenalty,
+      summary: `track landing ${normalImpactMps.toFixed(1)}m/s`,
+    };
+  }
+
+  // Heightened off-track fall (arena floor, sand pit, water basin, or upper spiral/turntable overhang plunge)
+  if (input.dropHeightM < 0.40 && normalImpactMps <= 2.30) {
     return {
       significantFall: false,
-      effectiveImpactMps: input.impactSpeedMps,
+      isOnTrackDescent: false,
+      normalImpactMps,
+      effectiveImpactMps: normalImpactMps,
       chassisDamageFactor: 0,
       batteryShockPct: 0,
       pointsPenalty: 0,
@@ -402,7 +485,7 @@ export function evaluateFallOutcome(input: FallEvaluationInput, config: ScoringC
   };
 
   const gravityRefSpeed = Math.sqrt(2 * 9.81 * Math.max(0, input.dropHeightM));
-  const combinedVert = Math.max(input.impactSpeedMps, gravityRefSpeed * 0.85);
+  const combinedVert = Math.max(normalImpactMps, gravityRefSpeed * 0.85);
   const speedMult = 1.0 + Math.min(0.45, Math.max(0, input.horizontalSpeedMps) / 11.0) + (input.isInverted ? 0.25 : 0);
   const effectiveImpactMps = combinedVert * Math.sqrt(placeDamageMult[input.landingPlace] * speedMult);
 
@@ -421,6 +504,8 @@ export function evaluateFallOutcome(input: FallEvaluationInput, config: ScoringC
 
   return {
     significantFall: true,
+    isOnTrackDescent: false,
+    normalImpactMps,
     effectiveImpactMps,
     chassisDamageFactor: placeDamageMult[input.landingPlace] * speedMult,
     batteryShockPct,

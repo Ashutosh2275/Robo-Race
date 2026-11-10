@@ -146,8 +146,76 @@ test('multi-factor fall evaluation ignores minor curb drops and scales damage/ba
   assert.ok(highFloorFall.pointsPenalty > bridgeSandFall.pointsPenalty, 'higher fall on hard concrete at speed must deduct more points');
   assert.ok(highFloorFall.effectiveImpactMps > bridgeSandFall.effectiveImpactMps);
 
-  // Place classifier sanity checks
+  // Place classifier sanity checks (distinguishes track road from open arena floor at same -0.33m elevation)
   assert.equal(classifyFallZone(-4.0, -6.75, HANGING_SAND_PIT_Y), 'sand_pit');
   assert.equal(classifyFallZone(5.0, -13.50, -0.30), 'water_basin');
-  assert.equal(classifyFallZone(14.0, 2.0, -0.50), 'arena_floor');
+  assert.equal(classifyFallZone(14.0, 3.30, -0.33), 'arena_floor');
+  assert.equal(classifyFallZone(10.0, 6.75, -0.33), 'lower_track');
+  assert.equal(classifyFallZone(14.0, 2.0, -0.33), 'lower_track');
+});
+
+test('on-track ramp slides and jumps keep damage minimal while off-height cliff plunges keep proper damage', () => {
+  // 1. Sliding down steep High Climb ramp (3.0m height traveled along slope): parallel velocity reduces normal impact -> 0 damage
+  const slopeSlide = evaluateFallOutcome({
+    dropHeightM: 2.80,
+    impactSpeedMps: 3.4,
+    horizontalSpeedMps: 3.4,
+    landingPlace: 'lower_track',
+    originZone: 'high_climb',
+    isInverted: false,
+    slopeGx: 1.05,
+    slopeGz: 0,
+    vx: -3.4,
+    vz: 0,
+  }, DEFAULT_SCORING_CONFIG);
+  assert.equal(slopeSlide.significantFall, false);
+  assert.equal(slopeSlide.batteryShockPct, 0);
+  assert.equal(slopeSlide.pointsPenalty, 0);
+
+  // 2. Large jump going down onto the drivable track (e.g., jumping off High Climb / Mega Speed Hump onto runway inside lines):
+  // stays "very less" compared to falling off a heightened bridge/tower.
+  const onTrackJump = evaluateFallOutcome({
+    dropHeightM: 2.50,
+    impactSpeedMps: 5.5,
+    horizontalSpeedMps: 4.5,
+    landingPlace: 'lower_track',
+    originZone: 'high_climb',
+    isInverted: false,
+    slopeGx: 0,
+    slopeGz: 0,
+    vx: -4.5,
+    vz: 0,
+  }, DEFAULT_SCORING_CONFIG);
+  assert.equal(onTrackJump.significantFall, true);
+  assert.equal(onTrackJump.isOnTrackDescent, true);
+  assert.ok(onTrackJump.effectiveImpactMps < 3.5, `on-track jump effectiveImpact should be lightly damped (<3.5), got ${onTrackJump.effectiveImpactMps.toFixed(2)}`);
+  assert.ok(onTrackJump.batteryShockPct <= 3.0);
+  assert.ok(onTrackJump.pointsPenalty <= 4);
+
+  // 3. True heightened fall off Spiral / High Climb edge onto Arena Floor keeps full proper damage
+  const cliffPlunge = evaluateFallOutcome({
+    dropHeightM: 3.10,
+    impactSpeedMps: 6.5,
+    horizontalSpeedMps: 3.0,
+    landingPlace: 'arena_floor',
+    originZone: 'high_climb',
+    isInverted: false,
+  }, DEFAULT_SCORING_CONFIG);
+  assert.equal(cliffPlunge.isOnTrackDescent, false);
+  assert.ok(cliffPlunge.effectiveImpactMps >= 6.5, `off-height plunge must apply full proper impact (>=6.5), got ${cliffPlunge.effectiveImpactMps.toFixed(2)}`);
+  assert.ok(cliffPlunge.pointsPenalty >= 15);
+  assert.ok(cliffPlunge.batteryShockPct >= 10);
+
+  // 4. Overhang plunge off Spiral Tower upper tier straight onto lower road below triggers full heightened fall
+  const spiralCliff = evaluateFallOutcome({
+    dropHeightM: 3.20,
+    impactSpeedMps: 6.8,
+    horizontalSpeedMps: 2.0,
+    landingPlace: 'lower_track',
+    originZone: 'spiral_tower',
+    isInverted: false,
+    isOverhangPlunge: true,
+  }, DEFAULT_SCORING_CONFIG);
+  assert.equal(spiralCliff.isOnTrackDescent, false);
+  assert.ok(spiralCliff.effectiveImpactMps >= 6.5);
 });

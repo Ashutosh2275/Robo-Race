@@ -5167,7 +5167,7 @@ function stepPhysics(dt: number) {
   }
 
   // Track peak airborne elevation and evaluate multi-factor falls from height
-  // (scaled by drop height, landing zone, impact & horizontal speed, and inversion).
+  // vs gentle on-track ramp sliding / crest-hopping damage control.
   const trackBottomNow = pose.y + TRACK_CONTACT_OFFSET;
   if (!pose.isGrounded) {
     peakAirborneY = Math.max(peakAirborneY, trackBottomNow);
@@ -5181,6 +5181,16 @@ function stepPhysics(dt: number) {
     const landingPlace = classifyFallZone(landX, landZ, trackBottomNow);
     const originZone = classifyFallOrigin(fallStartOrigin.x, fallStartOrigin.z, peakAirborneY);
     const horizontalSpeedMps = Math.hypot(pose.vx, pose.vz);
+    const landSlope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y), pose.x, pose.z, 0.12);
+    const onSpiralDescentSlope = landX >= SPIRAL_CONFIG.descentX0 - 0.15
+      && landX <= SPIRAL_CONFIG.descentX1 + 0.15
+      && Math.abs(landZ - SPIRAL_CONFIG.deckZ) <= SPIRAL_CONFIG.descentWidth * 0.5 + 0.15;
+    const isOverhangPlunge = originZone === 'spiral_tower'
+      && peakAirborneY >= 1.20
+      && trackBottomNow <= 0.15
+      && dropHeightM >= 1.50
+      && !onSpiralDescentSlope;
+
     const fallOutcome = evaluateFallOutcome({
       dropHeightM,
       impactSpeedMps: rawImpactVert,
@@ -5188,22 +5198,43 @@ function stepPhysics(dt: number) {
       landingPlace,
       originZone,
       isInverted: pose.isFlipped,
+      slopeGx: landSlope.x,
+      slopeGz: landSlope.z,
+      vx: pose.vx,
+      vz: pose.vz,
+      isOverhangPlunge,
     }, config.scoring);
 
     if (fallOutcome.significantFall) {
       const damageHazard: HazardType = landingPlace === 'sand_pit' ? 'sand' : landingPlace === 'water_basin' ? 'water' : 'none';
-      const fallLoss = applyFallImpactDamage(subsystems, fallOutcome.effectiveImpactMps, damageHazard);
       const batShock = applyBatteryShock(subsystems, fallOutcome.batteryShockPct);
-      scoreState.fallCount += 1;
-      scoreState.penaltyPoints += fallOutcome.pointsPenalty;
-      scoreState.score -= fallOutcome.pointsPenalty;
-      scoreState.events.push({
-        label: `Height Fall (${originZone.replace('_', ' ')})`,
-        delta: -fallOutcome.pointsPenalty,
-        detail: fallOutcome.summary,
-      });
-      tone(92, 0.30, 0.13);
-      displayToast(`⚠️ FALL (${dropHeightM.toFixed(1)}m · ${landingPlace.replace('_', ' ').toUpperCase()}) · -${Math.max(1, Math.round(fallLoss))}% HP · -${Math.round(batShock)}% BAT · -${fallOutcome.pointsPenalty} PTS`);
+      const fallLoss = applyFallImpactDamage(subsystems, fallOutcome.effectiveImpactMps, damageHazard);
+      if (fallOutcome.isOnTrackDescent) {
+        if (fallOutcome.pointsPenalty > 0) {
+          scoreState.penaltyPoints += fallOutcome.pointsPenalty;
+          scoreState.score -= fallOutcome.pointsPenalty;
+          scoreState.events.push({
+            label: 'Heavy Track Landing',
+            delta: -fallOutcome.pointsPenalty,
+            detail: fallOutcome.summary,
+          });
+        }
+        if (Math.round(fallLoss) >= 1) {
+          tone(160, 0.14, 0.05);
+          displayToast(`MINOR TRACK JOLT · -${Math.round(fallLoss)}% HP${fallOutcome.pointsPenalty > 0 ? ` · -${fallOutcome.pointsPenalty} PTS` : ''}`);
+        }
+      } else {
+        scoreState.fallCount += 1;
+        scoreState.penaltyPoints += fallOutcome.pointsPenalty;
+        scoreState.score -= fallOutcome.pointsPenalty;
+        scoreState.events.push({
+          label: `Height Fall (${originZone.replace('_', ' ')})`,
+          delta: -fallOutcome.pointsPenalty,
+          detail: fallOutcome.summary,
+        });
+        tone(92, 0.30, 0.13);
+        displayToast(`⚠️ FALL (${dropHeightM.toFixed(1)}m · ${landingPlace.replace('_', ' ').toUpperCase()}) · -${Math.max(1, Math.round(fallLoss))}% HP · -${Math.round(batShock)}% BAT · -${fallOutcome.pointsPenalty} PTS`);
+      }
     }
     pose.lastImpactSpeed = 0;
     peakAirborneY = trackBottomNow;
