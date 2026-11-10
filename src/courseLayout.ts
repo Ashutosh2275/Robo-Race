@@ -5,7 +5,7 @@ export type SurfaceType = 'concrete' | 'rubber' | 'timber' | 'sand' | 'gravel' |
 export type SurfaceProperties = {
   grip: number;
   rollingResistance: number;
-  hazard: 'none' | 'fire' | 'water' | 'oil';
+  hazard: 'none' | 'fire' | 'water' | 'oil' | 'sand';
 };
 
 export type CourseCollider = {
@@ -82,8 +82,10 @@ export function easeCushionedRamp(t: number, fillet = 0.22): number {
 
 // ---------------------------------------------------------------------------
 // LANE 4 OBSTACLE 2: DUAL HANGING SUSPENSION BRIDGES CONFIGURATION (Z = -6.75, X in [-10.8, 2.4])
-// Heighted ramp climbing to twin suspended trackways with suspension towers & catenary cables
+// Spread narrow twin bridges at 2x wheel width (~0.728m world) hanging independently over deep sand pit
 // ---------------------------------------------------------------------------
+export const HANGING_SAND_PIT_Y = -0.85;
+
 export const HANGING_BRIDGE_CONFIG = {
   zLane: -6.75,
   xEntryStart: 2.40,    // Ascent ramp start at ground grade after Gate 08
@@ -91,12 +93,39 @@ export const HANGING_BRIDGE_CONFIG = {
   xBridgeMid: -4.20,    // Center suspension tower
   xBridgeWest: -9.20,   // West suspension tower / deck end
   xExitEnd: -10.80,     // Descent ramp touchdown at ground grade before Gate 09
-  deckY: 0.80,          // Elevated deck height (+1.13m above ground)
-  trackWidth: 1.05,     // Width of each individual suspended track
-  totalDeckWidth: 2.60, // Full width across both tracks and central transom
+  deckY: 0.80,          // Elevated deck height (+1.13m above ground, +1.65m above sand pit)
+  trackWidth: 0.56,     // 2x wheel width in course units (0.56 * 1.3 = 0.728m world vs 0.36m track belt)
+  trackOffset: PARALLEL_PLANK_SPACING_LOCAL / 2, // 0.6077m course (0.79m world) matching TRACK_WIDTH/2
+  totalDeckWidth: 2.10, // Solid approach/exit ramp width guiding cleanly onto both separated bridges
   cableTowerHeight: 3.20,// Pylon tower height
-  catenarySag: 0.04,    // Authentic subtle deck suspension deflection
+  catenarySag: 0.08,    // Authentic hanging cable sag across each 5m span
+  pitFloorY: HANGING_SAND_PIT_Y, // Sunken empty sand pit floor directly beneath bridges
+  pitXMin: -9.50,
+  pitXMax: 1.10,
+  pitHalfZ: 1.80,       // Pit spans zLane +- 1.80 ([-8.55, -4.95])
 } as const;
+
+/**
+ * Computes exact vertical elevation along either separated narrow hanging bridge
+ * (`trackIndex` 0 = left/north, 1 = right/south). Combines true parabolic cable
+ * sag with subtle deterministic non-swinging organic height modulation pinned to 0 at towers.
+ */
+export function hangingBridgeTrackHeightAt(x: number, trackIndex: 0 | 1): number {
+  if (x >= HANGING_BRIDGE_CONFIG.xBridgeEast || x <= HANGING_BRIDGE_CONFIG.xBridgeWest) {
+    return HANGING_BRIDGE_CONFIG.deckY;
+  }
+  const xStart = x >= HANGING_BRIDGE_CONFIG.xBridgeMid
+    ? HANGING_BRIDGE_CONFIG.xBridgeEast
+    : HANGING_BRIDGE_CONFIG.xBridgeMid;
+  const spanLen = 5.0;
+  const spanU = Math.max(0, Math.min(1, (xStart - x) / spanLen));
+  const catenaryDeflection = HANGING_BRIDGE_CONFIG.catenarySag * 4 * spanU * (1 - spanU);
+  const randomHang = Math.sin(Math.PI * spanU) * (
+    0.018 * Math.sin(x * 2.1 + trackIndex * 2.35)
+    + 0.010 * Math.cos(x * 4.3 - trackIndex * 1.7)
+  );
+  return HANGING_BRIDGE_CONFIG.deckY - catenaryDeflection + randomHang;
+}
 
 // Lane 3 at z = 0.00 (Turntable on Spiral Rooftop Deck for Track B, or ground platform)
 export const TURNTABLE_CENTER = { x: 1.0, z: 0.00 } as const;
@@ -705,37 +734,50 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
       return GROUND_DECK_HEIGHT;
     }
 
-    // C. Obstacle 2: Dual Hanging Suspension Bridges (x in [-10.80, 2.40])
+    // C. Obstacle 2: Spread Twin Hanging Bridges over Sunken Sand Pit (x in [-10.80, 2.40])
     if (x >= HANGING_BRIDGE_CONFIG.xExitEnd && x <= HANGING_BRIDGE_CONFIG.xEntryStart) {
-      const halfBridgeW = HANGING_BRIDGE_CONFIG.totalDeckWidth / 2; // 1.30m corridor width
-      const inBridgeCorridor = Math.abs(z - HANGING_BRIDGE_CONFIG.zLane) <= halfBridgeW;
+      const halfRampW = HANGING_BRIDGE_CONFIG.totalDeckWidth / 2;
+      const inRampCorridor = Math.abs(z - HANGING_BRIDGE_CONFIG.zLane) <= halfRampW;
+      const inSandPitZone = x >= HANGING_BRIDGE_CONFIG.pitXMin
+        && x <= HANGING_BRIDGE_CONFIG.pitXMax
+        && Math.abs(z - HANGING_BRIDGE_CONFIG.zLane) <= HANGING_BRIDGE_CONFIG.pitHalfZ;
 
-      if (inBridgeCorridor) {
-        // Ascent ramp (East side, x in [0.80, 2.40]): Westbound vehicle climbs up from ground -0.33 to 0.80
-        if (x > HANGING_BRIDGE_CONFIG.xBridgeEast) {
-          const u = (HANGING_BRIDGE_CONFIG.xEntryStart - x) / (HANGING_BRIDGE_CONFIG.xEntryStart - HANGING_BRIDGE_CONFIG.xBridgeEast);
-          const eased = easeCushionedRamp(u);
-          return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+      // Ascent ramp (East side, x in [0.75, 2.40]): solid alignment ramp up to bridge portal
+      if (x >= HANGING_BRIDGE_CONFIG.xBridgeEast - 0.05 && inRampCorridor) {
+        if (poseY < GROUND_DECK_HEIGHT - 0.15 && inSandPitZone) {
+          return HANGING_SAND_PIT_Y;
         }
-        // Descent ramp (West side, x in [-10.80, -9.20]): Westbound vehicle descends from 0.80 to ground -0.33
-        if (x < HANGING_BRIDGE_CONFIG.xBridgeWest) {
-          const u = (x - HANGING_BRIDGE_CONFIG.xExitEnd) / (HANGING_BRIDGE_CONFIG.xBridgeWest - HANGING_BRIDGE_CONFIG.xExitEnd);
-          const eased = easeCushionedRamp(u);
-          return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
-        }
-        // Dual Suspended Deck Spans: x in [-9.20, 0.80] (Length 10.0m)
-        const spanMid = x >= HANGING_BRIDGE_CONFIG.xBridgeMid
-          ? (HANGING_BRIDGE_CONFIG.xBridgeEast + HANGING_BRIDGE_CONFIG.xBridgeMid) / 2
-          : (HANGING_BRIDGE_CONFIG.xBridgeMid + HANGING_BRIDGE_CONFIG.xBridgeWest) / 2;
-        const spanHalfLen = 2.50;
-        const normDist = Math.min(1, Math.abs(x - spanMid) / spanHalfLen);
-        const deflection = HANGING_BRIDGE_CONFIG.catenarySag * (1 - normDist * normDist);
-        return HANGING_BRIDGE_CONFIG.deckY - deflection;
+        const u = Math.min(1, (HANGING_BRIDGE_CONFIG.xEntryStart - x) / (HANGING_BRIDGE_CONFIG.xEntryStart - HANGING_BRIDGE_CONFIG.xBridgeEast));
+        const eased = easeCushionedRamp(u);
+        return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
       }
 
-      // If driven off bridge edge: falls to ground
-      if (poseY > GROUND_DECK_HEIGHT + 0.15 && x >= HANGING_BRIDGE_CONFIG.xBridgeWest && x <= HANGING_BRIDGE_CONFIG.xBridgeEast) {
-        return ARENA_FLOOR_HEIGHT;
+      // Descent ramp (West side, x in [-10.80, -9.15]): solid alignment ramp back to ground grade
+      if (x <= HANGING_BRIDGE_CONFIG.xBridgeWest + 0.05 && inRampCorridor) {
+        if (poseY < GROUND_DECK_HEIGHT - 0.15 && inSandPitZone) {
+          return HANGING_SAND_PIT_Y;
+        }
+        const u = Math.min(1, (x - HANGING_BRIDGE_CONFIG.xExitEnd) / (HANGING_BRIDGE_CONFIG.xBridgeWest - HANGING_BRIDGE_CONFIG.xExitEnd));
+        const eased = easeCushionedRamp(u);
+        return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
+      }
+
+      // Twin Separated Hanging Plank Trackways (x in [-9.15, 0.75]): ONLY the two narrow bridges exist above!
+      if (x > HANGING_BRIDGE_CONFIG.xBridgeWest + 0.05 && x < HANGING_BRIDGE_CONFIG.xBridgeEast - 0.05) {
+        const halfPlankW = HANGING_BRIDGE_CONFIG.trackWidth / 2;
+        if (poseY >= GROUND_DECK_HEIGHT - 0.15) {
+          if (Math.abs(z - PARALLEL_PLANK_CENTERS[0].z) <= halfPlankW) {
+            return hangingBridgeTrackHeightAt(x, 0);
+          }
+          if (Math.abs(z - PARALLEL_PLANK_CENTERS[1].z) <= halfPlankW) {
+            return hangingBridgeTrackHeightAt(x, 1);
+          }
+        }
+        return inSandPitZone ? HANGING_SAND_PIT_Y : GROUND_DECK_HEIGHT;
+      }
+
+      if (inSandPitZone) {
+        return HANGING_SAND_PIT_Y;
       }
       return GROUND_DECK_HEIGHT;
     }
@@ -845,7 +887,16 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
       return { grip: 1.12, rollingResistance: 0.25, hazard: 'none' };
     }
     if (x >= HANGING_BRIDGE_CONFIG.xExitEnd && x <= HANGING_BRIDGE_CONFIG.xEntryStart) {
-      return { grip: 1.05, rollingResistance: 0.28, hazard: 'none' };
+      if (
+        x >= HANGING_BRIDGE_CONFIG.pitXMin
+        && x <= HANGING_BRIDGE_CONFIG.pitXMax
+        && Math.abs(z - HANGING_BRIDGE_CONFIG.zLane) <= HANGING_BRIDGE_CONFIG.pitHalfZ
+        && poseY < GROUND_DECK_HEIGHT - 0.12
+      ) {
+        // Soft deep sunken sand pit floor beneath bridges
+        return { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' };
+      }
+      return { grip: 0.96, rollingResistance: 0.34, hazard: 'none' };
     }
   }
 

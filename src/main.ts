@@ -23,6 +23,7 @@ import {
 import {
   createInitialSubsystems,
   stepSubsystems,
+  applyFallImpactDamage,
   isRobotDestroyed,
   type SubsystemsState,
   type HazardType,
@@ -46,6 +47,8 @@ import {
   PARALLEL_PLANK_CENTERS,
   PENDULUM_CONFIG,
   HANGING_BRIDGE_CONFIG,
+  HANGING_SAND_PIT_Y,
+  hangingBridgeTrackHeightAt,
   easeCushionedRamp,
   TURNTABLE_CENTER,
   TURNTABLE_RADIUS,
@@ -866,8 +869,15 @@ function buildSlalomBlock(data: typeof SLALOM_BLOCKS[number]) {
   });
 }
 
-// Main Arena Floors & Dedicated Path-Based Racing Circuit
-box(course, mats.floor, V(0, ARENA_FLOOR_HEIGHT - 0.225, 0), V(50, 0.45, 36), 0, false);
+// Main Arena Floors & Dedicated Path-Based Racing Circuit (carved cleanly around sunken Sand Pit beneath Section 5B)
+const pitFloorXMin = HANGING_BRIDGE_CONFIG.pitXMin;
+const pitFloorXMax = HANGING_BRIDGE_CONFIG.pitXMax;
+const pitFloorZMin = HANGING_BRIDGE_CONFIG.zLane - HANGING_BRIDGE_CONFIG.pitHalfZ;
+const pitFloorZMax = HANGING_BRIDGE_CONFIG.zLane + HANGING_BRIDGE_CONFIG.pitHalfZ;
+box(course, mats.floor, V((-25 + pitFloorXMin) * 0.5, ARENA_FLOOR_HEIGHT - 0.225, 0), V(pitFloorXMin + 25, 0.45, 36), 0, false);
+box(course, mats.floor, V((pitFloorXMax + 25) * 0.5, ARENA_FLOOR_HEIGHT - 0.225, 0), V(25 - pitFloorXMax, 0.45, 36), 0, false);
+box(course, mats.floor, V((pitFloorXMin + pitFloorXMax) * 0.5, ARENA_FLOOR_HEIGHT - 0.225, (-18 + pitFloorZMin) * 0.5), V(pitFloorXMax - pitFloorXMin, 0.45, pitFloorZMin + 18), 0, false);
+box(course, mats.floor, V((pitFloorXMin + pitFloorXMax) * 0.5, ARENA_FLOOR_HEIGHT - 0.225, (pitFloorZMax + 18) * 0.5), V(pitFloorXMax - pitFloorXMin, 0.45, 18 - pitFloorZMax), 0, false);
 
 // Build one continuous solid 3D viaduct road. Obstacles are layered onto this
 // measured corridor below; there are no detached rectangular road pads or gaping voids.
@@ -2912,166 +2922,171 @@ colliders.push({
 });
 
 // ---------------------------------------------------------------------------
-// SECTION 5B: Dual Hanging Suspension Bridges on Lane 4 (Z = -6.75, X in [-10.8, 2.4])
-// Heighted ramp climbing to twin suspended trackways with suspension towers & catenary cables
+// SECTION 5B: Spread Twin Hanging Bridges (2x Wheel Width) Over Sunken Sand Pit
+// Two separated narrow cable-hung plank bridges aligned straight for L & R tracks; empty sand pit below
 // ---------------------------------------------------------------------------
 const hCfg = HANGING_BRIDGE_CONFIG;
-
-// 1. Curved Cushioned Ascent & Descent Ramps matching evaluateTrackHeight + Recessed Footings & Portal Headwalls
-curvedSlopedDeck('hanging_bridge_ascent_ramp', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY, 0.12, mats.diamondPlate);
-buildRampTrimAndFootings('hanging_ascent', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
-addBridgePortalHeadwalls('hanging_entry', hCfg.xEntryStart, 1.42, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
-
-curvedSlopedDeck('hanging_bridge_descent_ramp', hCfg.xBridgeWest, hCfg.xExitEnd, hCfg.zLane, hCfg.totalDeckWidth, hCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
-buildRampTrimAndFootings('hanging_descent', hCfg.xExitEnd, hCfg.xBridgeWest, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
-addBridgePortalHeadwalls('hanging_exit', hCfg.xExitEnd, 1.42, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
-
-// Framed cutaway trench underneath the suspended bridge span (keeps chasm clean & clear)
+const hPitLen = hCfg.pitXMax - hCfg.pitXMin;
+const hPitMidX = (hCfg.pitXMin + hCfg.pitXMax) * 0.5;
+const hPitWidthZ = hCfg.pitHalfZ * 2;
+const hPitDepth = GROUND_DECK_HEIGHT - HANGING_SAND_PIT_Y; // 0.52m below ground, 1.65m drop from bridges
 const hSpanLen = hCfg.xBridgeEast - hCfg.xBridgeWest; // 10.0m
-const hMidX = (hCfg.xBridgeEast + hCfg.xBridgeWest) / 2; // -4.20m
-box(course, mats.black, V(hMidX, ARENA_FLOOR_HEIGHT - 0.08, hCfg.zLane), V(hSpanLen + 1.20, 0.12, 3.60));
-box(course, mats.concretePier, V(hMidX, ARENA_FLOOR_HEIGHT + 0.02, hCfg.zLane + 2.06), V(hSpanLen + 1.20, 0.16, 0.28));
-box(course, mats.concretePier, V(hMidX, ARENA_FLOOR_HEIGHT + 0.02, hCfg.zLane - 2.06), V(hSpanLen + 1.20, 0.16, 0.28));
+const hMidX = (hCfg.xBridgeEast + hCfg.xBridgeWest) * 0.5; // -4.20m
 
-// 2. 3 Majestic Portal A-Frame Suspension Towers at x = 0.8, x = -4.2, x = -9.2 (safely clear outside +-1.30m deck)
-const towerXs = [hCfg.xBridgeEast, hCfg.xBridgeMid, hCfg.xBridgeWest];
-const towerZNorth = hCfg.zLane + 1.62;
-const towerZSouth = hCfg.zLane - 1.62;
-const suspensionStrobes: THREE.Mesh[] = [];
-
-for (const tx of towerXs) {
-  for (const tz of [towerZSouth, towerZNorth]) {
-    // Tower vertical steel tubular legs
-    cyl(course, mats.metal, V(tx, ARENA_FLOOR_HEIGHT + 1.80, tz), 0.12, 3.60, 'y');
-    box(course, mats.concretePier, V(tx, ARENA_FLOOR_HEIGHT + 0.24, tz), V(0.46, 0.48, 0.46));
-    // Saddle casting on top
-    cyl(course, mats.metal, V(tx, hCfg.cableTowerHeight, tz), 0.15, 0.16, 'x');
-
-    // Aviation caution strobe beacon atop each tower leg
-    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 12), mats.beaconAmber);
-    s.position.set(tx, hCfg.cableTowerHeight + 0.14, tz);
-    course.add(s);
-    suspensionStrobes.push(s);
-
-    // Solid obstacle collider strictly outside +-1.30m bridge deck (inner face at +-1.38m)
-    colliders.push({
-      id: `suspension_tower_${tx > -2 ? 'east' : tx > -6 ? 'mid' : 'west'}_${tz > hCfg.zLane ? 'north' : 'south'}`,
-      x: tx,
-      z: tz,
-      hx: 0.24,
-      hz: 0.24,
-      y: ARENA_FLOOR_HEIGHT + 1.80,
-      height: 3.60,
-      rot: 0,
-      walkable: false,
-    });
-  }
-  // Overhead transverse cross-strut & under-deck cross-girder connecting tower legs
-  box(course, mats.charcoal, V(tx, hCfg.cableTowerHeight - 0.30, hCfg.zLane), V(0.14, 0.14, towerZNorth - towerZSouth));
-  box(course, mats.yellow, V(tx, hCfg.deckY - 0.14, hCfg.zLane), V(0.16, 0.14, towerZNorth - towerZSouth));
+// 1. Sunken Loose Golden Sand Pit Box directly underneath the separated twin hanging bridges
+box(course, mats.sand, V(hPitMidX, HANGING_SAND_PIT_Y - 0.14, hCfg.zLane), V(hPitLen + 0.10, 0.28, hPitWidthZ + 0.10), 0, false);
+// Soft sand ripples & drifts across pit bed
+for (let sx = hCfg.pitXMin + 0.75; sx <= hCfg.pitXMax - 0.75; sx += 1.45) {
+  const rz = hCfg.zLane + Math.sin(sx * 1.9) * 0.75;
+  box(course, mats.sand, V(sx, HANGING_SAND_PIT_Y + 0.015, rz), V(1.10, 0.04, 1.85), Math.sin(sx) * 0.25, false);
 }
-
-// Helper for matching catenary deck sag across the 2x5m suspended spans
-const hangingDeckYAt = (wx: number) => {
-  const spanMid = wx >= hCfg.xBridgeMid
-    ? (hCfg.xBridgeEast + hCfg.xBridgeMid) * 0.5
-    : (hCfg.xBridgeMid + hCfg.xBridgeWest) * 0.5;
-  const normDist = Math.min(1, Math.abs(wx - spanMid) / 2.50);
-  return hCfg.deckY - hCfg.catenarySag * (1 - normDist * normDist);
-};
-
-// 3. Twin Suspended Tracks (Left and Right) + Outer Curb Guides following exact catenary deflection
-for (const trackSign of [-1, 1]) {
-  const tZ = hCfg.zLane + trackSign * 0.70;
-  // Longitudinal steel deck stringers
-  for (const edgeSign of [-1, 1]) {
-    const sZ = tZ + edgeSign * (hCfg.trackWidth / 2 - 0.04);
-    box(course, mats.metal, V(-4.20, hCfg.deckY - 0.08, sZ), V(10.0, 0.08, 0.08));
-  }
-  // Transverse wooden deck planks following authentic catenary curve along the 10m span
-  for (let px = -9.1; px <= 0.7; px += 0.32) {
-    const py = hangingDeckYAt(px);
-    box(course, mats.wood, V(px, py - 0.02, tZ), V(0.28, 0.04, hCfg.trackWidth - 0.06));
-    box(course, mats.metal, V(px, py + 0.005, tZ - 0.40), V(0.04, 0.01, 0.04), 0, false);
-    box(course, mats.metal, V(px, py + 0.005, tZ + 0.40), V(0.04, 0.01, 0.04), 0, false);
-  }
-}
-
-// Central diamond-plate utility walkway spine + yellow caution center stripe & outer safety edge curbs
-box(course, mats.diamondPlate, V(hMidX, hCfg.deckY - 0.055, hCfg.zLane), V(hSpanLen, 0.04, 0.40));
-box(course, mats.laneStripeYellow, V(hMidX, hCfg.deckY - 0.030, hCfg.zLane), V(hSpanLen, 0.010, 0.06), 0, false);
+// 4 Vertical Pit Containment Walls lining the sand basin up flush to arena floor (-0.33m)
 for (const side of [-1, 1]) {
-  const zRail = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 - 0.04);
-  box(course, mats.metal, V(hMidX, hCfg.deckY + 0.04, zRail), V(hSpanLen, 0.08, 0.06));
-  box(course, mats.yellow, V(hMidX, hCfg.deckY + 0.085, zRail), V(hSpanLen, 0.015, 0.07), 0, false);
-}
-
-// Transverse structural steel cross-transom floor beams connecting twin bridges across the center
-for (let bx = -8.8; bx <= 0.4; bx += 1.10) {
-  box(course, mats.metal, V(bx, hangingDeckYAt(bx) - 0.09, hCfg.zLane), V(0.10, 0.08, hCfg.totalDeckWidth + 0.12));
-}
-
-// Solid under-deck flank colliders for suspension bridges (low ground-height barrier only so elevated deck stays 100% clear)
-for (const side of [-1, 1]) {
-  const zFlank = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 - 0.16);
+  const zWall = hCfg.zLane + side * hCfg.pitHalfZ;
+  box(course, mats.concretePier, V(hPitMidX, HANGING_SAND_PIT_Y + hPitDepth * 0.5, zWall), V(hPitLen + 0.24, hPitDepth, 0.22));
+  box(course, mats.yellow, V(hPitMidX, GROUND_DECK_HEIGHT + 0.004, zWall), V(hPitLen + 0.24, 0.016, 0.20), 0, false);
   colliders.push({
-    id: `hanging_bridge_under_flank_${side > 0 ? 'north' : 'south'}`,
-    x: hMidX,
-    z: zFlank,
-    hx: hSpanLen / 2,
-    hz: 0.14,
-    y: ARENA_FLOOR_HEIGHT + 0.22,
-    height: 0.44,
+    id: `sand_pit_wall_${side > 0 ? 'south' : 'north'}`,
+    x: hPitMidX,
+    z: zWall,
+    hx: hPitLen / 2,
+    hz: 0.12,
+    y: HANGING_SAND_PIT_Y + hPitDepth * 0.5,
+    height: hPitDepth,
+    rot: 0,
+    walkable: false,
+  });
+}
+for (const [endId, ex] of [['east', hCfg.pitXMax], ['west', hCfg.pitXMin]] as const) {
+  box(course, mats.concretePier, V(ex, HANGING_SAND_PIT_Y + hPitDepth * 0.5, hCfg.zLane), V(0.22, hPitDepth, hPitWidthZ));
+  colliders.push({
+    id: `sand_pit_end_${endId}`,
+    x: ex,
+    z: hCfg.zLane,
+    hx: 0.12,
+    hz: hCfg.pitHalfZ,
+    y: HANGING_SAND_PIT_Y + hPitDepth * 0.5,
+    height: hPitDepth,
     rot: 0,
     walkable: false,
   });
 }
 
-// 4. Main Catenary Suspension Cables (North and South at zLane +- 1.62m)
+// 2. Curved Cushioned Ascent & Descent Ramps + Aligned Wheel-Lane Guides leading straight onto twin bridges
+curvedSlopedDeck('hanging_bridge_ascent_ramp', hCfg.xEntryStart, hCfg.xBridgeEast - 0.05, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('hanging_ascent', hCfg.xEntryStart, hCfg.xBridgeEast - 0.05, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
+addBridgePortalHeadwalls('hanging_entry', hCfg.xEntryStart, hCfg.totalDeckWidth / 2 + 0.06, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
+
+curvedSlopedDeck('hanging_bridge_descent_ramp', hCfg.xBridgeWest + 0.05, hCfg.xExitEnd, hCfg.zLane, hCfg.totalDeckWidth, hCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('hanging_descent', hCfg.xExitEnd, hCfg.xBridgeWest + 0.05, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
+addBridgePortalHeadwalls('hanging_exit', hCfg.xExitEnd, hCfg.totalDeckWidth / 2 + 0.06, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
+
+// Paint dead-straight twin wooden alignment lane strips up BOTH ramps aligned identically with PARALLEL_PLANK_CENTERS
+for (const sideIdx of [0, 1] as const) {
+  const tZ = PARALLEL_PLANK_CENTERS[sideIdx].z;
+  curvedSlopedDeck(`hanging_ascent_align_${sideIdx}`, hCfg.xEntryStart, hCfg.xBridgeEast - 0.05, tZ, hCfg.trackWidth, GROUND_DECK_HEIGHT + 0.012, hCfg.deckY + 0.012, 0.008, mats.wood);
+  curvedSlopedDeck(`hanging_descent_align_${sideIdx}`, hCfg.xBridgeWest + 0.05, hCfg.xExitEnd, tZ, hCfg.trackWidth, hCfg.deckY + 0.012, GROUND_DECK_HEIGHT + 0.012, 0.008, mats.wood);
+}
+
+// 3. 3 Portal A-Frame Suspension Towers at x = 0.8, x = -4.2, x = -9.2 founded inside Sand Pit
+const towerXs = [hCfg.xBridgeEast, hCfg.xBridgeMid, hCfg.xBridgeWest];
+const towerZNorth = hCfg.zLane + 1.48;
+const towerZSouth = hCfg.zLane - 1.48;
+const suspensionStrobes: THREE.Mesh[] = [];
+const towerTotalH = hCfg.cableTowerHeight - HANGING_SAND_PIT_Y;
+
+for (const tx of towerXs) {
+  for (const tz of [towerZSouth, towerZNorth]) {
+    cyl(course, mats.metal, V(tx, HANGING_SAND_PIT_Y + towerTotalH * 0.5, tz), 0.11, towerTotalH, 'y');
+    box(course, mats.concretePier, V(tx, HANGING_SAND_PIT_Y + 0.25, tz), V(0.42, 0.50, 0.42));
+    cyl(course, mats.metal, V(tx, hCfg.cableTowerHeight, tz), 0.14, 0.16, 'x');
+
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 12), mats.beaconAmber);
+    s.position.set(tx, hCfg.cableTowerHeight + 0.14, tz);
+    course.add(s);
+    suspensionStrobes.push(s);
+
+    colliders.push({
+      id: `suspension_tower_${tx > -2 ? 'east' : tx > -6 ? 'mid' : 'west'}_${tz > hCfg.zLane ? 'north' : 'south'}`,
+      x: tx,
+      z: tz,
+      hx: 0.22,
+      hz: 0.22,
+      y: HANGING_SAND_PIT_Y + towerTotalH * 0.5,
+      height: towerTotalH,
+      rot: 0,
+      walkable: false,
+    });
+  }
+  // Overhead tower cross-girder connecting legs far clear above robot (~2.90m high) — ZERO floor bridge across middle void!
+  box(course, mats.charcoal, V(tx, hCfg.cableTowerHeight - 0.30, hCfg.zLane), V(0.14, 0.14, towerZNorth - towerZSouth));
+  // Portal entry/exit end-sill beam ONLY at ramp thresholds x = 0.80 & x = -9.20
+  if (tx !== hCfg.xBridgeMid) {
+    box(course, mats.metal, V(tx, hCfg.deckY - 0.08, hCfg.zLane), V(0.14, 0.10, hCfg.totalDeckWidth));
+  }
+}
+
+// Backstay anchor cables running cleanly outside ramps down to ground deadman piers
 for (const cZ of [towerZSouth, towerZNorth]) {
-  // Span 1: x in [-4.2, 0.8] (Length 5.0m)
-  const stepsSpan1 = 16;
-  for (let s = 0; s < stepsSpan1; s++) {
-    const u0 = s / stepsSpan1;
-    const u1 = (s + 1) / stepsSpan1;
-    const x0 = 0.80 - u0 * 5.0;
-    const x1 = 0.80 - u1 * 5.0;
-    const sag0 = 4 * 1.95 * u0 * (1 - u0);
-    const sag1 = 4 * 1.95 * u1 * (1 - u1);
-    const y0 = hCfg.cableTowerHeight - sag0;
-    const y1 = hCfg.cableTowerHeight - sag1;
-    tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
+  tubeBetween(V(hCfg.xBridgeEast, hCfg.cableTowerHeight, cZ), V(2.15, GROUND_DECK_HEIGHT + 0.16, cZ), 0.04, mats.metal);
+  box(course, mats.concretePier, V(2.15, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.42, 0.24, 0.28));
+  tubeBetween(V(hCfg.xBridgeWest, hCfg.cableTowerHeight, cZ), V(-10.55, GROUND_DECK_HEIGHT + 0.16, cZ), 0.04, mats.metal);
+  box(course, mats.concretePier, V(-10.55, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.42, 0.24, 0.28));
+}
 
-    // Vertical suspender hanger wire every 2 steps anchored down to deck outer girder
-    if (s % 2 === 1) {
-      tubeBetween(V(x0, y0, cZ), V(x0, hangingDeckYAt(x0) - 0.04, cZ), 0.018, mats.chrome);
+// 4. Spread Twin Narrow Hanging Plank Trackways (2x wheel width = 0.728m world) hanging independently
+const beamSupportAnchorY = hCfg.cableTowerHeight - 0.32;
+for (const trackIdx of [0, 1] as const) {
+  const tZ = PARALLEL_PLANK_CENTERS[trackIdx].z;
+  const halfTrackW = hCfg.trackWidth / 2;
+
+  // Individual weathered timber slats spaced along the 10m dual span with subtle organic non-swinging hang tilt
+  let plankCounter = 0;
+  for (let px = hCfg.xBridgeWest + 0.12; px <= hCfg.xBridgeEast - 0.12; px += 0.30) {
+    const py = hangingBridgeTrackHeightAt(px, trackIdx);
+    const plank = box(course, mats.wood, V(px, py - 0.022, tZ), V(0.25, 0.044, hCfg.trackWidth - 0.02));
+    // Deterministic slight pitch & roll irregularity ("hanging out randomly" without swinging)
+    const wobbleRoll = Math.sin(px * 3.7 + trackIdx * 1.9 + plankCounter * 0.7) * 0.026;
+    const wobblePitch = Math.cos(px * 2.9 - trackIdx * 2.1) * 0.020;
+    plank.rotation.set(wobbleRoll, 0, wobblePitch);
+    // Plank-to-cable lash hardware bolts on outer/inner slat edges
+    for (const edgeSign of [-1, 1]) {
+      const boltZ = tZ + edgeSign * (halfTrackW - 0.045);
+      box(course, mats.metal, V(px, py + 0.004, boltZ), V(0.04, 0.014, 0.04), 0, false);
     }
+    plankCounter++;
   }
 
-  // Span 2: x in [-9.2, -4.2] (Length 5.0m)
-  const stepsSpan2 = 16;
-  for (let s = 0; s < stepsSpan2; s++) {
-    const u0 = s / stepsSpan2;
-    const u1 = (s + 1) / stepsSpan2;
-    const x0 = -4.20 - u0 * 5.0;
-    const x1 = -4.20 - u1 * 5.0;
-    const sag0 = 4 * 1.95 * u0 * (1 - u0);
-    const sag1 = 4 * 1.95 * u1 * (1 - u1);
-    const y0 = hCfg.cableTowerHeight - sag0;
-    const y1 = hCfg.cableTowerHeight - sag1;
-    tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
+  // Dual suspension cables per narrow bridge: both edges carry bottom bearer cable + overhead catenary cable + hangers
+  for (const edgeSign of [-1, 1]) {
+    const cableZ = tZ + edgeSign * (halfTrackW + 0.025);
+    // Spans East [-4.2, 0.8] & West [-9.2, -4.2]
+    for (const xStart of [hCfg.xBridgeEast, hCfg.xBridgeMid]) {
+      const stepsPerSpan = 16;
+      const overheadSagPeak = trackIdx === 0 ? 1.04 : 1.12;
+      for (let s = 0; s < stepsPerSpan; s++) {
+        const u0 = s / stepsPerSpan;
+        const u1 = (s + 1) / stepsPerSpan;
+        const x0 = xStart - u0 * 5.0;
+        const x1 = xStart - u1 * 5.0;
 
-    if (s % 2 === 1) {
-      tubeBetween(V(x0, y0, cZ), V(x0, hangingDeckYAt(x0) - 0.04, cZ), 0.018, mats.chrome);
+        // Under-plank flexible bearer rope tracing exact bridge curve
+        const deckY0 = hangingBridgeTrackHeightAt(x0, trackIdx) - 0.055;
+        const deckY1 = hangingBridgeTrackHeightAt(x1, trackIdx) - 0.055;
+        tubeBetween(V(x0, deckY0, cableZ), V(x1, deckY1, cableZ), 0.022, mats.metal);
+
+        // Overhead catenary suspension cable draping from overhead cross-beam
+        const cY0 = beamSupportAnchorY - 4 * overheadSagPeak * u0 * (1 - u0);
+        const cY1 = beamSupportAnchorY - 4 * overheadSagPeak * u1 * (1 - u1);
+        tubeBetween(V(x0, cY0, cableZ), V(x1, cY1, cableZ), 0.026, mats.charcoal);
+
+        // Vertical chrome hanger drop-wires anchoring the timber bridge edge straight up to catenary cable
+        if (s % 2 === 1) {
+          tubeBetween(V(x0, cY0, cableZ), V(x0, deckY0 + 0.02, cableZ), 0.013, mats.chrome);
+        }
+      }
     }
   }
-
-  // Backstay anchor cables extending down cleanly outside the bridge carriageway to concrete deadman blocks
-  tubeBetween(V(0.80, hCfg.cableTowerHeight, cZ), V(2.25, GROUND_DECK_HEIGHT + 0.16, cZ), 0.045, mats.metal);
-  box(course, mats.concretePier, V(2.25, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.50, 0.24, 0.32));
-
-  tubeBetween(V(-9.20, hCfg.cableTowerHeight, cZ), V(-10.65, GROUND_DECK_HEIGHT + 0.16, cZ), 0.045, mats.metal);
-  box(course, mats.concretePier, V(-10.65, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.50, 0.24, 0.32));
 }
 
 // ---------------------------------------------------------------------------
@@ -3867,7 +3882,7 @@ function renderUI() {
         <div class="pill" id="pillHandPoints" role="button" tabindex="0" title="Click or press [R] to recover at latest checkpoint using 1 Hand Point"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
         <div class="pill" id="pillBat"><small>BATTERY</small><strong id="bat">100%</strong></div>
         <div class="pill" id="pillMot"><small>MOTOR</small><strong id="mot">28°C</strong></div>
-        <div class="pill" id="pillHlt"><small>HEALTH</small><strong id="hlt">100%</strong></div>
+        <div class="pill" id="pillHlt"><small>HEALTH</small><strong id="hlt">100%</strong><div class="hlt-track"><div id="hltBar" class="hlt-fill" style="width:100%"></div></div></div>
       </div>
     </div>
     <div class="progress" id="next">PASS GATE <i>01</i> IN ORDER</div>
@@ -4959,7 +4974,10 @@ function stepPhysics(dt: number) {
   const gripMult = config.difficulty === 'Beginner' ? 1.25 : config.difficulty === 'Intermediate' ? 1.0 : config.difficulty === 'Advanced' ? 0.82 : 0.68;
   const effectiveGrip = surf.grip * gripMult;
 
-  // Integrate differential drive physics
+  // Structural health scales peak drivetrain delivery once heavily damaged (< 75%)
+  const healthThrottle = 0.70 + 0.30 * Math.min(1, subsystems.integrity.chassis / 75);
+
+  // Integrate differential drive physics (strictly inertial zero-grip ballistics while airborne)
   const driveResult = integrateDrive(
     motionState,
     effectiveLeft,
@@ -4967,13 +4985,13 @@ function stepPhysics(dt: number) {
     { grip: effectiveGrip, rollingResistance: surf.rollingResistance },
     slope,
     {
-      maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])),
+      maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])) * healthThrottle,
       motorTrackSpeed: Math.min(maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])),
       motorAcceleration: Math.min(
         tuning.acceleration,
         maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[0]),
         maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[1]),
-      ) * subsystems.motors.thermalThrottle,
+      ) * subsystems.motors.thermalThrottle * healthThrottle,
       braking: tuning.braking,
       turnRate: tuning.maxRotation,
       turnResponse: tuning.steeringResponse,
@@ -4981,7 +4999,8 @@ function stepPhysics(dt: number) {
       coastDeceleration: 2.7,
     },
     dt,
-    inputs.brake
+    inputs.brake,
+    !pose.isGrounded,
   );
 
   // Physical Obstacle Reaction Torque ("broad twist" when tracks hit discrete raised boulders)
@@ -5221,6 +5240,16 @@ function stepPhysics(dt: number) {
     // Metacentric righting stability while floating in water
     pose.roll *= Math.exp(-dt * 4.0);
     pose.pitch *= Math.exp(-dt * 4.0);
+  }
+
+  // Kinetic gravity fall-impact health shock upon slamming down onto ground or sand pit
+  if ((pose.lastImpactSpeed ?? 0) > 2.2) {
+    const landingSurface = evaluateCourseSurface(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
+    const fallLoss = applyFallImpactDamage(subsystems, pose.lastImpactSpeed ?? 0, landingSurface.hazard);
+    if (fallLoss > 0) {
+      tone(92, 0.30, 0.13);
+      displayToast(`⚠️ ${landingSurface.hazard === 'sand' ? 'SAND PIT ' : ''}FALL IMPACT · -${Math.max(1, Math.round(fallLoss))}% HEALTH`);
+    }
   }
   // Keep planar motion state in strict lockstep with 3D pose yaw
   motionState.yaw = pose.yaw;
@@ -5540,11 +5569,31 @@ function updateHUD(dt: number) {
 
   if (bat) bat.textContent = `${subsystems.battery.percentage.toFixed(0)}%`;
   if (mot) mot.textContent = `${Math.round(Math.max(subsystems.motors.leftTemp, subsystems.motors.rightTemp))}°C`;
-  if (hlt) hlt.textContent = `${Math.round(subsystems.integrity.chassis)}%`;
+  if (hlt) {
+    const hPct = Math.round(subsystems.integrity.chassis);
+    hlt.textContent = `${hPct}%`;
+    const pillHlt = $<HTMLElement>('#pillHlt');
+    const hltBar = $<HTMLElement>('#hltBar');
+    if (pillHlt) {
+      pillHlt.classList.toggle('alert', hPct <= 35);
+      pillHlt.classList.toggle('warn', hPct > 35 && hPct <= 70);
+    }
+    if (hltBar) {
+      hltBar.style.width = `${Math.max(0, Math.min(100, hPct))}%`;
+      hltBar.style.background = hPct <= 35 ? '#ff5252' : hPct <= 70 ? '#ffb74d' : '#6ee787';
+    }
+  }
 
-  // Rollover warning banner & R Long-Press Progress Feedback
+  // Rollover / Sand Pit Trap warning banner & R Long-Press Progress Feedback
   if (rolloverBanner) {
-    const showBanner = pose.isFlipped || (rKeyPressed && rHoldDuration > 0.05);
+    const lx = pose.x / MAP_SCALE;
+    const lz = pose.z / MAP_SCALE;
+    const inSandPit = raceState === 'racing'
+      && lx >= HANGING_BRIDGE_CONFIG.pitXMin
+      && lx <= HANGING_BRIDGE_CONFIG.pitXMax
+      && Math.abs(lz - HANGING_BRIDGE_CONFIG.zLane) <= HANGING_BRIDGE_CONFIG.pitHalfZ
+      && (pose.y + TRACK_CONTACT_OFFSET) < GROUND_DECK_HEIGHT - 0.15;
+    const showBanner = pose.isFlipped || inSandPit || (rKeyPressed && rHoldDuration > 0.05);
     rolloverBanner.classList.toggle('hidden', !showBanner);
     if (showBanner) {
       if (rKeyPressed && rHoldDuration > 0.05) {
@@ -5552,10 +5601,10 @@ function updateHUD(dt: number) {
         const rem = Math.max(0, R_HOLD_RESTART_THRESHOLD - rHoldDuration).toFixed(1);
         rolloverBanner.textContent = `🔄 RESTARTING GAME IN ${rem}s [${pct}%]... KEEP HOLDING [R]`;
       } else if (config.handPoints < 999 && remainingHandPoints <= 0) {
-        rolloverBanner.textContent = '⚠️ ROBOT OVERTURNED · OUT OF HAND POINTS · HOLD [R] TO RESTART';
+        rolloverBanner.textContent = `⚠️ ${inSandPit ? 'TRAPPED IN SAND PIT' : 'ROBOT OVERTURNED'} · OUT OF HAND POINTS · HOLD [R] TO RESTART`;
       } else {
         const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
-        rolloverBanner.textContent = `⚠️ ROBOT OVERTURNED · TAP [R] TO RECOVER (${hpMsg}) · HOLD [R] TO RESTART`;
+        rolloverBanner.textContent = `⚠️ ${inSandPit ? 'FALLEN IN SAND PIT' : 'ROBOT OVERTURNED'} · TAP [R] OR HAND POINTS TO RECOVER (${hpMsg})`;
       }
     }
   }

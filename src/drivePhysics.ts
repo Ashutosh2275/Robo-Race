@@ -56,9 +56,29 @@ export function integrateDrive(
   config: DriveConfig,
   dt: number,
   brake = false,
+  airborne = false,
 ) {
   const forward = { x: Math.sin(state.yaw), z: Math.cos(state.yaw) };
   const rightAxis = { x: Math.cos(state.yaw), z: -Math.sin(state.yaw) };
+
+  // Pure Newtonian free-fall ballistics while airborne: zero horizontal ground traction, zero air steering.
+  if (airborne) {
+    const longitudinal = state.vx * forward.x + state.vz * forward.z;
+    const lateral = state.vx * rightAxis.x + state.vz * rightAxis.z;
+    state.angular *= Math.exp(-2.0 * dt);
+    state.yaw += state.angular * dt;
+    state.x += state.vx * dt;
+    state.z += state.vz * dt;
+    return {
+      longitudinalSpeed: longitudinal,
+      lateralSpeed: lateral,
+      motorSlip: (Math.abs(left) + Math.abs(right)) * 0.5,
+      tractionLimit: 0,
+      trackSpeedLeft: brake ? 0 : left * (config.motorTrackSpeed ?? config.maxSpeed),
+      trackSpeedRight: brake ? 0 : right * (config.motorTrackSpeed ?? config.maxSpeed),
+    };
+  }
+
   const trackMean = (left + right) * 0.5;
   const motorRequest = brake ? 0 : trackMean * config.motorAcceleration;
   const gradeDenom = 1 + slope.x * slope.x + slope.z * slope.z;

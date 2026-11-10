@@ -32,7 +32,7 @@ export type IntegrityState = {
   electronicsEnclosure: number;
 };
 
-export type HazardType = 'none' | 'fire' | 'water' | 'oil';
+export type HazardType = 'none' | 'fire' | 'water' | 'oil' | 'sand';
 
 export type SubsystemsState = {
   battery: BatteryState;
@@ -186,4 +186,31 @@ export function stepSubsystems(
     sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - 2.5 * dt);
     sub.integrity.chassis = Math.max(0, sub.integrity.chassis - 1.2 * dt);
   }
+}
+
+/**
+ * Applies kinetic fall-impact shock damage to robot structural health when landing
+ * vertically above the safe suspension tolerance threshold (2.2 m/s ~ 0.25m free drop).
+ * Soft loose sand absorbs 22% of peak impulse compared to rigid concrete/steel.
+ */
+export function applyFallImpactDamage(
+  sub: SubsystemsState,
+  impactSpeedMps: number,
+  hazard: HazardType = 'none',
+): number {
+  const safeThresholdMps = 2.2;
+  if (impactSpeedMps <= safeThresholdMps || isRobotDestroyed(sub)) return 0;
+
+  const excess = impactSpeedMps - safeThresholdMps;
+  const surfaceFactor = hazard === 'sand' ? 0.78 : 1.0;
+  const chassisLoss = Math.min(sub.integrity.chassis, excess * excess * 3.8 * surfaceFactor);
+  const wheelLoss = excess * excess * 2.85 * surfaceFactor;
+  const trackLoss = excess * excess * 1.75 * surfaceFactor;
+
+  sub.integrity.chassis = Math.max(0, sub.integrity.chassis - chassisLoss);
+  sub.integrity.driveWheels = Math.max(0, sub.integrity.driveWheels - wheelLoss);
+  sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - trackLoss);
+  sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - trackLoss);
+  sub.integrity.electronicsEnclosure = Math.max(0, sub.integrity.electronicsEnclosure - chassisLoss * 0.5);
+  return chassisLoss;
 }

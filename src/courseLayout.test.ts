@@ -30,6 +30,8 @@ import {
   PARALLEL_PLANK_CENTER_Z,
   PENDULUM_CONFIG,
   HANGING_BRIDGE_CONFIG,
+  HANGING_SAND_PIT_Y,
+  hangingBridgeTrackHeightAt,
   MAP_SCALE,
   validateDriveRoute,
   validateObstacleSequence,
@@ -330,18 +332,40 @@ test('Lane 4 Swinging Pendulum Gauntlet: comfortable 2.00m catwalk bridge, 1.35m
   assert.ok(Math.abs(hExit - GROUND_DECK_HEIGHT) < 0.02);
 });
 
-test('Lane 4 Dual Hanging Suspension Bridges: ascent ramp, 10m suspended deck, and descent ramp', () => {
+test('Lane 4 Dual Hanging Suspension Bridges: spread 2x-wheel narrow tracks, random non-swinging hang, and open sand pit below', () => {
   // Approach ramp start at ground (x = 2.40, z = -6.75)
   const hRampStart = evaluateCourseHeight(2.40, -6.75);
   assert.ok(Math.abs(hRampStart - GROUND_DECK_HEIGHT) < 0.02);
 
-  // Top of ascent ramp / East tower (x = 0.80, z = -6.75)
+  // Top of ascent ramp / East tower threshold (x = 0.80, z = -6.75)
   const hEastTower = evaluateCourseHeight(0.80, -6.75);
   assert.ok(Math.abs(hEastTower - HANGING_BRIDGE_CONFIG.deckY) < 0.02);
 
-  // Suspended bridge span midpoint with authentic catenary deflection
-  const hBridgeMid = evaluateCourseHeight(-1.70, -6.75, HANGING_BRIDGE_CONFIG.deckY);
-  assert.ok(hBridgeMid <= HANGING_BRIDGE_CONFIG.deckY && hBridgeMid >= HANGING_BRIDGE_CONFIG.deckY - 0.05);
+  // Twin trackways must be double the 0.36m wheel width (~0.728m world) and spread across TRACK_WIDTH
+  const plankWorldWidth = HANGING_BRIDGE_CONFIG.trackWidth * MAP_SCALE;
+  assert.ok(plankWorldWidth >= 0.70 && plankWorldWidth <= 0.78, `plank width must be ~2x 0.36m wheel (${plankWorldWidth.toFixed(3)}m)`);
+
+  // Each individual spread track supports the vehicle with non-swinging organic random hang variation
+  const leftTrackY = evaluateCourseHeight(-1.70, PARALLEL_PLANK_CENTERS[0].z, HANGING_BRIDGE_CONFIG.deckY);
+  const rightTrackY = evaluateCourseHeight(-1.70, PARALLEL_PLANK_CENTERS[1].z, HANGING_BRIDGE_CONFIG.deckY);
+  assert.ok(leftTrackY <= HANGING_BRIDGE_CONFIG.deckY && leftTrackY >= HANGING_BRIDGE_CONFIG.deckY - 0.16);
+  assert.ok(rightTrackY <= HANGING_BRIDGE_CONFIG.deckY && rightTrackY >= HANGING_BRIDGE_CONFIG.deckY - 0.16);
+  assert.notEqual(
+    hangingBridgeTrackHeightAt(-1.70, 0),
+    hangingBridgeTrackHeightAt(-1.70, 1),
+    'twin hanging bridges should exhibit subtle asymmetric organic vertical hang rather than identical flat slabs',
+  );
+
+  // Center gap between spread tracks AND outer edges have NOTHING below down to sand pit (-0.85m)
+  const hCenterGap = evaluateCourseHeight(-1.70, -6.75, HANGING_BRIDGE_CONFIG.deckY);
+  assert.equal(hCenterGap, HANGING_SAND_PIT_Y, 'open void between twin narrow bridges must drop directly to the sunken sand pit floor');
+  const hOuterVoid = evaluateCourseHeight(-1.70, -6.75 + 1.05, HANGING_BRIDGE_CONFIG.deckY);
+  assert.equal(hOuterVoid, HANGING_SAND_PIT_Y, 'straying outside narrow plank trackways must drop into the sand pit');
+
+  // Inside the sunken sand pit surface returns deep loose sand
+  const sandSurface = evaluateCourseSurface(-4.20, -6.75, HANGING_SAND_PIT_Y);
+  assert.equal(sandSurface.hazard, 'sand');
+  assert.ok(sandSurface.rollingResistance >= 2.0, 'deep sand pit floor should exert heavy sand drag');
 
   // Descent ramp touchdown at ground (x = -10.80, z = -6.75)
   const hExit = evaluateCourseHeight(-10.80, -6.75);
@@ -592,7 +616,7 @@ test('Lane 4 end-to-end Pro traversal: Pendulum Gauntlet, Gate 08 road bay, and 
       if (curLocalX <= 3.60 && curLocalX >= 2.55 && Math.abs(groundUnder - GROUND_DECK_HEIGHT) < 0.12) {
         reachedConnectingBay = true;
       }
-      if (curLocalX <= -2.0 && curLocalX >= -6.0 && groundUnder >= HANGING_BRIDGE_CONFIG.deckY - 0.08) {
+      if (curLocalX <= -2.0 && curLocalX >= -6.0 && groundUnder >= HANGING_BRIDGE_CONFIG.deckY - 0.14) {
         reachedBridgeDeck = true;
       }
       if (curLocalX <= -12.0) break;
@@ -605,7 +629,41 @@ test('Lane 4 end-to-end Pro traversal: Pendulum Gauntlet, Gate 08 road bay, and 
     assert.ok(res.endX <= -12.0, `robot at maxSpeed=${speed} must clear both Lane 4 obstacles under Pro grip, reached x=${res.endX.toFixed(2)}`);
     assert.ok(res.maxPoseY >= PENDULUM_CONFIG.deckY - 0.02, `expected climb onto ${PENDULUM_CONFIG.deckY}m pendulum catwalk (maxSpeed=${speed})`);
     assert.equal(res.reachedConnectingBay, true, `connecting road at Gate 08 must drop smoothly to ground grade (maxSpeed=${speed})`);
-    assert.equal(res.reachedBridgeDeck, true, `Suspension Bridge span must carry robot at +0.80m deck elevation (maxSpeed=${speed})`);
+    assert.equal(res.reachedBridgeDeck, true, `Suspension Bridge span must carry robot at elevated deck across both narrow tracks (maxSpeed=${speed})`);
   }
+});
+
+test('drifting off narrow spread bridge plunges under gravity into sand pit with severe impact velocity', () => {
+  const dt = 1 / 120;
+  const worldH = (wx: number, wz: number, curY = 0) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, curY);
+  // Misalign robot sideways (+0.45m off lane center) so one track slips off the narrow plank into open void
+  const pose: VehiclePose = {
+    x: -2.0 * MAP_SCALE,
+    z: (-6.75 + 0.45) * MAP_SCALE,
+    y: HANGING_BRIDGE_CONFIG.deckY - TRACK_CONTACT_OFFSET,
+    vx: -2.0,
+    vy: 0,
+    vz: 0,
+    pitch: 0,
+    yaw: -Math.PI / 2,
+    roll: 0,
+    pitchRate: 0,
+    yawRate: 0,
+    rollRate: 0,
+    isFlipped: false,
+    isGrounded: true,
+    flippedTimer: 0,
+  };
+  let sawAirborne = false;
+  let peakImpactSpeed = 0;
+  for (let i = 0; i < 180; i++) {
+    pose.x += pose.vx * dt;
+    stepVehicle3D(pose, (wx, wz) => worldH(wx, wz, pose.y), 2.0, 0, dt, 9.81, false);
+    if (!pose.isGrounded) sawAirborne = true;
+    peakImpactSpeed = Math.max(peakImpactSpeed, pose.lastImpactSpeed ?? 0);
+  }
+  assert.equal(sawAirborne, true, 'losing track support over open bridge chasm must transition into gravity free-fall');
+  assert.ok(pose.y + TRACK_CONTACT_OFFSET <= HANGING_SAND_PIT_Y + 0.35, `robot must plunge into sunken sand pit (${HANGING_SAND_PIT_Y}m), ended at ${(pose.y + TRACK_CONTACT_OFFSET).toFixed(2)}m`);
+  assert.ok(peakImpactSpeed >= 3.5, `gravity drop from elevated bridge must produce severe impact speed (>= 3.5 m/s), got ${peakImpactSpeed.toFixed(2)}`);
 });
 

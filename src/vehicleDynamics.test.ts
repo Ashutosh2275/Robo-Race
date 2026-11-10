@@ -401,3 +401,17 @@ test('continuous steep ramp pitch difference does not trigger false cliff-edge f
     assert.equal(p.isFlipped, false, `climbing continuous ramp must never trigger cliff-edge flip at step ${i}, pitch=${p.pitch.toFixed(3)}`);
   }
 });
+
+test('stepVehicle3D captures exact kinetic vertical landing speed for health impact calculation', () => {
+  const p = makePose({ y: 0.80 - TRACK_CONTACT_OFFSET });
+  const pitGround = () => -0.85;
+  let peakImpact = 0;
+  for (let i = 0; i < 120; i++) {
+    stepVehicle3D(p, pitGround, 0, 0, 1 / 120, 9.81, false);
+    peakImpact = Math.max(peakImpact, p.lastImpactSpeed ?? 0);
+  }
+  assert.equal(p.isGrounded, true);
+  // sqrt(2 * 9.81 * 1.65) = 5.69 m/s
+  assert.ok(peakImpact >= 5.2 && peakImpact <= 6.2, `expected free-fall impact velocity ~5.69 m/s, got ${peakImpact.toFixed(2)}`);
+  assert.equal(p.lastImpactSpeed, 0, 'settled grounded frame should reset transient landing impact speed to 0');
+});

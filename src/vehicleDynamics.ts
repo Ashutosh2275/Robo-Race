@@ -19,6 +19,8 @@ export type VehiclePose = {
   /** Time a track edge has remained unsupported; filters one-frame terrain seams. */
   sideDropTime?: number;
   endDropTime?: number;
+  /** Transient vertical impact velocity (m/s) recorded on the frame the robot slams into a surface. */
+  lastImpactSpeed?: number;
 };
 
 export type RecoveryAnchor = {
@@ -147,6 +149,7 @@ export function stepVehicle3D(
   gravity = 9.81,
   applyObstacleTwist = true
 ) {
+  pose.lastImpactSpeed = 0;
   const patches = getContactPatches(pose.x, pose.z, pose.yaw);
   const hFL = heightAt(patches.frontLeft.x, patches.frontLeft.z);
   const hFR = heightAt(patches.frontRight.x, patches.frontRight.z);
@@ -188,10 +191,11 @@ export function stepVehicle3D(
   const effectiveGroundH = isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH;
   const targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
 
+  const seamWait = rollDifferential >= 1.10 ? 0.08 : 0.14;
   pose.sideDropTime = isCliffSideDrop ? (pose.sideDropTime ?? 0) + dt : 0;
   pose.endDropTime = isCliffEndDrop ? (pose.endDropTime ?? 0) + dt : 0;
-  const sideDropActive = pose.sideDropTime >= 0.20;
-  const endDropActive = pose.endDropTime >= 0.20;
+  const sideDropActive = pose.sideDropTime >= seamWait;
+  const endDropActive = pose.endDropTime >= 0.16;
 
   // On continuous slopes and banked terrain, ground roll cleanly matches the terrain.
   const groundRoll = isCliffSideDrop
@@ -205,12 +209,24 @@ export function stepVehicle3D(
   const inverted = isVehicleInverted(pose.pitch, pose.roll);
   if (inverted) {
     pose.isFlipped = true;
-    pose.isGrounded = true;
-    pose.vy = 0;
     pose.flippedTimer += dt;
-    // When upside down, vehicle rests on top of chassis / track covers
+    // When upside down, fall under real gravity until roof contacts terrain below
     const restingY = avgGroundH + CHASSIS_HEIGHT - TRACK_CONTACT_OFFSET + 0.05;
-    pose.y += (restingY - pose.y) * Math.min(1, dt * 10);
+    if (pose.y > restingY + 0.04) {
+      pose.isGrounded = false;
+      pose.vy -= gravity * dt;
+      pose.y += pose.vy * dt;
+      if (pose.y <= restingY) {
+        pose.lastImpactSpeed = Math.abs(pose.vy) * 1.35;
+        pose.y = restingY;
+        pose.vy = 0;
+        pose.isGrounded = true;
+      }
+    } else {
+      pose.isGrounded = true;
+      pose.vy = 0;
+      pose.y += (restingY - pose.y) * Math.min(1, dt * 10);
+    }
     // Damp angular rates while resting on roof
     pose.pitchRate *= Math.exp(-dt * 4);
     pose.rollRate *= Math.exp(-dt * 4);
@@ -222,8 +238,10 @@ export function stepVehicle3D(
   // Edge-drop tipping vs critically damped ground terrain tracking:
   if (sideDropActive) {
     const tipDir = rightH < leftH ? 1 : -1;
-    pose.rollRate += tipDir * 4.8 * dt;
-    pose.rollRate *= Math.exp(-dt * 0.4);
+    // Rigid-body gravitational overturning torque around supported track edge: alpha ≈ g * (b / I) * cos(roll)
+    const tipAlpha = Math.max(4.8, gravity * 0.85 * Math.cos(Math.min(1.35, Math.abs(pose.roll))));
+    pose.rollRate += tipDir * tipAlpha * dt;
+    pose.rollRate *= Math.exp(-dt * 0.35);
   } else {
     // Critically damped terrain following (omega_n = 16 rad/s, zeta = 1.0)
     const rollError = groundRoll + turnBank - pose.roll;
@@ -232,8 +250,9 @@ export function stepVehicle3D(
 
   if (endDropActive) {
     const tipDir = frontH < rearH ? -1 : 1;
-    pose.pitchRate += tipDir * 4.8 * dt;
-    pose.pitchRate *= Math.exp(-dt * 0.4);
+    const endAlpha = Math.max(4.8, gravity * 0.85 * Math.cos(Math.min(1.35, Math.abs(pose.pitch))));
+    pose.pitchRate += tipDir * endAlpha * dt;
+    pose.pitchRate *= Math.exp(-dt * 0.35);
   } else {
     const pitchError = groundPitch - pose.pitch;
     pose.pitchRate += (pitchError * 32.0 - pose.pitchRate * 12.0) * dt;
@@ -244,12 +263,8 @@ export function stepVehicle3D(
   pose.roll += pose.rollRate * dt;
 
   // Obstacle Reaction Yaw Torque ("broad twist" on boulders / asymmetric obstacles)
-  // When one track encounters higher elevation on a discrete obstacle (rock/boulder), asymmetric ground
-  // reaction drag retards that track, causing authentic physical yaw deflection ("broad twist").
-  // CRITICAL DISTINCTION: Continuous planar ramps and slopes support both tracks linearly such that
-  // centerH matches track midpoint: |centerH - avgH| < 0.012. Only discrete convex bumps (boulders)
-  // deviate from planar slope and trigger physical drag deflection.
-  const isConvexObstacle = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.035;
+  // Guard: open voids/chasms below belly (centerH < lowest track) are gaps, never raised boulders.
+  const isConvexObstacle = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.035 && centerH >= Math.min(leftH, rightH) - 0.02;
   if (applyObstacleTwist && !pose.isFlipped && Math.abs(longitudinalSpeed) > 0.15 && rollDifferential > 0.025 && rollDifferential < 0.30 && isConvexObstacle && !sideDropActive) {
     const obstacleTwist = -Math.sign(longitudinalSpeed) * (leftH - rightH) * 2.5;
     pose.yawRate = (pose.yawRate ?? 0) + (obstacleTwist - (pose.yawRate ?? 0)) * (1 - Math.exp(-dt * 6.0));
@@ -268,23 +283,29 @@ export function stepVehicle3D(
   // Follow ramps smoothly while supported. Leaving a raised road produces a
   // real gravity-driven drop to the lower arena floor instead of snapping the
   // chassis directly to the next sampled height.
-  if (targetY < pose.y - 0.06) {
+  const wasAirborne = !pose.isGrounded;
+  const dropGap = pose.isGrounded ? 0.16 : 0.02;
+  if (targetY < pose.y - dropGap) {
     pose.isGrounded = false;
     pose.vy -= gravity * dt;
     pose.y += pose.vy * dt;
     if (pose.y <= targetY) {
+      pose.lastImpactSpeed = Math.abs(pose.vy);
       pose.y = targetY;
       pose.vy = 0;
       pose.isGrounded = true;
     }
   } else {
+    if (wasAirborne && pose.vy < -0.5) {
+      pose.lastImpactSpeed = Math.abs(pose.vy);
+    }
     pose.isGrounded = true;
     pose.vy = 0;
-    // Solid surface contact: vehicle underside NEVER sinks below supported target ground/deck surface
+    // Solid surface contact: tracks follow continuous ramps rapidly without hovering or sinking
     if (pose.y < targetY) {
       pose.y = targetY;
     } else {
-      pose.y += (targetY - pose.y) * Math.min(1, dt * 16);
+      pose.y += (targetY - pose.y) * Math.min(1, dt * 36);
     }
   }
 }
