@@ -46,6 +46,7 @@ import {
   PARALLEL_PLANK_CENTERS,
   PENDULUM_CONFIG,
   HANGING_BRIDGE_CONFIG,
+  easeCushionedRamp,
   TURNTABLE_CENTER,
   TURNTABLE_RADIUS,
   SPIRAL_CONFIG,
@@ -542,6 +543,177 @@ function slopedDeck(id: string, x0: number, x1: number, z: number, width: number
   return mesh;
 }
 
+/**
+ * Multi-segment ramp deck whose elevation profile follows `easeFn(t)` identically
+ * to `evaluateCourseHeight`, ensuring tracks match visual geometry sub-millimeter.
+ */
+function curvedSlopedDeck(
+  id: string,
+  x0: number,
+  x1: number,
+  z: number,
+  width: number,
+  y0: number,
+  y1: number,
+  thickness: number,
+  material: THREE.Material,
+  easeFn: (t: number) => number = easeCushionedRamp,
+  segments = 24,
+) {
+  const half = width / 2;
+  const xMin = Math.min(x0, x1);
+  const xMax = Math.max(x0, x1);
+  const span = Math.max(1e-6, Math.abs(x1 - x0));
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const s = i / segments;
+    const x = xMin + (xMax - xMin) * s;
+    const u = Math.max(0, Math.min(1, Math.abs(x - x0) / span));
+    const y = y0 + (y1 - y0) * easeFn(u);
+    positions.push(
+      x, y, z - half,
+      x, y, z + half,
+      x, y - thickness, z + half,
+      x, y - thickness, z - half,
+    );
+    uvs.push(s, 0, s, 1, s, 0, s, 1);
+  }
+
+  for (let i = 0; i < segments; i++) {
+    const o = i * 4;
+    const n = (i + 1) * 4;
+    // Top (+Y) and Bottom (-Y)
+    indices.push(o, o + 1, n + 1, o, n + 1, n);
+    indices.push(o + 3, n + 2, o + 2, o + 3, n + 3, n + 2);
+    // South (-Z) and North (+Z) side cheeks
+    indices.push(o, n, n + 3, o, n + 3, o + 3);
+    indices.push(o + 1, o + 2, n + 2, o + 1, n + 2, n + 1);
+  }
+  const end = segments * 4;
+  // West (-X) and East (+X) end caps
+  indices.push(0, 3, 2, 0, 2, 1);
+  indices.push(end + 1, end + 2, end + 3, end + 1, end + 3, end);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = id;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  course.add(mesh);
+  return mesh;
+}
+
+/**
+ * Adds recessed below-grade concrete abutment footings, flush steel sill plates,
+ * under-deck longitudinal steel stringers (strictly below top surface), and curved
+ * yellow caution edge stripes + center guide line along any Lane 4 ramp.
+ */
+function buildRampTrimAndFootings(
+  idPrefix: string,
+  xGround: number,
+  xCrest: number,
+  zLane: number,
+  width: number,
+  yGround: number,
+  yCrest: number,
+  segments = 24,
+) {
+  const sillDir = Math.sign(xGround - xCrest) || 1;
+  // Concrete abutment buried flush below ground asphalt (-0.33m) + steel transition apron
+  box(course, mats.concretePier, V(xGround + sillDir * 0.14, yGround - 0.16, zLane), V(0.36, 0.30, width + 0.24));
+  box(course, mats.metal, V(xGround + sillDir * 0.10, yGround + 0.004, zLane), V(0.28, 0.012, width + 0.08), 0, false);
+
+  for (const side of [-1, 1]) {
+    const zEdge = zLane + side * (width / 2 - 0.05);
+    curvedSlopedDeck(`${idPrefix}_stripe_${side}`, xGround, xCrest, zEdge, 0.075, yGround + 0.010, yCrest + 0.010, 0.006, mats.yellow, easeCushionedRamp, segments);
+    curvedSlopedDeck(`${idPrefix}_stringer_${side}`, xGround, xCrest, zEdge, 0.085, yGround - 0.10, yCrest - 0.10, 0.12, mats.metal, easeCushionedRamp, segments);
+  }
+  curvedSlopedDeck(`${idPrefix}_center_guide`, xGround, xCrest, zLane, 0.065, yGround + 0.010, yCrest + 0.010, 0.006, mats.laneStripeYellow, easeCushionedRamp, segments);
+}
+
+/**
+ * Builds symmetric angled parapet wingwalls with matching oriented SAT colliders
+ * smoothly channeling wide 4.40m road traffic into narrower bridge throats.
+ */
+function addTaperedFunnelCurbs(
+  idPrefix: string,
+  x0: number,
+  zOffset0: number,
+  x1: number,
+  zOffset1: number,
+  zLane: number,
+  laneDeckY: number,
+) {
+  for (const side of [-1, 1]) {
+    const p0z = zLane + side * zOffset0;
+    const p1z = zLane + side * zOffset1;
+    const dx = x1 - x0;
+    const dz = p1z - p0z;
+    const len = Math.hypot(dx, dz) + 0.08;
+    const rot = Math.atan2(-dz, dx);
+    const midX = (x0 + x1) * 0.5;
+    const midZ = (p0z + p1z) * 0.5;
+    box(course, mats.concretePier, V(midX, laneDeckY + 0.18, midZ), V(len, 0.36, 0.28), rot);
+    box(course, mats.yellow, V(midX, laneDeckY + 0.38, midZ), V(len, 0.04, 0.30), rot, false);
+    for (const [bx, bz] of [[x0, p0z], [x1, p1z]]) {
+      cyl(course, mats.concretePier, V(bx, laneDeckY + 0.18, bz), 0.14, 0.36, 'y');
+      cyl(course, mats.yellow, V(bx, laneDeckY + 0.38, bz), 0.15, 0.04, 'y');
+    }
+    colliders.push({
+      id: `${idPrefix}_${side > 0 ? 'south' : 'north'}`,
+      x: midX,
+      z: midZ,
+      hx: len / 2,
+      hz: 0.14,
+      y: laneDeckY + 0.60,
+      height: 1.40,
+      rot,
+      walkable: false,
+    });
+  }
+}
+
+/**
+ * Closes the lateral step between a 4.40m roadway parapet and a narrower bridge
+ * portal with flush concrete abutment headwalls and capped yellow coping.
+ */
+function addBridgePortalHeadwalls(
+  idPrefix: string,
+  xEdge: number,
+  zInnerOffset: number,
+  zOuterOffset: number,
+  zLane: number,
+  laneDeckY: number,
+) {
+  const spanZ = Math.max(0.24, zOuterOffset - zInnerOffset);
+  const midZOffset = (zInnerOffset + zOuterOffset) * 0.5;
+  for (const side of [-1, 1]) {
+    const cz = zLane + side * midZOffset;
+    box(course, mats.concretePier, V(xEdge, laneDeckY + 0.18, cz), V(0.32, 0.36, spanZ + 0.14));
+    box(course, mats.yellow, V(xEdge, laneDeckY + 0.38, cz), V(0.34, 0.04, spanZ + 0.16), 0, false);
+    cyl(course, mats.concretePier, V(xEdge, laneDeckY + 0.18, zLane + side * zInnerOffset), 0.14, 0.36, 'y');
+    cyl(course, mats.yellow, V(xEdge, laneDeckY + 0.38, zLane + side * zInnerOffset), 0.15, 0.04, 'y');
+    colliders.push({
+      id: `${idPrefix}_portal_${side > 0 ? 'south' : 'north'}`,
+      x: xEdge,
+      z: cz,
+      hx: 0.16,
+      hz: spanZ / 2 + 0.07,
+      y: laneDeckY + 0.60,
+      height: 1.40,
+      rot: 0,
+      walkable: false,
+    });
+  }
+}
+
 function slopedDeckSegment(
   id: string,
   p0: CoursePoint,
@@ -878,16 +1050,17 @@ const corridorLane3Exit: CoursePoint[] = [
 // Hairpin 3: Semicircular Viaduct (cx = 17.50, cz = -3.375, R = 3.375)
 const hairpin3Arc = circularArcPoints(17.50, -3.375, 3.375, Math.PI / 2, -Math.PI / 2, 24);
 
-// Lane 4: Mid-North Straight (Z = -6.75, Westbound)
-const corridorLane4: CoursePoint[] = [
-  { x: 17.5, z: -6.75 },
-  { x: 14.5, z: -6.75 },
-  { x: 10.5, z: -6.75 },
-  { x: 6.5, z: -6.75 },
-  { x: 3.5, z: -6.75 },
-  { x: 0.5, z: -6.75 },
-  { x: -3.5, z: -6.75 },
-  { x: -7.5, z: -6.75 },
+// Lane 4: Mid-North Straight (Z = -6.75, Westbound) — split around Pendulum & Suspension Bridge structures
+const corridorLane4East: CoursePoint[] = [
+  { x: 17.56, z: -6.75 },
+  { x: PENDULUM_CONFIG.xEntryStart, z: -6.75 },
+];
+const corridorLane4Mid: CoursePoint[] = [
+  { x: PENDULUM_CONFIG.xExitEnd, z: -6.75 },
+  { x: HANGING_BRIDGE_CONFIG.xEntryStart, z: -6.75 },
+];
+const corridorLane4West: CoursePoint[] = [
+  { x: HANGING_BRIDGE_CONFIG.xExitEnd, z: -6.75 },
   { x: -17.5, z: -6.75 },
 ];
 
@@ -918,7 +1091,9 @@ const allCircuitCorridors = [
   corridorLane3Approach,
   corridorLane3Exit,
   hairpin3Arc,
-  corridorLane4,
+  corridorLane4East,
+  corridorLane4Mid,
+  corridorLane4West,
   hairpin4Arc,
   corridorLane5Approach,
   corridorLane5Finish,
@@ -1785,88 +1960,80 @@ buildMegaSpeedHumpGauntlet();
 // ---------------------------------------------------------------------------
 const pCfg = PENDULUM_CONFIG;
 
-// 1. Concrete Approach Foundations
-box(course, mats.concretePier, V(pCfg.xEntryStart + 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
-box(course, mats.concretePier, V(pCfg.xExitEnd - 0.15, ARENA_FLOOR_HEIGHT + 0.15, pCfg.zLane), V(0.40, 0.30, pCfg.deckWidth + 0.40));
+// 1. Recessed Below-Grade Approach Abutments, Curved Ramps & Tapered Entry Wingwalls
+curvedSlopedDeck('pendulum_ascent_ramp', pCfg.xEntryStart, pCfg.xRampUpEnd, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('pendulum_ascent', pCfg.xEntryStart, pCfg.xRampUpEnd, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY);
+addTaperedFunnelCurbs('pendulum_entry_funnel', 17.20, 2.06, pCfg.xEntryStart, 1.20, pCfg.zLane, GROUND_DECK_HEIGHT);
 
-// 2. Ascent Ramp (x in [14.5, 16.2]): Westbound vehicle climbs from ground -0.33m to 1.35m
-slopedDeck('pendulum_ascent_ramp', pCfg.xEntryStart, pCfg.xRampUpEnd, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY, 0.12, mats.diamondPlate);
-
-// Heavy steel structural stringers beneath the ascent ramp
-for (const side of [-1, 1]) {
-  const zS = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
-  tubeBetween(V(pCfg.xEntryStart, GROUND_DECK_HEIGHT + 0.02, zS), V(pCfg.xRampUpEnd, pCfg.deckY - 0.04, zS), 0.06, mats.metal);
-}
-
-// 3. Elevated Catwalk Bridge (x in [5.5, 14.5]): 2.00m wide deck over cutaway chasm, NO guardrails!
-const pDeckLen = pCfg.xRampUpEnd - pCfg.xRampDownStart; // 9.00m
+// 2. Elevated Catwalk Bridge (x in [5.90, 14.10]): 2.00m wide deck over framed cutaway chasm, NO guardrails
+const pDeckLen = pCfg.xRampUpEnd - pCfg.xRampDownStart; // 8.20m
 const pDeckMidX = (pCfg.xRampUpEnd + pCfg.xRampDownStart) / 2; // 10.00m
 
-// Cutaway chasm beneath the narrow bridge: recessed dark pit with concrete side retaining curbs
-box(course, mats.black, V(pDeckMidX, ARENA_FLOOR_HEIGHT - 0.08, pCfg.zLane), V(pDeckLen + 0.60, 0.14, 3.80));
-box(course, mats.concretePier, V(pDeckMidX, ARENA_FLOOR_HEIGHT + 0.05, pCfg.zLane + 1.90), V(pDeckLen + 0.60, 0.20, 0.24));
-box(course, mats.concretePier, V(pDeckMidX, ARENA_FLOOR_HEIGHT + 0.05, pCfg.zLane - 1.90), V(pDeckLen + 0.60, 0.20, 0.24));
+// Cutaway chasm beneath the narrow bridge & ramps: framed recessed trench with concrete retaining curbs
+const pChasmLen = pCfg.xEntryStart - pCfg.xExitEnd - 0.60; // 11.80m
+const pChasmMidX = (pCfg.xEntryStart + pCfg.xExitEnd) * 0.5; // 10.00m
+box(course, mats.black, V(pChasmMidX, ARENA_FLOOR_HEIGHT - 0.08, pCfg.zLane), V(pChasmLen, 0.12, 3.80));
+box(course, mats.concretePier, V(pChasmMidX, ARENA_FLOOR_HEIGHT + 0.02, pCfg.zLane + 2.06), V(pChasmLen, 0.16, 0.28));
+box(course, mats.concretePier, V(pChasmMidX, ARENA_FLOOR_HEIGHT + 0.02, pCfg.zLane - 2.06), V(pChasmLen, 0.16, 0.28));
 
 // Elevated diamond-plate bridge catwalk deck
 box(course, mats.diamondPlate, V(pDeckMidX, pCfg.deckY - 0.04, pCfg.zLane), V(pDeckLen, 0.08, pCfg.deckWidth));
+box(course, mats.laneStripeYellow, V(pDeckMidX, pCfg.deckY + 0.006, pCfg.zLane), V(pDeckLen, 0.012, 0.065), 0, false);
 
 // Twin longitudinal heavy steel I-beam side stringers supporting the catwalk bridge
 for (const side of [-1, 1]) {
   const zBeam = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
-  box(course, mats.metal, V(pDeckMidX, pCfg.deckY - 0.12, zBeam), V(pDeckLen, 0.16, 0.08));
+  box(course, mats.metal, V(pDeckMidX, pCfg.deckY - 0.12, zBeam), V(pDeckLen, 0.16, 0.085));
 }
 
 // Transverse steel cross-tie beams under the bridge deck
-for (let cx = pCfg.xRampDownStart + 0.50; cx <= pCfg.xRampUpEnd - 0.40; cx += 0.80) {
+for (let cx = pCfg.xRampDownStart + 0.40; cx <= pCfg.xRampUpEnd - 0.30; cx += 0.80) {
   box(course, mats.metal, V(cx, pCfg.deckY - 0.14, pCfg.zLane), V(0.10, 0.10, pCfg.deckWidth + 0.06));
 }
 
 // Bare edge danger markings (high-contrast yellow caution stripes along the edge of the drop - NO guardrails!)
 for (const side of [-1, 1]) {
   const zEdge = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
-  box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.005, zEdge), V(pDeckLen, 0.012, 0.08), 0, false);
+  box(course, mats.yellow, V(pDeckMidX, pCfg.deckY + 0.006, zEdge), V(pDeckLen, 0.012, 0.075), 0, false);
 }
 
-// Solid under-deck pier flank colliders for catwalk bridge (blocks ground vehicles from driving into deck structure from between lanes)
+// Solid under-deck pier flank colliders for catwalk bridge (low ground-height barrier only so upper deck stays 100% clear)
 for (const side of [-1, 1]) {
-  const zFlank = pCfg.zLane + side * (pCfg.deckWidth / 2 + 0.12);
+  const zFlank = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.16);
   colliders.push({
     id: `catwalk_bridge_under_flank_${side > 0 ? 'north' : 'south'}`,
     x: pDeckMidX,
     z: zFlank,
     hx: pDeckLen / 2,
     hz: 0.14,
-    y: (ARENA_FLOOR_HEIGHT + pCfg.deckY - 0.15) / 2,
-    height: (pCfg.deckY - 0.15) - ARENA_FLOOR_HEIGHT,
+    y: ARENA_FLOOR_HEIGHT + 0.22,
+    height: 0.44,
     rot: 0,
     walkable: false,
   });
 }
 
-// Heavy steel support piers underneath the bridge at ball locations
+// Heavy steel support piers underneath the bridge at ball locations (ground-height collider avoids snagging ramp approaches)
 for (const px of pCfg.ballPositionsX) {
   cyl(course, mats.metal, V(px, (ARENA_FLOOR_HEIGHT + pCfg.deckY) / 2, pCfg.zLane), 0.12, pCfg.deckY - ARENA_FLOOR_HEIGHT, 'y');
-  box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.10, pCfg.zLane), V(0.50, 0.20, 0.50));
+  box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.08, pCfg.zLane), V(0.50, 0.16, 0.50));
   colliders.push({
     id: `catwalk_bridge_under_pier_${px}`,
     x: px,
     z: pCfg.zLane,
     hx: 0.28,
     hz: 0.28,
-    y: (ARENA_FLOOR_HEIGHT + pCfg.deckY - 0.30) / 2,
-    height: (pCfg.deckY - 0.30) - ARENA_FLOOR_HEIGHT,
+    y: ARENA_FLOOR_HEIGHT + 0.24,
+    height: 0.48,
     rot: 0,
     walkable: false,
   });
 }
 
-// 4. Descent Ramp (x in [3.8, 5.5]): Westbound vehicle descends from 1.35m to ground -0.33m
-slopedDeck('pendulum_descent_ramp', pCfg.xRampDownStart, pCfg.xExitEnd, pCfg.zLane, pCfg.deckWidth, pCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
-
-for (const side of [-1, 1]) {
-  const zS = pCfg.zLane + side * (pCfg.deckWidth / 2 - 0.05);
-  tubeBetween(V(pCfg.xRampDownStart, pCfg.deckY - 0.04, zS), V(pCfg.xExitEnd, GROUND_DECK_HEIGHT + 0.02, zS), 0.06, mats.metal);
-}
+// 3. Descent Ramp (x in [3.8, 5.9]): Westbound vehicle descends smoothly from 1.35m to ground -0.33m
+curvedSlopedDeck('pendulum_descent_ramp', pCfg.xRampDownStart, pCfg.xExitEnd, pCfg.zLane, pCfg.deckWidth, pCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('pendulum_descent', pCfg.xExitEnd, pCfg.xRampDownStart, pCfg.zLane, pCfg.deckWidth, GROUND_DECK_HEIGHT, pCfg.deckY);
+addBridgePortalHeadwalls('pendulum_exit', pCfg.xExitEnd, 1.12, 2.06, pCfg.zLane, GROUND_DECK_HEIGHT);
 
 // 5. Overhead Heavy Industrial Steel Gantry Frame (y = 4.45m)
 const gantryStrobes: THREE.Mesh[] = [];
@@ -2750,27 +2917,33 @@ colliders.push({
 // ---------------------------------------------------------------------------
 const hCfg = HANGING_BRIDGE_CONFIG;
 
-// 1. Concrete Approach Abutments
-box(course, mats.concretePier, V(hCfg.xEntryStart + 0.15, ARENA_FLOOR_HEIGHT + 0.15, hCfg.zLane), V(0.40, 0.30, hCfg.totalDeckWidth + 0.40));
-box(course, mats.concretePier, V(hCfg.xExitEnd - 0.15, ARENA_FLOOR_HEIGHT + 0.15, hCfg.zLane), V(0.40, 0.30, hCfg.totalDeckWidth + 0.40));
+// 1. Curved Cushioned Ascent & Descent Ramps matching evaluateTrackHeight + Recessed Footings & Portal Headwalls
+curvedSlopedDeck('hanging_bridge_ascent_ramp', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('hanging_ascent', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
+addBridgePortalHeadwalls('hanging_entry', hCfg.xEntryStart, 1.42, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
 
-// 2. East Ascent Ramp (x in [0.8, 2.4]): Westbound vehicle climbs from ground -0.33m to 0.80m
-slopedDeck('hanging_bridge_ascent_ramp', hCfg.xEntryStart, hCfg.xBridgeEast, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY, 0.12, mats.diamondPlate);
+curvedSlopedDeck('hanging_bridge_descent_ramp', hCfg.xBridgeWest, hCfg.xExitEnd, hCfg.zLane, hCfg.totalDeckWidth, hCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+buildRampTrimAndFootings('hanging_descent', hCfg.xExitEnd, hCfg.xBridgeWest, hCfg.zLane, hCfg.totalDeckWidth, GROUND_DECK_HEIGHT, hCfg.deckY);
+addBridgePortalHeadwalls('hanging_exit', hCfg.xExitEnd, 1.42, 2.06, hCfg.zLane, GROUND_DECK_HEIGHT);
 
-// 3. West Descent Ramp (x in [-10.8, -9.2]): Westbound vehicle descends from 0.80m to ground -0.33m
-slopedDeck('hanging_bridge_descent_ramp', hCfg.xBridgeWest, hCfg.xExitEnd, hCfg.zLane, hCfg.totalDeckWidth, hCfg.deckY, GROUND_DECK_HEIGHT, 0.12, mats.diamondPlate);
+// Framed cutaway trench underneath the suspended bridge span (keeps chasm clean & clear)
+const hSpanLen = hCfg.xBridgeEast - hCfg.xBridgeWest; // 10.0m
+const hMidX = (hCfg.xBridgeEast + hCfg.xBridgeWest) / 2; // -4.20m
+box(course, mats.black, V(hMidX, ARENA_FLOOR_HEIGHT - 0.08, hCfg.zLane), V(hSpanLen + 1.20, 0.12, 3.60));
+box(course, mats.concretePier, V(hMidX, ARENA_FLOOR_HEIGHT + 0.02, hCfg.zLane + 2.06), V(hSpanLen + 1.20, 0.16, 0.28));
+box(course, mats.concretePier, V(hMidX, ARENA_FLOOR_HEIGHT + 0.02, hCfg.zLane - 2.06), V(hSpanLen + 1.20, 0.16, 0.28));
 
-// 4. 3 Majestic Portal A-Frame Suspension Towers at x = 0.8, x = -4.2, x = -9.2
+// 2. 3 Majestic Portal A-Frame Suspension Towers at x = 0.8, x = -4.2, x = -9.2 (safely clear outside +-1.30m deck)
 const towerXs = [hCfg.xBridgeEast, hCfg.xBridgeMid, hCfg.xBridgeWest];
-const towerZNorth = hCfg.zLane + 1.45;
-const towerZSouth = hCfg.zLane - 1.45;
+const towerZNorth = hCfg.zLane + 1.62;
+const towerZSouth = hCfg.zLane - 1.62;
 const suspensionStrobes: THREE.Mesh[] = [];
 
 for (const tx of towerXs) {
   for (const tz of [towerZSouth, towerZNorth]) {
     // Tower vertical steel tubular legs
     cyl(course, mats.metal, V(tx, ARENA_FLOOR_HEIGHT + 1.80, tz), 0.12, 3.60, 'y');
-    box(course, mats.concretePier, V(tx, ARENA_FLOOR_HEIGHT + 0.30, tz), V(0.50, 0.60, 0.50));
+    box(course, mats.concretePier, V(tx, ARENA_FLOOR_HEIGHT + 0.24, tz), V(0.46, 0.48, 0.46));
     // Saddle casting on top
     cyl(course, mats.metal, V(tx, hCfg.cableTowerHeight, tz), 0.15, 0.16, 'x');
 
@@ -2780,65 +2953,81 @@ for (const tx of towerXs) {
     course.add(s);
     suspensionStrobes.push(s);
 
-    // Solid obstacle collider for tower legs (prevents phasing through structure)
+    // Solid obstacle collider strictly outside +-1.30m bridge deck (inner face at +-1.38m)
     colliders.push({
       id: `suspension_tower_${tx > -2 ? 'east' : tx > -6 ? 'mid' : 'west'}_${tz > hCfg.zLane ? 'north' : 'south'}`,
       x: tx,
       z: tz,
-      hx: 0.30,
-      hz: 0.30,
+      hx: 0.24,
+      hz: 0.24,
       y: ARENA_FLOOR_HEIGHT + 1.80,
       height: 3.60,
       rot: 0,
       walkable: false,
     });
   }
-  // Overhead transverse cross-strut connecting tower legs
+  // Overhead transverse cross-strut & under-deck cross-girder connecting tower legs
   box(course, mats.charcoal, V(tx, hCfg.cableTowerHeight - 0.30, hCfg.zLane), V(0.14, 0.14, towerZNorth - towerZSouth));
-  box(course, mats.yellow, V(tx, hCfg.deckY + 0.10, hCfg.zLane), V(0.16, 0.16, towerZNorth - towerZSouth));
+  box(course, mats.yellow, V(tx, hCfg.deckY - 0.14, hCfg.zLane), V(0.16, 0.14, towerZNorth - towerZSouth));
 }
 
-// 5. Twin Suspended Tracks (Left and Right for tracks/treads) spanning x in [-9.2, 0.8]
+// Helper for matching catenary deck sag across the 2x5m suspended spans
+const hangingDeckYAt = (wx: number) => {
+  const spanMid = wx >= hCfg.xBridgeMid
+    ? (hCfg.xBridgeEast + hCfg.xBridgeMid) * 0.5
+    : (hCfg.xBridgeMid + hCfg.xBridgeWest) * 0.5;
+  const normDist = Math.min(1, Math.abs(wx - spanMid) / 2.50);
+  return hCfg.deckY - hCfg.catenarySag * (1 - normDist * normDist);
+};
+
+// 3. Twin Suspended Tracks (Left and Right) + Outer Curb Guides following exact catenary deflection
 for (const trackSign of [-1, 1]) {
   const tZ = hCfg.zLane + trackSign * 0.70;
   // Longitudinal steel deck stringers
   for (const edgeSign of [-1, 1]) {
     const sZ = tZ + edgeSign * (hCfg.trackWidth / 2 - 0.04);
-    box(course, mats.metal, V(-4.20, hCfg.deckY - 0.06, sZ), V(10.0, 0.08, 0.08));
+    box(course, mats.metal, V(-4.20, hCfg.deckY - 0.08, sZ), V(10.0, 0.08, 0.08));
   }
-  // Transverse wooden deck planks along the 10m span
+  // Transverse wooden deck planks following authentic catenary curve along the 10m span
   for (let px = -9.1; px <= 0.7; px += 0.32) {
-    box(course, mats.wood, V(px, hCfg.deckY - 0.01, tZ), V(0.28, 0.04, hCfg.trackWidth - 0.06));
-    // Planking fastener rivets
-    box(course, mats.metal, V(px, hCfg.deckY + 0.015, tZ - 0.40), V(0.04, 0.01, 0.04), 0, false);
-    box(course, mats.metal, V(px, hCfg.deckY + 0.015, tZ + 0.40), V(0.04, 0.01, 0.04), 0, false);
+    const py = hangingDeckYAt(px);
+    box(course, mats.wood, V(px, py - 0.02, tZ), V(0.28, 0.04, hCfg.trackWidth - 0.06));
+    box(course, mats.metal, V(px, py + 0.005, tZ - 0.40), V(0.04, 0.01, 0.04), 0, false);
+    box(course, mats.metal, V(px, py + 0.005, tZ + 0.40), V(0.04, 0.01, 0.04), 0, false);
   }
+}
+
+// Central diamond-plate utility walkway spine + yellow caution center stripe & outer safety edge curbs
+box(course, mats.diamondPlate, V(hMidX, hCfg.deckY - 0.055, hCfg.zLane), V(hSpanLen, 0.04, 0.40));
+box(course, mats.laneStripeYellow, V(hMidX, hCfg.deckY - 0.030, hCfg.zLane), V(hSpanLen, 0.010, 0.06), 0, false);
+for (const side of [-1, 1]) {
+  const zRail = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 - 0.04);
+  box(course, mats.metal, V(hMidX, hCfg.deckY + 0.04, zRail), V(hSpanLen, 0.08, 0.06));
+  box(course, mats.yellow, V(hMidX, hCfg.deckY + 0.085, zRail), V(hSpanLen, 0.015, 0.07), 0, false);
 }
 
 // Transverse structural steel cross-transom floor beams connecting twin bridges across the center
 for (let bx = -8.8; bx <= 0.4; bx += 1.10) {
-  box(course, mats.metal, V(bx, hCfg.deckY - 0.08, hCfg.zLane), V(0.10, 0.08, hCfg.totalDeckWidth));
+  box(course, mats.metal, V(bx, hangingDeckYAt(bx) - 0.09, hCfg.zLane), V(0.10, 0.08, hCfg.totalDeckWidth + 0.12));
 }
 
-// Solid under-deck flank colliders for suspension bridges (blocks ground vehicles from driving into deck structure from between lanes)
-const hSpanLen = hCfg.xBridgeEast - hCfg.xBridgeWest; // 10.0m
-const hMidX = (hCfg.xBridgeEast + hCfg.xBridgeWest) / 2; // -4.20m
+// Solid under-deck flank colliders for suspension bridges (low ground-height barrier only so elevated deck stays 100% clear)
 for (const side of [-1, 1]) {
-  const zFlank = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 + 0.12);
+  const zFlank = hCfg.zLane + side * (hCfg.totalDeckWidth / 2 - 0.16);
   colliders.push({
     id: `hanging_bridge_under_flank_${side > 0 ? 'north' : 'south'}`,
     x: hMidX,
     z: zFlank,
     hx: hSpanLen / 2,
     hz: 0.14,
-    y: (ARENA_FLOOR_HEIGHT + hCfg.deckY - 0.15) / 2,
-    height: (hCfg.deckY - 0.15) - ARENA_FLOOR_HEIGHT,
+    y: ARENA_FLOOR_HEIGHT + 0.22,
+    height: 0.44,
     rot: 0,
     walkable: false,
   });
 }
 
-// 6. Main Catenary Suspension Cables (North and South at zLane +- 1.45m)
+// 4. Main Catenary Suspension Cables (North and South at zLane +- 1.62m)
 for (const cZ of [towerZSouth, towerZNorth]) {
   // Span 1: x in [-4.2, 0.8] (Length 5.0m)
   const stepsSpan1 = 16;
@@ -2853,9 +3042,9 @@ for (const cZ of [towerZSouth, towerZNorth]) {
     const y1 = hCfg.cableTowerHeight - sag1;
     tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
 
-    // Vertical suspender hanger wire every 2 steps
+    // Vertical suspender hanger wire every 2 steps anchored down to deck outer girder
     if (s % 2 === 1) {
-      tubeBetween(V(x0, y0, cZ), V(x0, hCfg.deckY - 0.02, cZ), 0.018, mats.chrome);
+      tubeBetween(V(x0, y0, cZ), V(x0, hangingDeckYAt(x0) - 0.04, cZ), 0.018, mats.chrome);
     }
   }
 
@@ -2873,16 +3062,16 @@ for (const cZ of [towerZSouth, towerZNorth]) {
     tubeBetween(V(x0, y0, cZ), V(x1, y1, cZ), 0.04, mats.metal);
 
     if (s % 2 === 1) {
-      tubeBetween(V(x0, y0, cZ), V(x0, hCfg.deckY - 0.02, cZ), 0.018, mats.chrome);
+      tubeBetween(V(x0, y0, cZ), V(x0, hangingDeckYAt(x0) - 0.04, cZ), 0.018, mats.chrome);
     }
   }
 
-  // Backstay anchor cables extending down to concrete deadman blocks
-  tubeBetween(V(0.80, hCfg.cableTowerHeight, cZ), V(2.20, GROUND_DECK_HEIGHT + 0.20, cZ), 0.045, mats.metal);
-  box(course, mats.concretePier, V(2.20, GROUND_DECK_HEIGHT + 0.15, cZ), V(0.60, 0.30, 0.40));
+  // Backstay anchor cables extending down cleanly outside the bridge carriageway to concrete deadman blocks
+  tubeBetween(V(0.80, hCfg.cableTowerHeight, cZ), V(2.25, GROUND_DECK_HEIGHT + 0.16, cZ), 0.045, mats.metal);
+  box(course, mats.concretePier, V(2.25, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.50, 0.24, 0.32));
 
-  tubeBetween(V(-9.20, hCfg.cableTowerHeight, cZ), V(-10.60, GROUND_DECK_HEIGHT + 0.20, cZ), 0.045, mats.metal);
-  box(course, mats.concretePier, V(-10.60, GROUND_DECK_HEIGHT + 0.15, cZ), V(0.60, 0.30, 0.40));
+  tubeBetween(V(-9.20, hCfg.cableTowerHeight, cZ), V(-10.65, GROUND_DECK_HEIGHT + 0.16, cZ), 0.045, mats.metal);
+  box(course, mats.concretePier, V(-10.65, GROUND_DECK_HEIGHT + 0.08, cZ), V(0.50, 0.24, 0.32));
 }
 
 // ---------------------------------------------------------------------------
@@ -2997,7 +3186,8 @@ const straightLaneSpecs = [
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
   { laneId: 4, z: -6.75, xMin: -17.5, xMax: -10.80, dir: -1 as const }, // Lane 4 West Runway to HP4
-  { laneId: 4, z: -6.75, xMin: 16.20, xMax: 17.5, dir: -1 as const },  // Lane 4 East Approach (Ground)
+  { laneId: 4, z: -6.75, xMin: 2.40,  xMax: 3.80,   dir: -1 as const }, // Lane 4 Gate 08 Connecting Bay (Ground)
+  { laneId: 4, z: -6.75, xMin: 17.20, xMax: 17.56,  dir: -1 as const }, // Lane 4 East Approach (Ground)
   { laneId: 5, z: -13.50, xMin: -17.5, xMax: -5.50, dir: 1 as const },  // Lane 5 Approach to Fire
   { laneId: 5, z: -13.50, xMin: 9.50,  xMax: 16.0, dir: 1 as const },  // Lane 5 Finish Straight
 ];
@@ -3674,7 +3864,7 @@ function renderUI() {
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
         <div class="pill"><small>GATES</small><strong id="gates">00 / 12</strong></div>
         <div class="pill"><small>SPEED</small><strong id="speed">0.0 <span style="font-size:9px">m/s</span></strong></div>
-        <div class="pill" id="pillHandPoints"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
+        <div class="pill" id="pillHandPoints" role="button" tabindex="0" title="Click or press [R] to recover at latest checkpoint using 1 Hand Point"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
         <div class="pill" id="pillBat"><small>BATTERY</small><strong id="bat">100%</strong></div>
         <div class="pill" id="pillMot"><small>MOTOR</small><strong id="mot">28°C</strong></div>
         <div class="pill" id="pillHlt"><small>HEALTH</small><strong id="hlt">100%</strong></div>
@@ -3921,6 +4111,19 @@ function renderUI() {
   $('#pause').addEventListener('click', togglePause);
   $('#camera').addEventListener('click', cycleCamera);
   $('#recover').addEventListener('click', recoverVehicle);
+  const handPointsPill = $('#pillHandPoints');
+  if (handPointsPill) {
+    handPointsPill.addEventListener('click', () => {
+      recoverVehicle();
+      handPointsPill.blur();
+    });
+    handPointsPill.addEventListener('keydown', e => {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        recoverVehicle();
+      }
+    });
+  }
   $('#settingsBtn').addEventListener('click', () => { controller.neutralize(); $('#settings').classList.toggle('hidden'); });
   $('#closeSettingsBtn')?.addEventListener('click', () => $('#settings').classList.add('hidden'));
   $('#cutaway').addEventListener('click', toggleCutaway);
@@ -4748,8 +4951,8 @@ function stepPhysics(dt: number) {
   const effectiveLeft = pose.isFlipped ? 0 : inputs.leftTrack;
   const effectiveRight = pose.isFlipped ? 0 : inputs.rightTrack;
 
-  // Query ground slope and surface at current position (sampling at active vehicle elevation)
-  const slope = slopeAt((sx, sz) => evaluateCourseHeight(sx, sz, pose.y), motionState.x / MAP_SCALE, motionState.z / MAP_SCALE);
+  // Query true world-meter ground slope and surface at current position (sampling at active vehicle elevation)
+  const slope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y), motionState.x, motionState.z, 0.10);
   const surf = evaluateCourseSurface(motionState.x / MAP_SCALE, motionState.z / MAP_SCALE, pose.y);
 
   // Difficulty grip multiplier

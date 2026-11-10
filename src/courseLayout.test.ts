@@ -534,3 +534,78 @@ test('Lane 1 speed bumps are removed and relocated to Lane 2 as 3 huge passable 
   assert.ok(maxPoseY + TRACK_CONTACT_OFFSET >= GROUND_DECK_HEIGHT + 0.70, 'robot center must rise cleanly over the >= 0.70m crest without sinking inside');
 });
 
+test('Lane 4 end-to-end Pro traversal: Pendulum Gauntlet, Gate 08 road bay, and Dual Hanging Suspension Bridges never flip or stall', () => {
+  assert.equal(PENDULUM_CONFIG.xRampUpEnd, 14.10);
+  assert.equal(PENDULUM_CONFIG.xRampDownStart, 5.90);
+  assert.ok(Math.abs(evaluateCourseHeight(3.10, -6.75) - GROUND_DECK_HEIGHT) < 1e-6, 'Gate 08 connecting road bay must be flat at ground grade');
+
+  const dt = 1 / 120;
+  const worldH = (wx: number, wz: number, curY = 0) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, curY);
+  const runTraversal = (maxSpeed: number) => {
+    const startX = 17.4 * MAP_SCALE;
+    const laneZ = -6.75 * MAP_SCALE;
+    const driveState = { x: startX, z: laneZ, vx: 0, vz: 0, yaw: -Math.PI / 2, angular: 0 };
+    const pose: VehiclePose = {
+      x: startX,
+      z: laneZ,
+      y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      pitch: 0,
+      yaw: -Math.PI / 2,
+      roll: 0,
+      pitchRate: 0,
+      yawRate: 0,
+      rollRate: 0,
+      isFlipped: false,
+      isGrounded: true,
+      flippedTimer: 0,
+    };
+    let maxPoseY = -Infinity;
+    let reachedConnectingBay = false;
+    let reachedBridgeDeck = false;
+    for (let step = 0; step < 120 * 24; step++) {
+      const lx = driveState.x / MAP_SCALE;
+      const lz = driveState.z / MAP_SCALE;
+      const slope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y), driveState.x, driveState.z, 0.10);
+      const surf = evaluateCourseSurface(lx, lz, pose.y);
+      integrateDrive(
+        driveState,
+        1.0,
+        1.0,
+        { grip: surf.grip * 0.68, rollingResistance: surf.rollingResistance },
+        slope,
+        { maxSpeed, motorAcceleration: 8.5, braking: 10, turnRate: 1.25, turnResponse: 16, gravity: 9.81 },
+        dt,
+      );
+      pose.x = driveState.x;
+      pose.z = driveState.z;
+      pose.vx = driveState.vx;
+      pose.vz = driveState.vz;
+      pose.yaw = driveState.yaw;
+      stepVehicle3D(pose, (wx, wz) => worldH(wx, wz, pose.y), Math.hypot(driveState.vx, driveState.vz), 0, dt, 9.81, false);
+      assert.equal(pose.isFlipped, false, `Lane 4 traversal must never flip (maxSpeed=${maxSpeed}, step=${step}, x=${(pose.x / MAP_SCALE).toFixed(2)})`);
+      const groundUnder = pose.y + TRACK_CONTACT_OFFSET;
+      maxPoseY = Math.max(maxPoseY, groundUnder);
+      const curLocalX = pose.x / MAP_SCALE;
+      if (curLocalX <= 3.60 && curLocalX >= 2.55 && Math.abs(groundUnder - GROUND_DECK_HEIGHT) < 0.12) {
+        reachedConnectingBay = true;
+      }
+      if (curLocalX <= -2.0 && curLocalX >= -6.0 && groundUnder >= HANGING_BRIDGE_CONFIG.deckY - 0.08) {
+        reachedBridgeDeck = true;
+      }
+      if (curLocalX <= -12.0) break;
+    }
+    return { endX: driveState.x / MAP_SCALE, maxPoseY, reachedConnectingBay, reachedBridgeDeck };
+  };
+
+  for (const speed of [3.0, 6.8]) {
+    const res = runTraversal(speed);
+    assert.ok(res.endX <= -12.0, `robot at maxSpeed=${speed} must clear both Lane 4 obstacles under Pro grip, reached x=${res.endX.toFixed(2)}`);
+    assert.ok(res.maxPoseY >= PENDULUM_CONFIG.deckY - 0.02, `expected climb onto ${PENDULUM_CONFIG.deckY}m pendulum catwalk (maxSpeed=${speed})`);
+    assert.equal(res.reachedConnectingBay, true, `connecting road at Gate 08 must drop smoothly to ground grade (maxSpeed=${speed})`);
+    assert.equal(res.reachedBridgeDeck, true, `Suspension Bridge span must carry robot at +0.80m deck elevation (maxSpeed=${speed})`);
+  }
+});
+

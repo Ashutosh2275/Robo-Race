@@ -182,10 +182,23 @@ test('applyRecovery restores upright orientation and clears velocities', () => {
   assert.equal(p.z, anchor.z);
 });
 
-test('recovery chooses the latest safe anchor and falls back from a blocked one', () => {
+test('recovery chooses the latest safe anchor and maps Lane 4 checkpoints without regressing to Spiral', () => {
   const anchors = createDefaultRecoveryAnchors();
-  const latestSafe = getSafeRecoveryAnchor(8, anchors, anchor => anchor.id !== 'mixed_terrain');
-  assert.equal(latestSafe.id, 'turntable');
+  const cp7 = getSafeRecoveryAnchor(7, anchors);
+  assert.ok(cp7, 'checkpoint 7 must resolve to a valid Lane 4 anchor');
+  assert.equal(cp7.id, 'north_straight');
+  assert.ok(Math.abs(cp7.z - (-6.75 * 1.3)) < 0.05 && cp7.y < 0, 'checkpoint 7 recovery must land at Lane 4 Pendulum entrance, never Spiral Turntable');
+
+  const cp8 = getSafeRecoveryAnchor(8, anchors);
+  assert.ok(cp8);
+  assert.equal(cp8.id, 'suspension_approach');
+  assert.ok(Math.abs(cp8.z - (-6.75 * 1.3)) < 0.05 && Math.abs(cp8.x - 3.15 * 1.3) < 0.25, 'checkpoint 8 must recover in the Gate 08 transition bay before Suspension Bridges');
+
+  const fallbackFromCp8 = getSafeRecoveryAnchor(8, anchors, anchor => anchor.id !== 'suspension_approach');
+  assert.equal(fallbackFromCp8?.id, 'north_straight', 'blocked suspension approach should fall back along Lane 4 rather than Spiral');
+
+  const cp9 = getSafeRecoveryAnchor(9, anchors);
+  assert.ok(cp9 && cp9.x < -10.80 * 1.3 && Math.abs(cp9.z - (-6.75 * 1.3)) < 0.05, 'checkpoint 9 must recover past Suspension Bridges approaching Hairpin 4');
   assert.equal(getSafeRecoveryAnchor(0, anchors, () => false), null, 'no blocked location may be selected as a fallback');
 });
 
@@ -373,4 +386,18 @@ test('convex belt midpoint support prevents chassis/tracks sinking through a meg
   }
   const beltBottom = p.y + TRACK_CONTACT_OFFSET;
   assert.ok(beltBottom >= crestY - 0.02, `mid-belt must skim right over crest (${crestY.toFixed(3)}m), got ${beltBottom.toFixed(3)}m`);
+});
+
+test('continuous steep ramp pitch difference does not trigger false cliff-edge flipover', () => {
+  // Simulate climbing a 2.73m world-run ramp rising from -0.33m to +1.35m (0..2.73m along -X)
+  const rampHeightAt = (x: number) => {
+    const u = Math.max(0, Math.min(1, -x / 2.73));
+    return -0.33 + 1.68 * u;
+  };
+  const p = makePose({ x: 0.2, z: 0, yaw: -Math.PI / 2, y: -0.33 - TRACK_CONTACT_OFFSET });
+  for (let i = 0; i < 180; i++) {
+    p.x -= 2.2 * (1 / 120);
+    stepVehicle3D(p, rampHeightAt, 2.2, 0, 1 / 120, 9.81, false);
+    assert.equal(p.isFlipped, false, `climbing continuous ramp must never trigger cliff-edge flip at step ${i}, pitch=${p.pitch.toFixed(3)}`);
+  }
 });

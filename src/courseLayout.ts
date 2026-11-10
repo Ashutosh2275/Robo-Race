@@ -48,8 +48,8 @@ export const PARALLEL_PLANK_CENTERS = [
 export const PENDULUM_CONFIG = {
   zLane: -6.75,
   xEntryStart: 16.20,   // Ground entrance before ascent ramp
-  xRampUpEnd: 14.50,    // Top of ascent ramp / start of flat bridge deck
-  xRampDownStart: 5.50, // End of flat bridge deck / start of descent ramp
+  xRampUpEnd: 14.10,    // Top of cushioned ascent ramp / start of flat bridge deck
+  xRampDownStart: 5.90, // End of flat bridge deck / start of cushioned descent ramp
   xExitEnd: 3.80,       // Touchdown at ground grade before Gate 08
   deckY: 1.35,          // Higher elevated bridge deck (+1.68m above ground)
   deckWidth: 2.00,      // Comfortable catwalk bridge width (~1.54x robot width, ~24cm clearance left & right, NO guardrails)
@@ -61,6 +61,24 @@ export const PENDULUM_CONFIG = {
   swingOmega: 2.30,     // Swing frequency in rad/s
   phaseOffsets: [0.0, Math.PI, 0.0] as const, // Ball 1 & 3 swing parallelly, Middle ball swings opposite!
 } as const;
+
+/**
+ * C1-continuous cushioned-fillet ramp easing shared identically by physics
+ * height evaluation and segmented 3D ramp meshes so tracks stay flush on
+ * every portion of the slope without mid-ramp over-steepening or clipping.
+ */
+export function easeCushionedRamp(t: number, fillet = 0.22): number {
+  const u = Math.max(0, Math.min(1, t));
+  const f = Math.max(0.01, Math.min(0.49, fillet));
+  if (u < f) {
+    return (u * u) / (2 * f * (1 - f));
+  }
+  if (u > 1 - f) {
+    const v = 1 - u;
+    return 1 - (v * v) / (2 * f * (1 - f));
+  }
+  return (u - 0.5 * f) / (1 - f);
+}
 
 // ---------------------------------------------------------------------------
 // LANE 4 OBSTACLE 2: DUAL HANGING SUSPENSION BRIDGES CONFIGURATION (Z = -6.75, X in [-10.8, 2.4])
@@ -659,22 +677,19 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
       const inNarrowCorridor = Math.abs(z - PENDULUM_CONFIG.zLane) <= halfTrackW;
 
       if (inNarrowCorridor) {
-        // Ascent ramp (East side, x in [14.50, 16.20]): Westbound vehicle climbs up from ground -0.33 to 1.35m
+        // Ascent ramp (East side, x in [14.10, 16.20]): Westbound vehicle climbs up from ground -0.33 to 1.35m
         if (x > PENDULUM_CONFIG.xRampUpEnd) {
           const u = (PENDULUM_CONFIG.xEntryStart - x) / (PENDULUM_CONFIG.xEntryStart - PENDULUM_CONFIG.xRampUpEnd);
-          const eased = u * u * (3 - 2 * u);
+          const eased = easeCushionedRamp(u);
           return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
-        // Descent ramp (West side, x in [3.80, 5.50]): Westbound vehicle descends from 1.35m to ground -0.33m
+        // Descent ramp (West side, x in [3.80, 5.90]): Westbound vehicle descends from 1.35m to ground -0.33m
         if (x < PENDULUM_CONFIG.xRampDownStart) {
           const u = (x - PENDULUM_CONFIG.xExitEnd) / (PENDULUM_CONFIG.xRampDownStart - PENDULUM_CONFIG.xExitEnd);
-          const eased = u * u * (3 - 2 * u);
+          const eased = easeCushionedRamp(u);
           return GROUND_DECK_HEIGHT + (PENDULUM_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
-        // Elevated catwalk bridge deck: x in [5.50, 14.50]
-        if (poseY < 0 && poseY < PENDULUM_CONFIG.deckY - 0.50) {
-          return GROUND_DECK_HEIGHT;
-        }
+        // Elevated catwalk bridge deck: x in [5.90, 14.10]
         return PENDULUM_CONFIG.deckY;
       }
 
@@ -699,19 +714,16 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
         // Ascent ramp (East side, x in [0.80, 2.40]): Westbound vehicle climbs up from ground -0.33 to 0.80
         if (x > HANGING_BRIDGE_CONFIG.xBridgeEast) {
           const u = (HANGING_BRIDGE_CONFIG.xEntryStart - x) / (HANGING_BRIDGE_CONFIG.xEntryStart - HANGING_BRIDGE_CONFIG.xBridgeEast);
-          const eased = u * u * (3 - 2 * u);
+          const eased = easeCushionedRamp(u);
           return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
         // Descent ramp (West side, x in [-10.80, -9.20]): Westbound vehicle descends from 0.80 to ground -0.33
         if (x < HANGING_BRIDGE_CONFIG.xBridgeWest) {
           const u = (x - HANGING_BRIDGE_CONFIG.xExitEnd) / (HANGING_BRIDGE_CONFIG.xBridgeWest - HANGING_BRIDGE_CONFIG.xExitEnd);
-          const eased = u * u * (3 - 2 * u);
+          const eased = easeCushionedRamp(u);
           return GROUND_DECK_HEIGHT + (HANGING_BRIDGE_CONFIG.deckY - GROUND_DECK_HEIGHT) * eased;
         }
         // Dual Suspended Deck Spans: x in [-9.20, 0.80] (Length 10.0m)
-        if (poseY < 0 && poseY < HANGING_BRIDGE_CONFIG.deckY - 0.50) {
-          return GROUND_DECK_HEIGHT;
-        }
         const spanMid = x >= HANGING_BRIDGE_CONFIG.xBridgeMid
           ? (HANGING_BRIDGE_CONFIG.xBridgeEast + HANGING_BRIDGE_CONFIG.xBridgeMid) / 2
           : (HANGING_BRIDGE_CONFIG.xBridgeMid + HANGING_BRIDGE_CONFIG.xBridgeWest) / 2;
@@ -830,10 +842,10 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
   // 5. Lane 4 Elevated Obstacles (Swinging Pendulum Steel Deck & Dual Hanging Bridge)
   if (Math.abs(z - (-6.75)) <= halfW) {
     if (x >= PENDULUM_CONFIG.xExitEnd && x <= PENDULUM_CONFIG.xEntryStart) {
-      return { grip: 1.05, rollingResistance: 0.28, hazard: 'none' };
+      return { grip: 1.12, rollingResistance: 0.25, hazard: 'none' };
     }
     if (x >= HANGING_BRIDGE_CONFIG.xExitEnd && x <= HANGING_BRIDGE_CONFIG.xEntryStart) {
-      return { grip: 0.95, rollingResistance: 0.32, hazard: 'none' };
+      return { grip: 1.05, rollingResistance: 0.28, hazard: 'none' };
     }
   }
 

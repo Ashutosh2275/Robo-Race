@@ -176,7 +176,8 @@ export function stepVehicle3D(
   // over empty air while the center remains on the deck.
   const isCliffStep = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.10;
   const isCliffSideDrop = rollDifferential >= 0.70 && (isCliffStep || rollDifferential >= 0.75);
-  const isCliffEndDrop = pitchDifferential >= 0.90;
+  const isCliffEndStep = Math.abs(centerH - (frontH + rearH) * 0.5) > 0.15;
+  const isCliffEndDrop = pitchDifferential >= 0.90 && isCliffEndStep;
 
   // Continuous track belt support over convex mound/hump crests:
   // Prevents the crest of a huge smooth bump from clipping upward through the lower belt run and belly.
@@ -307,12 +308,12 @@ export function createDefaultRecoveryAnchors(scale = 1.3): RecoveryAnchor[] {
     { id: 'summit_entry', label: 'Gate 05 - Spiral Summit Cleared', x: -1.20 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 5 },
     // 6: After Gate 06 (Turntable Cleared) / At entry to descent ramp (y = 3.20m)
     { id: 'turntable_exit', label: 'Gate 06 - Turntable Cleared', x: 3.80 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 6 },
-    // 7: Spiral Rooftop Deck Anchor (y = 3.20m)
-    { id: 'turntable', label: 'Gate 07 - Turntable Deck', x: 1.00 * scale, z: 0.00 * scale, y: 3.20 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 7 },
-    // 8: Descent Ramp Landing Anchor (at ground grade)
-    { id: 'mixed_terrain', label: 'Gate 08 - Descent Ramp Landing', x: 11.80 * scale, z: 0.00 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 8 },
-    // 9: North Straight Entry / Before Pendulum Gauntlet (Lane 4)
-    { id: 'north_straight', label: 'Gate 09 - North Straight', x: 15.5 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
+    // 7: After Gate 07 (Descent Ramp Cleared) / Lane 4 North Straight before Pendulum Gauntlet
+    { id: 'north_straight', label: 'Gate 07 - Lane 4 Pendulum Entry', x: 17.05 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 7 },
+    // 8: After Gate 08 (Pendulum Gauntlet Cleared) / Flat connecting bay before Suspension Bridges
+    { id: 'suspension_approach', label: 'Gate 08 - Suspension Bridge Entry', x: 3.15 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 8 },
+    // 9: After Gate 09 (Suspension Bridges Cleared) / Lane 4 West runway approaching Hairpin 4
+    { id: 'fire_approach', label: 'Gate 09 - Suspension Bridges Cleared', x: -12.30 * scale, z: -6.75 * scale, y: -0.33 - TRACK_CONTACT_OFFSET, yaw: -Math.PI / 2, checkpointIndex: 9 },
     // 10: After Gate 10 (Fire Hazard Cleared) / On cooling bridge approaching Water
     { id: 'cooling_bridge', label: 'Gate 10 - Fire Hazard Cleared', x: 0.20 * scale, z: -13.50 * scale, y: 0.05 - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2, checkpointIndex: 10 },
     // 11: After Gate 11 (Deep Water Basin Cleared) / On finishing straight
