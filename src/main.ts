@@ -24,10 +24,25 @@ import {
   createInitialSubsystems,
   stepSubsystems,
   applyFallImpactDamage,
+  applyBatteryShock,
   isRobotDestroyed,
   type SubsystemsState,
   type HazardType,
 } from './robotSubsystems';
+import {
+  DEFAULT_SCORING_CONFIG,
+  createCompetitionScoreState,
+  awardObstacleGatePoints,
+  awardObstacleZonePoints,
+  computeOutOfBoundsFraction,
+  stepBoundaryRule,
+  evaluateFallOutcome,
+  classifyFallZone,
+  classifyFallOrigin,
+  OBSTACLE_SCORE_TIERS,
+  type ScoringConfig,
+  type CompetitionScoreState,
+} from './scoringRules';
 import {
   UniversalController,
   type ControllerConfig,
@@ -721,33 +736,19 @@ function addTaperedFunnelCurbs(
     const p1z = zLane + side * zOffset1;
     const dx = x1 - x0;
     const dz = p1z - p0z;
-    const len = Math.hypot(dx, dz) + 0.08;
+    const len = Math.hypot(dx, dz) + 0.04;
     const rot = Math.atan2(-dz, dx);
     const midX = (x0 + x1) * 0.5;
     const midZ = (p0z + p1z) * 0.5;
-    box(course, mats.concretePier, V(midX, laneDeckY + 0.18, midZ), V(len, 0.36, 0.28), rot);
-    box(course, mats.yellow, V(midX, laneDeckY + 0.38, midZ), V(len, 0.04, 0.30), rot, false);
-    for (const [bx, bz] of [[x0, p0z], [x1, p1z]]) {
-      cyl(course, mats.concretePier, V(bx, laneDeckY + 0.18, bz), 0.14, 0.36, 'y');
-      cyl(course, mats.yellow, V(bx, laneDeckY + 0.38, bz), 0.15, 0.04, 'y');
-    }
-    colliders.push({
-      id: `${idPrefix}_${side > 0 ? 'south' : 'north'}`,
-      x: midX,
-      z: midZ,
-      hx: len / 2,
-      hz: 0.14,
-      y: laneDeckY + 0.60,
-      height: 1.40,
-      rot,
-      walkable: false,
-    });
+    // Flush tapered competition threshold boundary line (zero physical barrier wall)
+    box(course, mats.yellow, V(midX, laneDeckY + 0.011, midZ), V(len, 0.014, 0.14), rot, false);
+    void idPrefix;
   }
 }
 
 /**
- * Closes the lateral step between a 4.40m roadway parapet and a narrower bridge
- * portal with flush concrete abutment headwalls and capped yellow coping.
+ * Marks lateral bridge approach step-ins with flush high-contrast competition boundary
+ * painted markings (replaces blocking concrete portal walls).
  */
 function addBridgePortalHeadwalls(
   idPrefix: string,
@@ -761,21 +762,9 @@ function addBridgePortalHeadwalls(
   const midZOffset = (zInnerOffset + zOuterOffset) * 0.5;
   for (const side of [-1, 1]) {
     const cz = zLane + side * midZOffset;
-    box(course, mats.concretePier, V(xEdge, laneDeckY + 0.18, cz), V(0.32, 0.36, spanZ + 0.14));
-    box(course, mats.yellow, V(xEdge, laneDeckY + 0.38, cz), V(0.34, 0.04, spanZ + 0.16), 0, false);
-    cyl(course, mats.concretePier, V(xEdge, laneDeckY + 0.18, zLane + side * zInnerOffset), 0.14, 0.36, 'y');
-    cyl(course, mats.yellow, V(xEdge, laneDeckY + 0.38, zLane + side * zInnerOffset), 0.15, 0.04, 'y');
-    colliders.push({
-      id: `${idPrefix}_portal_${side > 0 ? 'south' : 'north'}`,
-      x: xEdge,
-      z: cz,
-      hx: 0.16,
-      hz: spanZ / 2 + 0.07,
-      y: laneDeckY + 0.60,
-      height: 1.40,
-      rot: 0,
-      walkable: false,
-    });
+    box(course, mats.fiaRed, V(xEdge, laneDeckY + 0.011, cz), V(0.16, 0.014, spanZ + 0.06), 0, false);
+    cyl(course, mats.yellow, V(xEdge, laneDeckY + 0.012, zLane + side * zInnerOffset), 0.11, 0.016, 'y');
+    void idPrefix;
   }
 }
 
@@ -1477,53 +1466,15 @@ function buildSpiralClimbingStructure() {
   // Curves up along outer edge until theta = 23*PI/6 (s = 136, x = -2.335, z = -1.25) where it meets bridge North parapet
   const kerbPositions: number[] = [];
   const kerbIndices: number[] = [];
-  const kerbSegments = 136; // Terminates at tangency point (z = -1.25) with zero roadway intrusion
-  for (let s = 0; s <= kerbSegments; s++) {
-    const t = s / segments;
+  // Flush Outer Competition Boundary Edge Lines along helical ramp (replaces raised parapet walls)
+  const kerbSegments = 136;
+  for (let s = 0; s < kerbSegments; s += 2) {
+    const t = (s + 0.5) / segments;
     const theta = cfg.startAngle + t * totalAngle;
     const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const yTopOut = yBase + 0.020;
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-    const xBase = cfg.cx + cfg.rOuter * cosT;
-    const zBase = cfg.cz + cfg.rOuter * sinT;
-    const xOut = cfg.cx + (cfg.rOuter + 0.14) * cosT;
-    const zOut = cfg.cz + (cfg.rOuter + 0.14) * sinT;
-
-    kerbPositions.push(xBase, yTopOut, zBase);          // 0: base inner
-    kerbPositions.push(xBase, yTopOut + 0.36, zBase);   // 1: top inner
-    kerbPositions.push(xOut, yTopOut + 0.36, zOut);    // 2: top outer
-    kerbPositions.push(xOut, yTopOut - 0.15, zOut);    // 3: base outer
-
-    if (s < kerbSegments) {
-      const b = s * 4;
-      const n = (s + 1) * 4;
-      // Inner face
-      kerbIndices.push(b, b + 1, n, n, b + 1, n + 1);
-      // Top face
-      kerbIndices.push(b + 1, b + 2, n + 1, n + 1, b + 2, n + 2);
-      // Outer face
-      kerbIndices.push(b + 2, b + 3, n + 2, n + 2, b + 3, n + 3);
-    }
-  }
-  const kerbGeo = new THREE.BufferGeometry();
-  kerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(kerbPositions, 3));
-  kerbGeo.setIndex(kerbIndices);
-  kerbGeo.computeVertexNormals();
-  const kerbMesh = new THREE.Mesh(kerbGeo, mats.concretePier);
-  course.add(kerbMesh);
-
-  // High-visibility yellow warning cap on outer helical parapet (placed strictly along helical curve up to s = 136)
-  for (let s = 0; s < 11; s++) {
-    const t = (s + 0.5) / 12;
-    if (t > 136 / 144) continue;
-    const theta = cfg.startAngle + t * totalAngle;
-    const yBase = cfg.yGround + t * (cfg.yTop - cfg.yGround);
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-    const cxP = cfg.cx + (cfg.rOuter + 0.07) * cosT;
-    const czP = cfg.cz + (cfg.rOuter + 0.07) * sinT;
-    box(course, s % 2 === 0 ? mats.yellow : mats.black, V(cxP, yBase + 0.39, czP), V(0.55, 0.03, 0.16), -theta, false);
+    const cxP = cfg.cx + (cfg.rOuter - 0.06) * Math.cos(theta);
+    const czP = cfg.cz + (cfg.rOuter - 0.06) * Math.sin(theta);
+    box(course, (s / 2) % 2 === 0 ? mats.yellow : mats.fiaRed, V(cxP, yBase + 0.022, czP), V(0.24, 0.014, 0.10), -theta, false);
   }
 
   // 5. Flared Summit Transition Apron & Fully Engineered Viaduct Approach Bridge
@@ -1607,138 +1558,25 @@ function buildSpiralClimbingStructure() {
   tubeBetween(V(-4.40, cfg.yTop - 0.70, 0.0), V(-2.35, cfg.yTop - 0.26, 0.65), 0.065, mats.metal);
   tubeBetween(V(-4.40, cfg.yTop - 0.70, 0.0), V(-2.35, cfg.yTop - 0.26, -0.65), 0.065, mats.metal);
 
-  // Solid concrete safety parapets along Bridge Edges:
-  // A. Straight North Parapet (z = -1.32m, span x in [-2.335, -1.45], meeting spiral outer kerb seamlessly at z = -1.25)
-  box(course, mats.concretePier, V(-1.892, cfg.yTop + 0.18, -1.32), V(0.885, 0.36, 0.14));
-  box(course, mats.yellow, V(-1.892, cfg.yTop + 0.38, -1.32), V(0.885, 0.04, 0.16), 0, false);
-  colliders.push({
-    id: 'spiral_approach_parapet_north',
-    x: -1.892,
-    z: -1.32,
-    hx: 0.443,
-    hz: 0.10,
-    y: cfg.yTop + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-
-  // B. Straight South Parapet (z = +1.32m, span x in [-2.35, -1.45])
-  box(course, mats.concretePier, V(-1.90, cfg.yTop + 0.18, 1.32), V(0.90, 0.36, 0.14));
-  box(course, mats.yellow, V(-1.90, cfg.yTop + 0.38, 1.32), V(0.90, 0.04, 0.16), 0, false);
-  colliders.push({
-    id: 'spiral_approach_parapet_south',
-    x: -1.90,
-    z: 1.32,
-    hx: 0.45,
-    hz: 0.10,
-    y: cfg.yTop + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-
-  // C. Chamfered South Wingwall (x in [-3.20, -2.35], angled smoothly inward from z = 1.32 to z = 0.62)
+  // Flush competition boundary edge stripes along Viaduct Approach Bridge (zero barrier walls):
+  box(course, mats.yellow, V(-1.892, cfg.yTop + 0.015, -1.18), V(0.885, 0.012, 0.10), 0, false);
+  box(course, mats.yellow, V(-1.90, cfg.yTop + 0.015, 1.18), V(0.90, 0.012, 0.10), 0, false);
   const wingwallAngle = -Math.atan2(0.70, 0.85);
-  box(course, mats.concretePier, V(-2.775, cfg.yTop + 0.18, 0.97), V(1.10, 0.36, 0.14), wingwallAngle, false);
-  box(course, mats.yellow, V(-2.775, cfg.yTop + 0.38, 0.97), V(1.10, 0.04, 0.16), wingwallAngle, false);
-  colliders.push({
-    id: 'spiral_approach_wingwall_south',
-    x: -2.775,
-    z: 0.97,
-    hx: 0.55,
-    hz: 0.10,
-    y: cfg.yTop + 0.20,
-    height: 0.40,
-    rot: wingwallAngle,
-    walkable: false,
-  });
-
-  // D. Cast-steel bullnose crash attenuator pillar at South wingwall entrance terminal
-  cyl(course, mats.metal, V(-3.20, cfg.yTop + 0.20, 0.62), 0.14, 0.40, 'y', 16);
-  cyl(course, mats.yellow, V(-3.20, cfg.yTop + 0.40, 0.62), 0.16, 0.06, 'y', 16);
-  cyl(course, mats.concretePier, V(-3.20, cfg.yTop - 0.10, 0.62), 0.18, 0.24, 'y', 16);
-  colliders.push({
-    id: 'spiral_approach_bullnose_south',
-    x: -3.20,
-    z: 0.62,
-    hx: 0.16,
-    hz: 0.16,
-    y: cfg.yTop + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
+  box(course, mats.yellow, V(-2.775, cfg.yTop + 0.015, 0.90), V(1.10, 0.012, 0.10), wingwallAngle, false);
 
   // 6. Connected Descending Viaduct Ramp (x in [3.45, 10.45], slopes smoothly from 3.20m down to -0.33m)
-  // High-traction diamond plate deck with concrete under-girder slab and continuous flank parapets
+  // High-traction diamond plate deck with concrete under-girder slab and flush competition boundary lines
   const dX0 = cfg.descentX0; // 3.45
   const dX1 = cfg.descentX1; // 10.45
   const dWidth = cfg.descentWidth; // 2.30m matching roadWidth
   slopedDeck('spiral_descent_ramp', dX0, dX1, cfg.descentZ, dWidth, cfg.yTop, cfg.yGround, 0.16, mats.diamondPlate);
   slopedDeck('spiral_descent_stripe', dX0, dX1, cfg.descentZ, 0.12, cfg.yTop + 0.006, cfg.yGround + 0.006, 0.006, mats.laneStripeYellow);
 
-  // Concrete safety parapet curbs along both North and South flanks of the descending ramp
+  // Flush caution boundary edge lines along descending ramp shoulders (NO parapet walls or blockers)
   for (const side of [-1, 1]) {
-    const zP = cfg.descentZ + side * 1.30;
-    const segCount = 7;
-    const segW = (dX1 - dX0) / segCount;
-    for (let i = 0; i < segCount; i++) {
-      const segX0 = dX0 + i * segW;
-      const segX1 = segX0 + segW;
-      const midX = (segX0 + segX1) / 2;
-      const tMid = (midX - dX0) / (dX1 - dX0);
-      const yMid = cfg.yTop - tMid * (cfg.yTop - cfg.yGround);
-      box(course, mats.concretePier, V(midX, yMid + 0.18, zP), V(segW + 0.04, 0.36, 0.26));
-      box(course, i % 2 === 0 ? mats.yellow : mats.black, V(midX, yMid + 0.38, zP), V(segW + 0.04, 0.04, 0.28), 0, false);
-    }
+    const zLine = cfg.descentZ + side * (dWidth * 0.5 - 0.06);
+    slopedDeck(`spiral_descent_line_${side}`, dX0, dX1, zLine, 0.10, cfg.yTop + 0.012, cfg.yGround + 0.012, 0.012, mats.yellow);
   }
-
-  // Segmented colliders along the descending ramp
-  colliders.push({
-    id: 'spiral_descent_parapet_n0',
-    x: 5.20,
-    z: 1.30,
-    hx: 1.65,
-    hz: 0.14,
-    y: 2.45,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-  colliders.push({
-    id: 'spiral_descent_parapet_s0',
-    x: 5.20,
-    z: -1.30,
-    hx: 1.65,
-    hz: 0.14,
-    y: 2.45,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-  colliders.push({
-    id: 'spiral_descent_parapet_n1',
-    x: 8.70,
-    z: 1.30,
-    hx: 1.65,
-    hz: 0.14,
-    y: 0.65,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-  colliders.push({
-    id: 'spiral_descent_parapet_s1',
-    x: 8.70,
-    z: -1.30,
-    hx: 1.65,
-    hz: 0.14,
-    y: 0.65,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
 
   // Solid under-deck abutment bulkhead beneath the summit transition at x = 3.45
   box(course, mats.concretePier, V(dX0, (ARENA_FLOOR_HEIGHT + cfg.yTop - 0.20) / 2, cfg.descentZ), V(0.36, (cfg.yTop - 0.20) - ARENA_FLOOR_HEIGHT, dWidth));
@@ -1932,95 +1770,13 @@ function buildMegaSpeedHumpGauntlet() {
     });
   }
 
-  // 3. Elevated Reinforced Buttressed Containment Parapet Walls flanking the Gauntlet
-  // Tall walls (1.10m above deck) cleanly contain the 0.76m crests with smooth tapered end transitions.
-  const wallXMin = sCfg.deckXMin + 0.45; // -6.10
-  const wallXMax = sCfg.deckXMax - 0.45; // +6.00
-  const wallLen = wallXMax - wallXMin;   // 12.10
-  const wallMidX = (wallXMax + wallXMin) * 0.5;
-  const tallH = sCfg.shoulderWallHeight; // 1.10m
-  const stdH = 0.36;
-
+  // 3. Flush Competition Boundary Edge Lines flanking the Mega Speed Hump Gauntlet (no barrier walls)
   for (const side of [-1, 1]) {
-    const zCurb = zL + side * (halfRoadW - 0.14);
-
-    // Tall containment concrete wall + yellow safety coping crest
-    box(course, mats.concretePier, V(wallMidX, deckY + tallH * 0.5, zCurb), V(wallLen, tallH, 0.28));
-    box(course, mats.yellow, V(wallMidX, deckY + tallH + 0.02, zCurb), V(wallLen, 0.04, 0.30), 0, false);
-
-    // Tapered transition cheek walls connecting 0.36m standard road parapet up to 1.10m containment crest
-    for (const end of [-1, 1]) {
-      const xHigh = end > 0 ? wallXMax : wallXMin;
-      const xA = end > 0 ? wallXMax : sCfg.deckXMin;
-      const xB = end > 0 ? sCfg.deckXMax : wallXMin;
-      const yTopA = deckY + (end > 0 ? tallH : stdH);
-      const yTopB = deckY + (end > 0 ? stdH : tallH);
-      const z0 = zCurb - 0.14;
-      const z1 = zCurb + 0.14;
-      const rPos = [
-        xA, yTopA, z0,  xA, yTopA, z1,  xA, deckY, z1,  xA, deckY, z0,
-        xB, yTopB, z0,  xB, yTopB, z1,  xB, deckY, z1,  xB, deckY, z0,
-      ];
-      const rIdx = [
-        0, 1, 4,  1, 5, 4, // Top (+Y)
-        0, 4, 3,  3, 4, 7, // North (-Z)
-        1, 2, 5,  2, 6, 5, // South (+Z)
-        0, 3, 1,  1, 3, 2, // West (-X)
-        4, 5, 7,  5, 6, 7, // East (+X)
-      ];
-      const rampGeo = new THREE.BufferGeometry();
-      rampGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
-      rampGeo.setIndex(rIdx);
-      rampGeo.computeVertexNormals();
-      const rampMesh = new THREE.Mesh(rampGeo, mats.concretePier);
-      rampMesh.castShadow = true;
-      rampMesh.receiveShadow = true;
-      course.add(rampMesh);
-
-      // Sloped yellow coping cap matching exact ramp top coordinates (immune to MAP_SCALE skew)
-      const cZ0 = zCurb - 0.15;
-      const cZ1 = zCurb + 0.15;
-      const cPos = [
-        xA, yTopA + 0.04, cZ0,  xA, yTopA + 0.04, cZ1,  xA, yTopA, cZ1,  xA, yTopA, cZ0,
-        xB, yTopB + 0.04, cZ0,  xB, yTopB + 0.04, cZ1,  xB, yTopB, cZ1,  xB, yTopB, cZ0,
-      ];
-      const copeGeo = new THREE.BufferGeometry();
-      copeGeo.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
-      copeGeo.setIndex(rIdx);
-      copeGeo.computeVertexNormals();
-      const copeMesh = new THREE.Mesh(copeGeo, mats.yellow);
-      copeMesh.receiveShadow = true;
-      course.add(copeMesh);
-
-      // End pilaster post + revolving amber warning strobe beacon
-      cyl(course, mats.metal, V(xHigh, deckY + tallH + 0.08, zCurb), 0.11, 0.10, 'y', 16);
-      const beaconGroup = new THREE.Group();
-      beaconGroup.position.set(xHigh, deckY + tallH + 0.19, zCurb);
-      beaconGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 12), mats.beaconAmber));
-      beaconGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.06), mats.yellow));
-      course.add(beaconGroup);
-      hazardRevolvingBeacons.push(beaconGroup);
+    const zLine = zL + side * (halfRoadW - 0.08);
+    box(course, mats.yellow, V(spanMidX, deckY + 0.012, zLine), V(spanLen, 0.014, 0.14), 0, false);
+    for (let bx of sCfg.centersX) {
+      box(course, mats.fiaRed, V(bx, deckY + 0.014, zLine), V(1.60, 0.014, 0.16), 0, false);
     }
-
-    // Structural steel H-beam external buttress ribs & reflective cat-eyes at each hump crest
-    for (const bx of sCfg.centersX) {
-      box(course, mats.metal, V(bx, deckY + tallH * 0.5, zCurb + side * 0.15), V(0.22, tallH + 0.06, 0.10));
-      box(course, mats.concretePier, V(bx, ARENA_FLOOR_HEIGHT + 0.12, zCurb + side * 0.15), V(0.38, 0.24, 0.22));
-      box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(bx, deckY + 0.72, zCurb - side * 0.15), V(0.10, 0.10, 0.02), 0, false);
-    }
-
-    // Wall barrier collider spanning the full gauntlet edge [-6.55, +6.45]
-    colliders.push({
-      id: `lane_2_gauntlet_barrier_${side > 0 ? 'south' : 'north'}`,
-      x: spanMidX,
-      z: zCurb,
-      hx: spanLen * 0.5,
-      hz: 0.14,
-      y: deckY + 0.65,
-      height: 1.50,
-      rot: 0,
-      walkable: false,
-    });
   }
 }
 
@@ -2039,31 +1795,14 @@ function buildHighClimbZigzagRamp() {
   const plateauLen = cfg.xSummitEast - cfg.xSummitWest; // 0.75m
   const plateauMidX = (cfg.xSummitEast + cfg.xSummitWest) * 0.5;
   const descentLen = cfg.xSummitWest - cfg.xExitEnd; // 2.95m
-  const totalLen = cfg.xEntryStart - cfg.xExitEnd; // 8.30m
-  const totalMidX = (cfg.xEntryStart + cfg.xExitEnd) * 0.5;
-  const wallH = 0.96;
 
-  // 1. Entry & Exit flush shoulder aprons bridging standard 4.40m Lane 2 tarmac -> 5.20m bowl (no coplanar Z-fighting!)
+  // 1. Entry & Exit flush shoulder aprons & boundary transition stripes bridging 4.40m road -> 5.20m bowl
   for (const [edgeX, sign] of [[cfg.xEntryStart, 1], [cfg.xExitEnd, -1]] as const) {
     box(course, mats.laneStripeYellow, V(edgeX - sign * 0.06, cfg.yGround + 0.010, zL), V(0.14, 0.006, DRIVE_ROUTE_WIDTH - 0.56), 0, false);
-    // Seal step between standard 4.40m parapet (zCurb = +-2.06) and widened 5.20m ramp parapet (zCurb = +-2.46)
     for (const side of [-1, 1]) {
       const shoulderZ = zL + side * 2.34;
       box(course, mats.asphalt, V(edgeX + sign * 0.12, cfg.yGround - 0.11, shoulderZ), V(0.40, 0.22, 0.52));
-      const wingZ = zL + side * 2.26;
-      box(course, mats.concretePier, V(edgeX, cfg.yGround + 0.34, wingZ), V(0.32, 0.68, 0.62));
-      box(course, mats.yellow, V(edgeX, cfg.yGround + 0.70, wingZ), V(0.34, 0.04, 0.64), 0, false);
-      colliders.push({
-        id: `high_climb_wing_${edgeX > 12 ? 'east' : 'west'}_${side > 0 ? 's' : 'n'}`,
-        x: edgeX,
-        z: wingZ,
-        hx: 0.16,
-        hz: 0.31,
-        y: cfg.yGround + 0.60,
-        height: 1.50,
-        rot: 0,
-        walkable: false,
-      });
+      box(course, mats.fiaRed, V(edgeX, cfg.yGround + 0.012, zL + side * 2.28), V(0.14, 0.014, 0.56), 0, false);
     }
   }
 
@@ -2130,90 +1869,47 @@ function buildHighClimbZigzagRamp() {
     box(course, mats.metal, V(10.18, (cfg.yGround + cfg.ySummit) * 0.5 - 0.28, strZ), V(descentLen * 0.94, 0.16, 0.16), 0, false).rotation.z = Math.atan2(cfg.ySummit - cfg.yGround, descentLen);
   }
 
-  // 4. Continuous Slope-Following Protective Parapets + Yellow Safety Coping + Strobe Beacons
+  // 4. Flush Slope-Following Competition Edge Boundary Lines + Summit Corner Hazard Flush Lights (ZERO wall blockers!)
   for (const side of [-1, 1]) {
-    const zCurb = zL + side * (halfW - 0.14); // +-2.46m around laneZ
+    const zEdgeLine = zL + side * (halfW - 0.09);
 
-    // Ascent sloped wall & coping
+    // Flush Ascent edge boundary stripe
     curvedSlopedDeck(
-      `high_climb_wall_asc_${side}`,
+      `high_climb_edge_asc_${side}`,
       cfg.xEntryStart,
       cfg.xSummitEast,
-      zCurb,
-      0.28,
-      cfg.yGround + wallH,
-      cfg.ySummit + wallH,
-      wallH + 0.28,
-      mats.concretePier,
-      ascentEase,
-      36,
-    );
-    curvedSlopedDeck(
-      `high_climb_cope_asc_${side}`,
-      cfg.xEntryStart,
-      cfg.xSummitEast,
-      zCurb,
-      0.30,
-      cfg.yGround + wallH + 0.04,
-      cfg.ySummit + wallH + 0.04,
-      0.04,
+      zEdgeLine,
+      0.16,
+      cfg.yGround + 0.014,
+      cfg.ySummit + 0.014,
+      0.014,
       mats.yellow,
       ascentEase,
       36,
     );
 
-    // Summit flat parapet & coping + warning strobe beacon
-    box(course, mats.concretePier, V(plateauMidX, cfg.ySummit + wallH * 0.5 - 0.12, zCurb), V(plateauLen + 0.06, wallH + 0.24, 0.28));
-    box(course, mats.yellow, V(plateauMidX, cfg.ySummit + wallH + 0.02, zCurb), V(plateauLen + 0.06, 0.04, 0.30), 0, false);
-
-    cyl(course, mats.metal, V(plateauMidX, cfg.ySummit + wallH + 0.08, zCurb), 0.10, 0.10, 'y', 14);
+    // Summit flat edge line & flush amber marker beacon on outer flank
+    box(course, mats.yellow, V(plateauMidX, cfg.ySummit + 0.012, zEdgeLine), V(plateauLen + 0.06, 0.014, 0.16), 0, false);
     const summitBeacon = new THREE.Group();
-    summitBeacon.position.set(plateauMidX, cfg.ySummit + wallH + 0.19, zCurb);
-    summitBeacon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 12), mats.beaconAmber));
-    summitBeacon.add(new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.06), mats.yellow));
+    summitBeacon.position.set(plateauMidX, cfg.ySummit + 0.08, zL + side * (halfW + 0.04));
+    summitBeacon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.10, 12), mats.beaconAmber));
     course.add(summitBeacon);
     hazardRevolvingBeacons.push(summitBeacon);
 
-    // Descent sloped wall & coping
+    // Flush Descent edge boundary stripe
     curvedSlopedDeck(
-      `high_climb_wall_desc_${side}`,
+      `high_climb_edge_desc_${side}`,
       cfg.xExitEnd,
       cfg.xSummitWest,
-      zCurb,
-      0.28,
-      cfg.yGround + wallH,
-      cfg.ySummit + wallH,
-      wallH + 0.28,
-      mats.concretePier,
+      zEdgeLine,
+      0.16,
+      cfg.yGround + 0.014,
+      cfg.ySummit + 0.014,
+      0.014,
+      mats.fiaRed,
       descentEase,
       36,
     );
-    curvedSlopedDeck(
-      `high_climb_cope_desc_${side}`,
-      cfg.xExitEnd,
-      cfg.xSummitWest,
-      zCurb,
-      0.30,
-      cfg.yGround + wallH + 0.04,
-      cfg.ySummit + wallH + 0.04,
-      0.04,
-      mats.yellow,
-      descentEase,
-      36,
-    );
-
-    // Continuous full-height containment barrier collider spanning [xExitEnd, xEntryStart]
-    colliders.push({
-      id: `high_climb_barrier_${side > 0 ? 'south' : 'north'}`,
-      x: totalMidX,
-      z: zCurb,
-      hx: totalLen * 0.5,
-      hz: 0.14,
-      y: 1.75,
-      height: 4.50,
-      rot: 0,
-      walkable: false,
-    });
   }
 }
 
@@ -2570,72 +2266,13 @@ colliders.push({
   walkable: false,
 });
 
-// 5. Heavy Concrete Safety Parapets on Elevated Turntable Rooftop Deck
-// Prevents centrifugal or tangential slide off the elevated deck while keeping approach & descent corridors open
-// North Safety Parapet (z = +2.70m, span x in [-1.60, 3.60])
-box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ttY + 0.18, TURNTABLE_CENTER.z + 2.70), V(5.20, 0.36, 0.28));
-box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.38, TURNTABLE_CENTER.z + 2.70), V(5.20, 0.04, 0.30), 0, false);
-colliders.push({
-  id: 'turntable_north_parapet',
-  x: TURNTABLE_CENTER.x,
-  z: TURNTABLE_CENTER.z + 2.70,
-  hx: 2.60,
-  hz: 0.14,
-  y: ttY + 0.20,
-  height: 0.40,
-  rot: 0,
-  walkable: false,
-});
-
-// South Safety Parapet (z = -2.70m, span x in [-1.60, 3.60])
-box(course, mats.concretePier, V(TURNTABLE_CENTER.x, ttY + 0.18, TURNTABLE_CENTER.z - 2.70), V(5.20, 0.36, 0.28));
-box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.38, TURNTABLE_CENTER.z - 2.70), V(5.20, 0.04, 0.30), 0, false);
-colliders.push({
-  id: 'turntable_south_parapet',
-  x: TURNTABLE_CENTER.x,
-  z: TURNTABLE_CENTER.z - 2.70,
-  hx: 2.60,
-  hz: 0.14,
-  y: ttY + 0.20,
-  height: 0.40,
-  rot: 0,
-  walkable: false,
-});
-
-// West Return Parapets (flanking Approach Bridge opening at x = -1.55m, |z| in [1.25, 2.65])
+// 5. Flush Painted Boundary Edge Lines on Elevated Turntable Rooftop Deck (no blocking side parapets)
+box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.012, TURNTABLE_CENTER.z + 2.68), V(5.20, 0.014, 0.16), 0, false);
+box(course, mats.yellow, V(TURNTABLE_CENTER.x, ttY + 0.012, TURNTABLE_CENTER.z - 2.68), V(5.20, 0.014, 0.16), 0, false);
 for (const side of [-1, 1]) {
   const zRet = side * 1.95;
-  box(course, mats.concretePier, V(-1.55, ttY + 0.18, zRet), V(0.24, 0.36, 1.40));
-  box(course, mats.yellow, V(-1.55, ttY + 0.38, zRet), V(0.26, 0.04, 1.40), 0, false);
-  colliders.push({
-    id: `turntable_west_return_${side > 0 ? 'north' : 'south'}`,
-    x: -1.55,
-    z: zRet,
-    hx: 0.12,
-    hz: 0.70,
-    y: ttY + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
-}
-
-// East Return Parapets (flanking Descent Ramp opening at x = 3.55m, |z| in [1.25, 2.65])
-for (const side of [-1, 1]) {
-  const zRet = side * 1.95;
-  box(course, mats.concretePier, V(3.55, ttY + 0.18, zRet), V(0.24, 0.36, 1.40));
-  box(course, mats.yellow, V(3.55, ttY + 0.38, zRet), V(0.26, 0.04, 1.40), 0, false);
-  colliders.push({
-    id: `turntable_east_return_${side > 0 ? 'north' : 'south'}`,
-    x: 3.55,
-    z: zRet,
-    hx: 0.12,
-    hz: 0.70,
-    y: ttY + 0.20,
-    height: 0.40,
-    rot: 0,
-    walkable: false,
-  });
+  box(course, mats.fiaRed, V(-1.55, ttY + 0.012, zRet), V(0.16, 0.014, 1.40), 0, false);
+  box(course, mats.fiaRed, V(3.55, ttY + 0.012, zRet), V(0.16, 0.014, 1.40), 0, false);
 }
 
 // 4D Animated Directional Chasing Chevron Signs along Hairpin Curves
@@ -2728,24 +2365,12 @@ box(course, mats.gravelBed, V(10.25, rockPlatDeckY + 0.025, 13.50), V(8.40, 0.04
 slopedDeck('rock_bed_entrance_ramp', 5.80, 6.40, 13.50, DRIVE_ROUTE_WIDTH - 0.20, GROUND_DECK_HEIGHT, rockPlatDeckY + 0.035, 0.06, mats.gravelBed);
 slopedDeck('rock_bed_exit_ramp', 14.20, 14.80, 13.50, DRIVE_ROUTE_WIDTH - 0.20, rockPlatDeckY + 0.035, GROUND_DECK_HEIGHT, 0.06, mats.gravelBed);
 
-// Natural weathered granite retaining rock kerbs along both shoulders (x in [5.80, 14.80], matching straight lane barriers exactly)
+// Flush weathered granite & yellow competition boundary stripes along Rock Field platform shoulders (no wall blockers)
 const rockCurbMidX = 10.30;
 const rockCurbLen = 9.00;
 for (const side of [-1, 1]) {
-  const zCurb = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.granite, V(rockCurbMidX, rockPlatDeckY + 0.08, zCurb), V(rockCurbLen, 0.16, 0.28));
-  box(course, mats.yellow, V(rockCurbMidX, rockPlatDeckY + 0.17, zCurb), V(rockCurbLen, 0.02, 0.24), 0, false);
-  colliders.push({
-    id: `rock_platform_kerb_${side}`,
-    x: rockCurbMidX,
-    z: zCurb,
-    hx: rockCurbLen / 2,
-    hz: 0.14,
-    y: rockPlatDeckY + 0.50,
-    height: 1.20,
-    rot: 0,
-    walkable: false,
-  });
+  const zLine = 13.50 + side * (DRIVE_ROUTE_WIDTH / 2 - 0.10);
+  box(course, mats.yellow, V(rockCurbMidX, rockPlatDeckY + 0.015, zLine), V(rockCurbLen, 0.014, 0.16), 0, false);
 }
 
 // Concrete pier bents supporting the rock field viaduct platform above arena floor
@@ -2830,24 +2455,11 @@ for (const fx of [-4.5, -3.0, -1.5]) {
 // Incandescent Magma Fissure Underbed
 box(course, mats.magmaBed, V(firePlatMidX, firePlatElevY + 0.022, fireLaneZ), V(firePlatLen - 0.10, 0.018, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
 
-// Heavy refractory brick borders along both shoulders with hazard coping
+// Flush yellow/orange boundary caution stripes along both fire hearth shoulders (no barrier walls)
 for (const side of [-1, 1]) {
-  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
-  box(course, mats.slalomBrick, V(firePlatMidX, firePlatElevY + 0.12, zCurb), V(firePlatLen, 0.22, 0.32));
-  box(course, mats.yellow, V(firePlatMidX, firePlatElevY + 0.24, zCurb), V(firePlatLen, 0.04, 0.34), 0, false);
-  // Continuous ramp curbs bridging smoothly from approach lane onto the platform
-  slopedDeck(`fire_leadin_curb_${side}`, -5.80, -5.00, zCurb, 0.32, ARENA_FLOOR_HEIGHT + 0.18, firePlatElevY + 0.24, 0.22, mats.slalomBrick);
-  colliders.push({
-    id: `fire_hazard_curb_${side}`,
-    x: (firePlatMidX + -5.40) / 2,
-    z: zCurb,
-    hx: (firePlatLen + 0.80) / 2,
-    hz: 0.16,
-    y: firePlatElevY + 0.50,
-    height: 1.40,
-    rot: 0,
-    walkable: false,
-  });
+  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.10);
+  box(course, mats.yellow, V(firePlatMidX, firePlatElevY + 0.018, zCurb), V(firePlatLen, 0.014, 0.16), 0, false);
+  slopedDeck(`fire_leadin_curb_${side}`, -5.80, -5.00, zCurb, 0.16, ARENA_FLOOR_HEIGHT + 0.014, firePlatElevY + 0.014, 0.014, mats.yellow);
 }
 
 // 36 Sculpted Basalt Charcoal Rocks with Glowing Lava Fissures
@@ -3017,9 +2629,8 @@ colliders.push({
   walkable: true,
 });
 for (const side of [-1, 1]) {
-  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.16);
-  box(course, mats.concretePier, V(-0.25, firePlatElevY + 0.18, zCurb), V(1.50, 0.36, 0.28));
-  box(course, mats.yellow, V(-0.25, firePlatElevY + 0.38, zCurb), V(1.50, 0.04, 0.30), 0, false);
+  const zCurb = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.10);
+  box(course, mats.yellow, V(-0.25, firePlatElevY + 0.018, zCurb), V(1.50, 0.014, 0.16), 0, false);
 }
 
 // C. DEEP WATER BASIN WITH ARCHIMEDES BUOYANCY (Lane 5, Z = -13.50, X in [0.5, 9.5])
@@ -3032,26 +2643,10 @@ const waterMidX = 5.0;
 // Concrete foundation pad beneath the basin
 box(course, mats.concretePier, V(waterMidX, ARENA_FLOOR_HEIGHT - 0.05, fireLaneZ), V(waterLen + 0.2, 0.12, DRIVE_ROUTE_WIDTH + 0.20));
 
-// Watertight Stainless Steel Containment Sidewalls along Left and Right shoulders
+// Flush stainless basin edge trim & boundary warning lines (ZERO blocking wall colliders)
 for (const side of [-1, 1]) {
-  const zWall = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.14);
-  box(course, mats.metal, V(waterMidX, waterBedY + waterTankWallH / 2, zWall), V(waterLen + 0.1, waterTankWallH, 0.28));
-  box(course, mats.yellow, V(waterMidX, waterBedY + waterTankWallH + 0.02, zWall), V(waterLen + 0.1, 0.04, 0.32), 0, false);
-  for (let rx = 1.0; rx <= 9.0; rx += 0.85) {
-    box(course, mats.metal, V(rx, waterBedY + waterTankWallH / 2, zWall + side * 0.16), V(0.10, waterTankWallH, 0.08));
-    box(course, mats.black, V(rx, waterBedY + waterTankWallH * 0.7, zWall + side * 0.18), V(0.06, 0.06, 0.06), 0, false);
-  }
-  colliders.push({
-    id: `water_pool_wall_${side}`,
-    x: waterMidX,
-    z: zWall,
-    hx: (waterLen + 0.1) / 2,
-    hz: 0.16,
-    y: waterBedY + 0.60,
-    height: 1.40,
-    rot: 0,
-    walkable: false,
-  });
+  const zWall = fireLaneZ + side * (DRIVE_ROUTE_WIDTH / 2 - 0.10);
+  box(course, mats.yellow, V(waterMidX, waterSurfaceY + 0.010, zWall), V(waterLen + 0.1, 0.016, 0.18), 0, false);
 }
 
 // Entry Ramp (x in [0.5, 2.0], slopes from y = 0.05m down to waterBedY = -0.30m)
@@ -3405,34 +3000,21 @@ for (const hp of hairpins) {
     const absDTheta = Math.abs(dAngle);
     const tangRot = Math.PI / 2 - midTheta;
 
-    // 1. Outer curved safety parapet barrier wall
-    const rOut = hp.radius + (halfW - 0.14);
+    // 1. Flush Outer Competition Boundary Line along Hairpin curves (replaces raised parapet wall)
+    const rOut = hp.radius + (halfW - 0.10);
     const ox = hp.cx + rOut * Math.cos(midTheta);
     const oz = hp.cz + rOut * Math.sin(midTheta);
     const outChord = rOut * absDTheta;
-    const outWall = box(course, mats.concretePier, V(ox, hpDeckY + 0.18, oz), V(outChord + 0.08, 0.36, 0.28), tangRot);
-    outWall.rotation.y = tangRot;
-    const outCap = box(course, s % 2 === 0 ? mats.yellow : mats.black, V(ox, hpDeckY + 0.38, oz), V(outChord + 0.08, 0.04, 0.30), tangRot, false);
-    outCap.rotation.y = tangRot;
-    colliders.push({
-      id: `${hp.id}_outer_barrier_${s}`,
-      x: ox,
-      z: oz,
-      hx: outChord / 2 + 0.04,
-      hz: 0.14,
-      y: hpDeckY + 0.60,
-      height: 1.40,
-      rot: tangRot,
-      walkable: false,
-    });
+    const outLine = box(course, s % 2 === 0 ? mats.yellow : mats.fiaRed, V(ox, hpDeckY + 0.012, oz), V(outChord + 0.06, 0.014, 0.16), tangRot, false);
+    outLine.rotation.y = tangRot;
 
-    // 2. Inner apex curved curb
-    const rIn = hp.radius - (halfW - 0.14);
+    // 2. Inner apex curved flush rumble stripe
+    const rIn = hp.radius - (halfW - 0.10);
     const ix = hp.cx + rIn * Math.cos(midTheta);
     const iz = hp.cz + rIn * Math.sin(midTheta);
     const inChord = rIn * absDTheta;
     const kMat = s % 2 === 0 ? mats.fiaRed : mats.fiaWhite;
-    const innerCurb = box(course, kMat, V(ix, hpDeckY + 0.06, iz), V(inChord + 0.04, 0.10, 0.24), tangRot, false);
+    const innerCurb = box(course, kMat, V(ix, hpDeckY + 0.012, iz), V(inChord + 0.04, 0.014, 0.16), tangRot, false);
     innerCurb.rotation.y = tangRot;
   }
 
@@ -3493,25 +3075,13 @@ for (const lane of straightLaneSpecs) {
   const laneDeckY = GROUND_DECK_HEIGHT; // -0.33m
 
   for (const side of [-1, 1]) {
-    const zCurb = lane.z + side * (halfW - 0.14);
-    // Continuous concrete parapet base with yellow coping
-    box(course, mats.concretePier, V(midX, laneDeckY + 0.18, zCurb), V(len, 0.36, 0.28));
-    box(course, mats.yellow, V(midX, laneDeckY + 0.38, zCurb), V(len, 0.04, 0.30), 0, false);
-    colliders.push({
-      id: `lane_${lane.laneId}_barrier_${side > 0 ? 'south' : 'north'}_${Math.round(lane.xMin)}`,
-      x: midX,
-      z: zCurb,
-      hx: len / 2,
-      hz: 0.14,
-      y: laneDeckY + 0.60,
-      height: 1.40,
-      rot: 0,
-      walkable: false,
-    });
+    const zLine = lane.z + side * (halfW - 0.10);
+    // Flush competition track boundary line replacing solid wall barriers
+    box(course, mats.yellow, V(midX, laneDeckY + 0.012, zLine), V(len, 0.014, 0.16), 0, false);
 
-    // Reflective cat-eyes along the parapet wall
-    for (let wx = lane.xMin + 2.0; wx <= lane.xMax - 2.0; wx += 3.5) {
-      box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(wx, laneDeckY + 0.26, zCurb - side * 0.15), V(0.08, 0.08, 0.02), 0, false);
+    // Alternating red caution out-of-bounds warning ticks outside the painted edge line
+    for (let wx = lane.xMin + 1.0; wx <= lane.xMax - 1.0; wx += 2.4) {
+      box(course, mats.fiaRed, V(wx, laneDeckY + 0.013, zLine + side * 0.08), V(0.65, 0.012, 0.05), 0, false);
     }
   }
 }
@@ -4026,9 +3596,21 @@ const config = {
   cameraFov: clamp(Number(savedPrefs.cameraFov ?? 54), 40, 80),
   preset: (['Low', 'Medium', 'High', 'Custom'].includes(savedPrefs.preset) ? savedPrefs.preset : 'Medium') as 'Low' | 'Medium' | 'High' | 'Custom',
   handPoints: clamp(Number(savedPrefs.handPoints ?? 5), 1, 999),
+  scoring: {
+    easyPoints: clamp(Number(savedPrefs.scoring?.easyPoints ?? DEFAULT_SCORING_CONFIG.easyPoints), 0, 200),
+    mediumPoints: clamp(Number(savedPrefs.scoring?.mediumPoints ?? DEFAULT_SCORING_CONFIG.mediumPoints), 0, 200),
+    hardPoints: clamp(Number(savedPrefs.scoring?.hardPoints ?? DEFAULT_SCORING_CONFIG.hardPoints), 0, 300),
+    boundaryPenaltyPoints: clamp(Number(savedPrefs.scoring?.boundaryPenaltyPoints ?? DEFAULT_SCORING_CONFIG.boundaryPenaltyPoints), 0, 100),
+    boundaryLifelines: clamp(Number(savedPrefs.scoring?.boundaryLifelines ?? DEFAULT_SCORING_CONFIG.boundaryLifelines), 0, 20),
+    fallBasePenaltyPoints: clamp(Number(savedPrefs.scoring?.fallBasePenaltyPoints ?? DEFAULT_SCORING_CONFIG.fallBasePenaltyPoints), 0, 100),
+  } satisfies ScoringConfig,
 };
 
 let remainingHandPoints = config.handPoints;
+let scoreState: CompetitionScoreState = createCompetitionScoreState(config.scoring);
+let fallStartOrigin = { x: 0, z: 0, y: GROUND_DECK_HEIGHT };
+let lastGroundedState = true;
+let peakAirborneY = GROUND_DECK_HEIGHT;
 
 const tuning: VehicleTuning = {
   ...CONTROL_PRESETS[config.preset === 'Custom' ? 'Medium' : config.preset],
@@ -4145,6 +3727,7 @@ function savePreferences() {
     cameraFov: config.cameraFov,
     preset: config.preset,
     handPoints: config.handPoints,
+    scoring: config.scoring,
   }));
 }
 
@@ -4156,6 +3739,8 @@ function renderUI() {
     <div class="topbar">
       <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span></div>
       <div class="hud">
+        <div class="pill"><small>SCORE</small><strong id="score">0</strong></div>
+        <div class="pill" id="pillLifelines"><small>LINE BUFFERS</small><strong id="lifelines">🛡️ 3 / 3</strong></div>
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
         <div class="pill"><small>GATES</small><strong id="gates">00 / 12</strong></div>
         <div class="pill"><small>SPEED</small><strong id="speed">0.0 <span style="font-size:9px">m/s</span></strong></div>
@@ -4260,6 +3845,18 @@ function renderUI() {
       </label>
       <label>Camera Field of View <input id="cameraFov" type="range" min="40" max="80" step="1" value="54"></label>
       <label>Orbit Sensitivity <input id="cameraSens" type="range" min="0.3" max="2.0" step="0.1" value="1.0"></label>
+      <div class="control-diagram">
+        <b>SCORING &amp; BOUNDARY LINE RULES (CUSTOMIZABLE):</b><br>
+        Touching painted line (&lt;50% out) is allowed free. Going &ge;50% across the line uses 1 Buffer Lifeline, then deducts custom minus points. Height falls calculate damage/battery &amp; points by height, speed &amp; place.
+      </div>
+      <div class="tuning-grid">
+        <label>Easy Obst. Pts <input id="scoreEasyPts" type="number" min="0" max="200" step="5" value="${config.scoring.easyPoints}"></label>
+        <label>Medium Obst. Pts <input id="scoreMedPts" type="number" min="0" max="200" step="5" value="${config.scoring.mediumPoints}"></label>
+        <label>Hard / Critical Pts <input id="scoreHardPts" type="number" min="0" max="300" step="5" value="${config.scoring.hardPoints}"></label>
+        <label>Line Minus Pts (5/10) <input id="scoreBoundaryPenalty" type="number" min="0" max="100" step="5" value="${config.scoring.boundaryPenaltyPoints}"></label>
+        <label>Line Buffer Lifelines <input id="scoreLifelines" type="number" min="0" max="20" step="1" value="${config.scoring.boundaryLifelines}"></label>
+        <label>Fall Base Minus Pts <input id="scoreFallPenalty" type="number" min="0" max="100" step="5" value="${config.scoring.fallBasePenaltyPoints}"></label>
+      </div>
       <div class="control-diagram">360° MOUSE CAMERA: Click canvas to lock pointer for full 360° mouse look · Move mouse to rotate camera freely around robot · Press ESC or Pause to release mouse cursor for settings · Wheel zooms · Overturning allows limited Hand Points recovery.</div>
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
@@ -4500,6 +4097,32 @@ function renderUI() {
       displayToast(`HAND POINTS: ${val >= 999 ? 'UNLIMITED' : val}`);
     });
   }
+
+  // Customizable Obstacle Scoring & Boundary Violation Settings
+  const bindNumSetting = (id: string, getCur: () => number, setVal: (n: number) => void, onUpdate?: () => void) => {
+    const el = document.querySelector<HTMLInputElement>(id);
+    if (!el) return;
+    el.value = String(getCur());
+    el.addEventListener('change', () => {
+      const parsed = Math.max(0, Math.round(Number(el.value) || 0));
+      el.value = String(parsed);
+      setVal(parsed);
+      onUpdate?.();
+      savePreferences();
+    });
+  };
+  bindNumSetting('#scoreEasyPts', () => config.scoring.easyPoints, v => (config.scoring.easyPoints = v));
+  bindNumSetting('#scoreMedPts', () => config.scoring.mediumPoints, v => (config.scoring.mediumPoints = v));
+  bindNumSetting('#scoreHardPts', () => config.scoring.hardPoints, v => (config.scoring.hardPoints = v));
+  bindNumSetting('#scoreBoundaryPenalty', () => config.scoring.boundaryPenaltyPoints, v => (config.scoring.boundaryPenaltyPoints = v), () => {
+    displayToast(`LINE VIOLATION PENALTY SET: -${config.scoring.boundaryPenaltyPoints} PTS`);
+  });
+  bindNumSetting('#scoreLifelines', () => config.scoring.boundaryLifelines, v => {
+    config.scoring.boundaryLifelines = v;
+    scoreState.totalLifelines = v;
+    scoreState.remainingLifelines = Math.min(scoreState.remainingLifelines, v);
+  });
+  bindNumSetting('#scoreFallPenalty', () => config.scoring.fallBasePenaltyPoints, v => (config.scoring.fallBasePenaltyPoints = v));
 
   document.addEventListener('pointerlockchange', () => {
     isPointerLocked = document.pointerLockElement === canvas;
@@ -4829,11 +4452,13 @@ function showResults() {
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow">COURSE COMPLETE · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
+        <div class="eyebrow">COURSE COMPLETE · SCORE ${scoreState.score} PTS · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
         <h1>Race Finished!</h1>
-        <p class="result-time">${formatTime(elapsed)} <span style="font-size:14px;color:#aeb8a9">+ ${penaltyTime.toFixed(1)}s penalty</span></p>
-        <p>Adjusted Total: <b style="color:#f0bd53">${formatTime(totalAdj)}</b><br>
-           Course Record: <b style="color:#f0bd53">${formatTime(bestTime)}</b><br>
+        <p class="result-time">${formatTime(elapsed)} <span style="font-size:14px;color:#aeb8a9">+ ${penaltyTime.toFixed(1)}s assist</span></p>
+        <p>Competition Score: <b style="color:${scoreState.score >= 0 ? '#6ee787' : '#ff7770'}">${scoreState.score} PTS</b>
+           <span style="font-size:12px;color:#aeb8a9">(+${scoreState.pointsEarned} obstacles · -${scoreState.penaltyPoints} penalties)</span><br>
+           Line Buffers Left: <b>${scoreState.remainingLifelines} / ${scoreState.totalLifelines}</b> · Out-of-Line Penalties: <b>${scoreState.boundaryViolations}</b> · Height Falls: <b>${scoreState.fallCount}</b><br>
+           Adjusted Total: <b style="color:#f0bd53">${formatTime(totalAdj)}</b> · Record: <b style="color:#f0bd53">${formatTime(bestTime)}</b><br>
            Battery Remaining: ${subsystems.battery.percentage.toFixed(0)}% · Chassis Integrity: ${subsystems.integrity.chassis.toFixed(0)}%
         </p>
         <button class="action" id="btnAgain">RACE AGAIN</button>
@@ -4854,8 +4479,9 @@ function showFailure(reason: string) {
       <div class="card">
         <div class="eyebrow" style="color:#ff7770">RACE FAILED · ROBOT DISABLED</div>
         <h1>Run ended.</h1>
-        <p>${reason}. Structural integrity reached zero. The drivetrain is disabled and this attempt cannot be recovered.</p>
-        <p>Time: <b>${formatTime(elapsed)}</b> · Battery: ${subsystems.battery.percentage.toFixed(0)}%</p>
+        <p>${reason}. This attempt cannot continue without a restart.</p>
+        <p>Competition Score: <b>${scoreState.score} PTS</b> · Height Falls: <b>${scoreState.fallCount}</b><br>
+           Time: <b>${formatTime(elapsed)}</b> · Battery: ${subsystems.battery.percentage.toFixed(0)}% · Health: ${subsystems.integrity.chassis.toFixed(0)}%</p>
         <button class="action" id="btnRestartFailed">RESTART RACE</button>
         <div class="subactions"><button class="iconbtn" id="btnFailedMenu">MAIN MENU</button></div>
       </div>
@@ -4938,6 +4564,7 @@ function startRace() {
   remainingHandPoints = config.handPoints;
   updateHandPointsDisplay();
   subsystems = createInitialSubsystems();
+  scoreState = createCompetitionScoreState(config.scoring);
 
   checkpointMeshes.forEach(c => {
     c.passed = false;
@@ -4953,6 +4580,11 @@ function startRace() {
   motionState.yaw = pose.yaw;
   motionState.angular = 0;
   previousRacePosition = { x: pose.x, z: pose.z };
+
+  const startFloorY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
+  fallStartOrigin = { x: pose.x / MAP_SCALE, z: pose.z / MAP_SCALE, y: startFloorY };
+  lastGroundedState = true;
+  peakAirborneY = startFloorY;
 
   raceState = 'countdown';
   countdown = 3.0;
@@ -5008,6 +4640,13 @@ function recoverVehicle() {
   motionState.angular = 0;
   previousRacePosition = { x: pose.x, z: pose.z };
 
+  const recGroundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
+  fallStartOrigin = { x: pose.x / MAP_SCALE, z: pose.z / MAP_SCALE, y: recGroundY };
+  lastGroundedState = true;
+  peakAirborneY = recGroundY;
+  pose.lastImpactSpeed = 0;
+  scoreState.isOutsideLine = false;
+
   penaltyTime += config.penalty;
   tone(380, 0.18, 0.05);
   const hpStr = config.handPoints >= 999 ? '∞' : `${remainingHandPoints}/${config.handPoints}`;
@@ -5044,6 +4683,13 @@ function skipCurrentCheckpoint() {
   motionState.yaw = pose.yaw;
   motionState.angular = 0;
   previousRacePosition = { x: pose.x, z: pose.z };
+
+  const skipGroundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
+  fallStartOrigin = { x: pose.x / MAP_SCALE, z: pose.z / MAP_SCALE, y: skipGroundY };
+  lastGroundedState = true;
+  peakAirborneY = skipGroundY;
+  pose.lastImpactSpeed = 0;
+  scoreState.isOutsideLine = false;
 
   checkpointMeshes.forEach((checkpoint, i) => {
     checkpoint.passed = i < currentCheckpoint;
@@ -5183,12 +4829,14 @@ function collidesWithBarrier(x: number, z: number, y: number) {
   pose.x = x;
   pose.z = z;
   pose.yaw = yaw;
+  const groundY = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, targetY ?? pose.y);
   if (targetY !== undefined) {
     pose.y = targetY;
   } else {
-    const groundY = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, pose.y);
-    pose.y = groundY - 0.05;
+    pose.y = groundY - TRACK_CONTACT_OFFSET;
   }
+  const spawnBottomY = pose.y + TRACK_CONTACT_OFFSET;
+  const isAirSpawn = targetY !== undefined && spawnBottomY > groundY + 0.15;
   pose.vx = 0;
   pose.vz = 0;
   pose.vy = 0;
@@ -5198,10 +4846,17 @@ function collidesWithBarrier(x: number, z: number, y: number) {
   pose.pitchRate = 0;
   pose.rollRate = 0;
   pose.isFlipped = false;
+  pose.isGrounded = !isAirSpawn;
   pose.flippedTimer = 0;
   pose.sideDropTime = 0;
   pose.endDropTime = 0;
+  pose.lastImpactSpeed = 0;
   previousRacePosition = { x, z };
+  fallStartOrigin = { x: x / MAP_SCALE, z: z / MAP_SCALE, y: isAirSpawn ? spawnBottomY : groundY };
+  lastGroundedState = !isAirSpawn;
+  peakAirborneY = isAirSpawn ? spawnBottomY : groundY;
+  scoreState.isOutsideLine = false;
+  scoreState.boundaryCooldown = 0;
 };
 
 function stepPhysics(dt: number) {
@@ -5450,51 +5105,25 @@ function stepPhysics(dt: number) {
         pose.rollRate = 0;
         pose.pitchRate = 0;
 
-        // Chassis integrity reduction & audio-visual impact cues
-        subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - 8.0);
+        // Horizontal pendulum contact pushes the rover without artificial barrier HP damage
         tone(105, 0.32, 0.14);
-        displayToast('PENDULUM IMPACT! KNOCKED OFF TRACK');
+        displayToast('PENDULUM IMPACT! STAY WITHIN BOUNDARY LINES!');
       }
     }
   }
 
-  // Fall Detection & Gate 09 Reset on Lane 4 Narrow Catwalk Bridge
-  // Strictly applies ONLY when actively navigating Lane 4 (between Gate 09 and Gate 10, |localZ - zLane| <= 2.2m).
-  // Prevents false resets when driving on other track lanes (such as Gate 04 on Lane 2 at z = +6.75).
-  // If the robot is knocked off or drifts off the 1.45m narrow elevated catwalk, it plunges into the cutaway chasm.
-  // When it hits the chasm floor or flips after falling off, reset directly to Gate 09.
+  // Track grounded launch origin prior to stepping 3D gravity/ground following
   const localX = pose.x / MAP_SCALE;
   const localZ = pose.z / MAP_SCALE;
-  const inLane4Corridor = Math.abs(localZ - PENDULUM_CONFIG.zLane) <= 2.20;
-  if (raceState === 'racing' && inLane4Corridor && (currentCheckpoint === 7 || currentCheckpoint === 8)) {
-    if (localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
-      const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2; // 0.725m
-      const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
-      const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
-
-      if (isOffDeck && isBelowElevated && (pose.y <= GROUND_DECK_HEIGHT + 0.05 || pose.isFlipped || Math.abs(pose.vz) > 2.0)) {
-        // Automatic immediate checkpoint recovery to Lane 4 entry (before pendulums)
-        const g08Anchor = recoveryAnchors.find(a => a.id === 'north_straight') || recoveryAnchors[0];
-        applyRecovery(pose, g08Anchor, worldCourseHeight);
-        currentCheckpoint = 7; // Reset back to Gate 08 target
-        checkpointMeshes.forEach((checkpoint, i) => {
-          checkpoint.passed = i < currentCheckpoint;
-          (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
-        });
-        motionState.x = pose.x;
-        motionState.z = pose.z;
-        motionState.vx = 0;
-        motionState.vz = 0;
-        motionState.yaw = pose.yaw;
-        motionState.angular = 0;
-        tone(260, 0.28, 0.08);
-        displayToast('KNOCKED OFF TRACK · RESTARTING AT PENDULUM GAUNTLET');
-      }
-    }
+  if (pose.isGrounded) {
+    const gNow = pose.y + TRACK_CONTACT_OFFSET;
+    fallStartOrigin = { x: localX, z: localZ, y: gNow };
+    peakAirborneY = gNow;
   }
 
-  // Collision handling against static barriers (iterative 3-pass resolution prevents tunneling & multi-barrier jams)
-  let impactDamage = 0;
+  // Collision handling against remaining interior structural solids (slalom weave bricks, perimeter walls, piers)
+  // Horizontal contact resolves cleanly with ZERO structural HP or barrier score penalties.
+  const impactDamage = 0;
   for (let iter = 0; iter < 3; iter++) {
     const hit = collidesWithBarrier(pose.x, pose.z, pose.y);
     if (!hit) break;
@@ -5507,18 +5136,10 @@ function stepPhysics(dt: number) {
     motionState.x = pose.x;
     motionState.z = pose.z;
     if (dot < 0) {
-      const impactSpeed = Math.abs(dot);
       pose.vx -= (1 + 0.08) * dot * hit.nx;
       pose.vz -= (1 + 0.08) * dot * hit.nz;
       motionState.vx = pose.vx;
       motionState.vz = pose.vz;
-
-      if (iter === 0 && impactSpeed > 1.2) {
-        impactDamage = impactSpeed * 2.5;
-        penaltyTime += 1.0;
-        tone(120, 0.14, 0.06);
-        displayToast('BARRIER IMPACT');
-      }
     }
   }
 
@@ -5545,15 +5166,51 @@ function stepPhysics(dt: number) {
     pose.pitch *= Math.exp(-dt * 4.0);
   }
 
-  // Kinetic gravity fall-impact health shock upon slamming down onto ground or sand pit
-  if ((pose.lastImpactSpeed ?? 0) > 2.2) {
-    const landingSurface = evaluateCourseSurface(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
-    const fallLoss = applyFallImpactDamage(subsystems, pose.lastImpactSpeed ?? 0, landingSurface.hazard);
-    if (fallLoss > 0) {
-      tone(92, 0.30, 0.13);
-      displayToast(`⚠️ ${landingSurface.hazard === 'sand' ? 'SAND PIT ' : ''}FALL IMPACT · -${Math.max(1, Math.round(fallLoss))}% HEALTH`);
-    }
+  // Track peak airborne elevation and evaluate multi-factor falls from height
+  // (scaled by drop height, landing zone, impact & horizontal speed, and inversion).
+  const trackBottomNow = pose.y + TRACK_CONTACT_OFFSET;
+  if (!pose.isGrounded) {
+    peakAirborneY = Math.max(peakAirborneY, trackBottomNow);
   }
+  const justLanded = !lastGroundedState && pose.isGrounded;
+  const rawImpactVert = pose.lastImpactSpeed ?? 0;
+  if (justLanded || rawImpactVert > 2.30) {
+    const dropHeightM = Math.max(0, peakAirborneY - trackBottomNow);
+    const landX = pose.x / MAP_SCALE;
+    const landZ = pose.z / MAP_SCALE;
+    const landingPlace = classifyFallZone(landX, landZ, trackBottomNow);
+    const originZone = classifyFallOrigin(fallStartOrigin.x, fallStartOrigin.z, peakAirborneY);
+    const horizontalSpeedMps = Math.hypot(pose.vx, pose.vz);
+    const fallOutcome = evaluateFallOutcome({
+      dropHeightM,
+      impactSpeedMps: rawImpactVert,
+      horizontalSpeedMps,
+      landingPlace,
+      originZone,
+      isInverted: pose.isFlipped,
+    }, config.scoring);
+
+    if (fallOutcome.significantFall) {
+      const damageHazard: HazardType = landingPlace === 'sand_pit' ? 'sand' : landingPlace === 'water_basin' ? 'water' : 'none';
+      const fallLoss = applyFallImpactDamage(subsystems, fallOutcome.effectiveImpactMps, damageHazard);
+      const batShock = applyBatteryShock(subsystems, fallOutcome.batteryShockPct);
+      scoreState.fallCount += 1;
+      scoreState.penaltyPoints += fallOutcome.pointsPenalty;
+      scoreState.score -= fallOutcome.pointsPenalty;
+      scoreState.events.push({
+        label: `Height Fall (${originZone.replace('_', ' ')})`,
+        delta: -fallOutcome.pointsPenalty,
+        detail: fallOutcome.summary,
+      });
+      tone(92, 0.30, 0.13);
+      displayToast(`⚠️ FALL (${dropHeightM.toFixed(1)}m · ${landingPlace.replace('_', ' ').toUpperCase()}) · -${Math.max(1, Math.round(fallLoss))}% HP · -${Math.round(batShock)}% BAT · -${fallOutcome.pointsPenalty} PTS`);
+    }
+    pose.lastImpactSpeed = 0;
+    peakAirborneY = trackBottomNow;
+    fallStartOrigin = { x: pose.x / MAP_SCALE, z: pose.z / MAP_SCALE, y: trackBottomNow };
+  }
+  lastGroundedState = pose.isGrounded;
+
   // Keep planar motion state in strict lockstep with 3D pose yaw
   motionState.yaw = pose.yaw;
 
@@ -5568,6 +5225,41 @@ function stepPhysics(dt: number) {
     dt
   );
 
+  // Fall Detection & Gate 09 Reset on Lane 4 Narrow Catwalk Bridge
+  // Evaluates after 3D fall impact so dropping off the 1.35m catwalk applies true height/battery/point consequences first.
+  const inLane4Corridor = Math.abs(localZ - PENDULUM_CONFIG.zLane) <= 2.20;
+  if (raceState === 'racing' && !isRobotDestroyed(subsystems) && inLane4Corridor && (currentCheckpoint === 7 || currentCheckpoint === 8)) {
+    if (localX >= PENDULUM_CONFIG.xExitEnd && localX <= PENDULUM_CONFIG.xEntryStart) {
+      const halfNarrowW = PENDULUM_CONFIG.deckWidth / 2;
+      const isOffDeck = Math.abs(localZ - PENDULUM_CONFIG.zLane) > halfNarrowW + 0.08;
+      const isBelowElevated = pose.y < (PENDULUM_CONFIG.deckY - 0.35);
+      const hitChasmFloor = (pose.y + TRACK_CONTACT_OFFSET) <= ARENA_FLOOR_HEIGHT + 0.12;
+
+      if (isOffDeck && isBelowElevated && (hitChasmFloor || (pose.isFlipped && pose.flippedTimer > 0.35))) {
+        const g08Anchor = recoveryAnchors.find(a => a.id === 'north_straight') || recoveryAnchors[0];
+        applyRecovery(pose, g08Anchor, worldCourseHeight);
+        currentCheckpoint = 7;
+        checkpointMeshes.forEach((checkpoint, i) => {
+          checkpoint.passed = i < currentCheckpoint;
+          (checkpoint.bar.material as THREE.MeshBasicMaterial).color.set(checkpoint.passed ? '#f0bd53' : '#88a679');
+        });
+        motionState.x = pose.x;
+        motionState.z = pose.z;
+        motionState.vx = 0;
+        motionState.vz = 0;
+        motionState.yaw = pose.yaw;
+        motionState.angular = 0;
+        const g08GroundY = evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y);
+        fallStartOrigin = { x: pose.x / MAP_SCALE, z: pose.z / MAP_SCALE, y: g08GroundY };
+        lastGroundedState = true;
+        peakAirborneY = g08GroundY;
+        scoreState.isOutsideLine = false;
+        tone(260, 0.28, 0.08);
+        displayToast('FALLEN OFF CATWALK · RESTARTING AT PENDULUM GAUNTLET');
+      }
+    }
+  }
+
   if (isRobotDestroyed(subsystems)) {
     raceState = 'failed';
     controller.neutralize();
@@ -5577,7 +5269,7 @@ function stepPhysics(dt: number) {
     pose.vx = 0;
     pose.vz = 0;
     pose.yawRate = 0;
-    showFailure('Chassis integrity depleted');
+    showFailure(subsystems.battery.percentage <= 0 ? 'LiPo battery depleted' : 'Chassis integrity depleted');
   }
 
   // Update Three.js Robot Rigidbody Position and Rotation (unified rigid structure)
@@ -5643,6 +5335,13 @@ function stepPhysics(dt: number) {
     turntableOmega: turntableCurrentOmega,
     turntableRadius: TURNTABLE_RADIUS,
     waterBuoyancy,
+    scoring: {
+      scoreState,
+      config: config.scoring,
+      outOfBoundsFraction: scoreState.lastOutFraction,
+      fallOrigin: fallStartOrigin,
+      peakAirborneY,
+    },
     groundContact: {
       terrainY: evaluateCourseHeight(pose.x / MAP_SCALE, pose.z / MAP_SCALE, pose.y),
       supportY: supportGroundY,
@@ -5727,6 +5426,37 @@ function stepPhysics(dt: number) {
     if (p.life <= 0) p.mesh.visible = false;
   }
 
+  // Boundary Line Violation Rule (< 50% allowed free; >= 50% uses lifeline buffer first, then minus pts)
+  if (raceState === 'racing') {
+    const outFraction = computeOutOfBoundsFraction(pose.x, pose.z, pose.yaw, pose.y + TRACK_CONTACT_OFFSET, MAP_SCALE);
+    const boundaryStep = stepBoundaryRule(scoreState, outFraction, dt, config.scoring);
+    if (boundaryStep.event === 'lifeline_used') {
+      tone(330, 0.16, 0.06);
+      displayToast(`⚠️ >=50% OUT OF TRACK · LIFELINE USED (${scoreState.remainingLifelines}/${scoreState.totalLifelines} LEFT)`);
+    } else if (boundaryStep.event === 'penalty_applied') {
+      tone(190, 0.20, 0.08);
+      displayToast(`⚠️ BOUNDARY VIOLATION >=50% OUT · -${boundaryStep.pointsDeducted} PTS`);
+    }
+
+    // Intra-gate zone award for High-Incline Zigzag Ramp completion on Lane 2
+    const hcExitLocalX = pose.x / MAP_SCALE;
+    const hcExitLocalZ = pose.z / MAP_SCALE;
+    if (
+      !scoreState.awardedIds.has('high_climb')
+      && previousRacePosition.x / MAP_SCALE > HIGH_CLIMB_CONFIG.xExitEnd - 0.10
+      && hcExitLocalX <= HIGH_CLIMB_CONFIG.xExitEnd - 0.10
+      && hcExitLocalX >= 6.0
+      && Math.abs(hcExitLocalZ - HIGH_CLIMB_CONFIG.laneZ) <= 2.65
+      && Math.abs((pose.y + TRACK_CONTACT_OFFSET) - GROUND_DECK_HEIGHT) <= 0.45
+    ) {
+      const hcPts = awardObstacleZonePoints(scoreState, 'high_climb', config.scoring);
+      if (hcPts > 0) {
+        tone(640, 0.12, 0.05);
+        displayToast(`HIGH-INCLINE ZIGZAG RAMP CLEARED · +${hcPts} PTS [MEDIUM]`);
+      }
+    }
+  }
+
   // Checkpoint validation
   if (raceState === 'racing' && currentCheckpoint < checkpointMeshes.length) {
     const cp = checkpointMeshes[currentCheckpoint];
@@ -5736,7 +5466,12 @@ function stepPhysics(dt: number) {
       currentCheckpoint++;
       (cp.bar.material as THREE.MeshBasicMaterial).color.set('#f0bd53');
       tone(620, 0.14, 0.05);
-      displayToast(`GATE ${String(currentCheckpoint).padStart(2, '0')} CLEARED`);
+      const gatePts = awardObstacleGatePoints(scoreState, cp.id, config.scoring);
+      if (gatePts > 0) {
+        displayToast(`GATE ${String(currentCheckpoint).padStart(2, '0')} CLEARED · +${gatePts} PTS`);
+      } else {
+        displayToast(`GATE ${String(currentCheckpoint).padStart(2, '0')} CLEARED`);
+      }
 
       if (currentCheckpoint >= checkpointMeshes.length) {
         raceState = 'finished';
@@ -5835,6 +5570,8 @@ function updateCamera(dt: number) {
 // 13. HUD & Telemetry Displays
 // -------------------------------------------------------------
 function updateHUD(dt: number) {
+  const sc = $<HTMLElement>('#score');
+  const ll = $<HTMLElement>('#lifelines');
   const t = $<HTMLElement>('#time');
   const g = $<HTMLElement>('#gates');
   const s = $<HTMLElement>('#speed');
@@ -5844,6 +5581,20 @@ function updateHUD(dt: number) {
   const hlt = $<HTMLElement>('#hlt');
   const rolloverBanner = $<HTMLElement>('#rolloverAlert');
 
+  if (sc) {
+    sc.textContent = String(scoreState.score);
+    sc.style.color = scoreState.score < 0 ? '#ff6b6b' : '';
+  }
+  if (ll) {
+    ll.textContent = `🛡️ ${scoreState.remainingLifelines} / ${scoreState.totalLifelines}`;
+    const pillLifelines = $<HTMLElement>('#pillLifelines');
+    if (pillLifelines) {
+      const over50 = raceState === 'racing' && scoreState.lastOutFraction >= 0.50;
+      const touching = raceState === 'racing' && scoreState.lastOutFraction > 0.04 && scoreState.lastOutFraction < 0.50;
+      pillLifelines.classList.toggle('alert', over50 || scoreState.remainingLifelines === 0);
+      pillLifelines.classList.toggle('warn', !over50 && scoreState.remainingLifelines > 0 && touching);
+    }
+  }
   if (t) t.textContent = formatTime(elapsed);
   if (g) g.textContent = `${String(currentCheckpoint).padStart(2, '0')} / ${checkpointMeshes.length}`;
   if (s) {
@@ -5899,18 +5650,24 @@ function updateHUD(dt: number) {
       && lx <= HANGING_BRIDGE_CONFIG.pitXMax
       && Math.abs(lz - HANGING_BRIDGE_CONFIG.zLane) <= HANGING_BRIDGE_CONFIG.pitHalfZ
       && (pose.y + TRACK_CONTACT_OFFSET) < GROUND_DECK_HEIGHT - 0.15;
-    const showBanner = pose.isFlipped || inSandPit || (rKeyPressed && rHoldDuration > 0.05);
+    const outOfTrackWarning = raceState === 'racing' && scoreState.lastOutFraction >= 0.50;
+    const showBanner = pose.isFlipped || inSandPit || outOfTrackWarning || (rKeyPressed && rHoldDuration > 0.05);
     rolloverBanner.classList.toggle('hidden', !showBanner);
     if (showBanner) {
       if (rKeyPressed && rHoldDuration > 0.05) {
         const pct = Math.min(100, Math.round((rHoldDuration / R_HOLD_RESTART_THRESHOLD) * 100));
         const rem = Math.max(0, R_HOLD_RESTART_THRESHOLD - rHoldDuration).toFixed(1);
         rolloverBanner.textContent = `🔄 RESTARTING GAME IN ${rem}s [${pct}%]... KEEP HOLDING [R]`;
-      } else if (config.handPoints < 999 && remainingHandPoints <= 0) {
-        rolloverBanner.textContent = `⚠️ ${inSandPit ? 'TRAPPED IN SAND PIT' : 'ROBOT OVERTURNED'} · OUT OF HAND POINTS · HOLD [R] TO RESTART`;
-      } else {
-        const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
-        rolloverBanner.textContent = `⚠️ ${inSandPit ? 'FALLEN IN SAND PIT' : 'ROBOT OVERTURNED'} · TAP [R] OR HAND POINTS TO RECOVER (${hpMsg})`;
+      } else if (pose.isFlipped || inSandPit) {
+        if (config.handPoints < 999 && remainingHandPoints <= 0) {
+          rolloverBanner.textContent = `⚠️ ${inSandPit ? 'TRAPPED IN SAND PIT' : 'ROBOT OVERTURNED'} · OUT OF HAND POINTS · HOLD [R] TO RESTART`;
+        } else {
+          const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
+          rolloverBanner.textContent = `⚠️ ${inSandPit ? 'FALLEN IN SAND PIT' : 'ROBOT OVERTURNED'} · TAP [R] OR HAND POINTS TO RECOVER (${hpMsg})`;
+        }
+      } else if (outOfTrackWarning) {
+        const outPct = Math.round(scoreState.lastOutFraction * 100);
+        rolloverBanner.textContent = `⚠️ ${outPct}% OUTSIDE BOUNDARY LINES · RETURN INSIDE LANE (${scoreState.remainingLifelines}/${scoreState.totalLifelines} LIFELINES LEFT)`;
       }
     }
   }
@@ -5922,6 +5679,7 @@ function updateHUD(dt: number) {
       const inputs = controller.poll();
       tel.innerHTML = `
         SRC: ${inputs.source.toUpperCase()} (${inputs.deviceName})<br>
+        SCORE: ${scoreState.score} PTS · OUT-OF-LINE: ${Math.round(scoreState.lastOutFraction * 100)}%<br>
         THR: ${Math.round(inputs.throttle * 100)}% · STR: ${Math.round(inputs.steering * 100)}%<br>
         L TRACK: ${inputs.leftTrack.toFixed(2)} · R TRACK: ${inputs.rightTrack.toFixed(2)}<br>
         PITCH: ${(pose.pitch * 57.3).toFixed(1)}° · ROLL: ${(pose.roll * 57.3).toFixed(1)}°<br>

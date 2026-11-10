@@ -180,12 +180,28 @@ export function stepSubsystems(
     sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - impactDamage * 0.5);
   }
 
-  // Fire damage over time
+  // Thermal track rubber stress on extreme heat (non-fall hazard leaves chassis integrity untouched)
   if (hazard === 'fire') {
     sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - 2.5 * dt);
     sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - 2.5 * dt);
-    sub.integrity.chassis = Math.max(0, sub.integrity.chassis - 1.2 * dt);
   }
+}
+
+/**
+ * Applies sudden battery charge & thermal jolt caused by heavy height falls or hard inverted impacts.
+ */
+export function applyBatteryShock(
+  sub: SubsystemsState,
+  shockPct: number,
+  tempRise = 1.8,
+): number {
+  if (shockPct <= 0 || isRobotDestroyed(sub)) return 0;
+  const mahDrop = (shockPct / 100) * sub.battery.capacityMah;
+  sub.battery.chargeMah = Math.max(0, sub.battery.chargeMah - mahDrop);
+  sub.battery.percentage = Math.max(0, Math.min(100, (sub.battery.chargeMah / sub.battery.capacityMah) * 100));
+  sub.battery.voltage = 13.0 + (sub.battery.percentage / 100) * 3.8;
+  sub.battery.temperature = Math.min(85, sub.battery.temperature + tempRise);
+  return shockPct;
 }
 
 /**
