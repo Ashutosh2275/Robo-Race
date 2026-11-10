@@ -358,3 +358,19 @@ test('evaluateWaterBuoyancy computes authentic Archimedes buoyancy, floating equ
   // For heading yaw = -PI/2 (Westbound, -X), forward paddle thrust should push in -X direction
   assert.ok(deep.paddleThrustX < -0.5, `forward track spin should produce Westbound (-X) paddle thrust, got ${deep.paddleThrustX}`);
 });
+
+test('convex belt midpoint support prevents chassis/tracks sinking through a mega speed hump crest', () => {
+  const humpHeightAt = (x: number) => {
+    const localX = x / 1.3;
+    const d = Math.abs(localX);
+    if (d >= 1.80) return -0.33;
+    return -0.33 + 0.76 * (Math.cos((d / 1.80) * Math.PI * 0.5) ** 2);
+  };
+  const crestY = humpHeightAt(0); // +0.43m
+  const p = makePose({ x: 0, z: 0, y: crestY - TRACK_CONTACT_OFFSET, yaw: Math.PI / 2 });
+  for (let i = 0; i < 60; i++) {
+    stepVehicle3D(p, humpHeightAt, 0, 0, 1 / 60);
+  }
+  const beltBottom = p.y + TRACK_CONTACT_OFFSET;
+  assert.ok(beltBottom >= crestY - 0.02, `mid-belt must skim right over crest (${crestY.toFixed(3)}m), got ${beltBottom.toFixed(3)}m`);
+});

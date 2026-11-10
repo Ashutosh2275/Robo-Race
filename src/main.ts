@@ -55,7 +55,7 @@ import {
   type TrackId,
   CHECKPOINTS,
   SLALOM_BLOCKS,
-  SPEED_BREAKER_XS,
+  SPEED_BREAKER_CONFIG,
   HILL_NODES,
   HILL_DECK_WIDTH,
   evaluateCourseHeight,
@@ -831,9 +831,6 @@ const corridorLane1: CoursePoint[] = [
   { x: -8.0, z: 13.50 },
   { x: -4.5, z: 13.50 },
   { x: -1.0, z: 13.50 },
-  { x: 1.2, z: 13.50 },
-  { x: 2.2, z: 13.50 },
-  { x: 3.2, z: 13.50 },
   { x: 4.2, z: 13.50 },
   { x: 6.0, z: 13.50 },
   { x: 10.25, z: 13.50 },
@@ -844,18 +841,16 @@ const corridorLane1: CoursePoint[] = [
 // Hairpin 1: Semicircular Viaduct (cx = 17.50, cz = 10.125, R = 3.375)
 const hairpin1Arc = circularArcPoints(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 24);
 
-// Lane 2: Mid-South Straight (Z = 6.75, Westbound)
-const corridorLane2: CoursePoint[] = [
+// Lane 2: Mid-South Straight (Z = 6.75, Westbound) — split cleanly around the Mega Speed Hump Gauntlet
+const corridorLane2East: CoursePoint[] = [
   { x: 17.5, z: 6.75 },
   { x: 14.5, z: 6.75 },
   { x: 11.5, z: 6.75 },
   { x: 9.5, z: 6.75 },
-  { x: 6.5, z: 6.75 },
-  { x: 4.5, z: 6.75 },
-  { x: 2.5, z: 6.75 },
-  { x: 1.5, z: 6.75 },
-  { x: 0.0, z: 6.75 },
-  { x: -3.5, z: 6.75 },
+  { x: SPEED_BREAKER_CONFIG.deckXMax, z: 6.75 },
+];
+const corridorLane2West: CoursePoint[] = [
+  { x: SPEED_BREAKER_CONFIG.deckXMin, z: 6.75 },
   { x: -7.5, z: 6.75 },
   { x: -9.5, z: 6.75 },
   { x: -12.0, z: 6.75 },
@@ -917,7 +912,8 @@ export const VIADUCT_LANE_WIDTH = DRIVE_ROUTE_WIDTH; // 4.40m gives 2.89x robot 
 const allCircuitCorridors = [
   corridorLane1,
   hairpin1Arc,
-  corridorLane2,
+  corridorLane2East,
+  corridorLane2West,
   hairpin2Arc,
   corridorLane3Approach,
   corridorLane3Exit,
@@ -1531,29 +1527,257 @@ function buildSpiralClimbingStructure() {
 }
 
 
-// Obstacle 3: Competition Speed Breakers (3 smooth rounded rubber humps across corridor)
-for (let i = 0; i < SPEED_BREAKER_XS.length; i++) {
-  const x = SPEED_BREAKER_XS[i];
-  const bumpGeo = new THREE.CylinderGeometry(0.42, 0.42, DRIVE_ROUTE_WIDTH, 24, 1, false, 0, Math.PI);
-  const bump = new THREE.Mesh(bumpGeo, i % 2 === 0 ? mats.yellow : mats.black);
-  bump.rotation.z = Math.PI / 2;
-  bump.rotation.y = Math.PI / 2;
-  bump.scale.set(0.21, 1, 1); // height ≈ 0.09m
-  bump.position.set(x, ROUTE_DECK_HEIGHT + 0.025, 13.50);
-  bump.castShadow = true;
-  bump.receiveShadow = true;
-  course.add(bump);
-  colliders.push({ id: `speed_breaker_${i}`, x, z: 13.50, hx: 0.45, hz: DRIVE_ROUTE_WIDTH / 2, y: ROUTE_DECK_HEIGHT + 0.05, height: 0.09, rot: 0, walkable: true });
-}
-
 // Build the Featured Parking-Garage Spiral Ramp
 buildSpiralClimbingStructure();
 
 // ---------------------------------------------------------------------------
 // SECTION 4: Lane 2 Ground Technical Straight (Z = 6.75, X in [-17.5, 17.5])
-// Fully engineered continuous asphalt road corridor with parapets, centerline,
-// and the Section 8 polished steel sheet obstacle leading to Gate 04.
+// Features the Huge Polished Mega Speed Hump Gauntlet (3 colossal arched mounds)
+// relocated from Lane 1 to Lane 2 after clearing Rock Field -> Hairpin 1.
 // ---------------------------------------------------------------------------
+function createExtrudedArchMesh(
+  cx: number,
+  zCenter: number,
+  widthZ: number,
+  xOffsetStart: number,
+  xOffsetEnd: number,
+  halfLen: number,
+  height: number,
+  yDeck: number,
+  yBottomOffset: number,
+  liftOffset: number,
+  segments: number,
+  mat: THREE.Material,
+  solidToDeck = false,
+) {
+  const halfW = widthZ * 0.5;
+  const z0 = zCenter - halfW;
+  const z1 = zCenter + halfW;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let s = 0; s <= segments; s++) {
+    const u = s / segments;
+    const dx = xOffsetStart + (xOffsetEnd - xOffsetStart) * u;
+    const xPos = cx + dx;
+    const normD = Math.min(1, Math.abs(dx) / halfLen);
+    const cosVal = Math.cos(normD * Math.PI * 0.5);
+    const yTop = yDeck + height * cosVal * cosVal + liftOffset;
+    const yBot = (liftOffset > 0 && !solidToDeck)
+      ? Math.max(yDeck - 0.01, yTop - yBottomOffset)
+      : yDeck - yBottomOffset;
+
+    positions.push(xPos, yTop, z0); // 0: Top-North
+    positions.push(xPos, yTop, z1); // 1: Top-South
+    positions.push(xPos, yBot, z1); // 2: Bot-South
+    positions.push(xPos, yBot, z0); // 3: Bot-North
+
+    uvs.push(0, u * 3);
+    uvs.push(1, u * 3);
+    uvs.push(1, u * 3);
+    uvs.push(0, u * 3);
+
+    if (s < segments) {
+      const b = s * 4;
+      const n = (s + 1) * 4;
+      indices.push(b, b + 1, n, b + 1, n + 1, n);         // Top (+Y)
+      indices.push(b, n, b + 3, b + 3, n, n + 3);         // North (-Z)
+      indices.push(b + 1, b + 2, n + 1, b + 2, n + 2, n + 1); // South (+Z)
+    }
+  }
+  // Start (-X) & End (+X) caps
+  indices.push(0, 3, 1, 1, 3, 2);
+  const e = segments * 4;
+  indices.push(e, e + 1, e + 3, e + 1, e + 2, e + 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function buildMegaSpeedHumpGauntlet() {
+  const sCfg = SPEED_BREAKER_CONFIG;
+  const zL = sCfg.laneZ;
+  const halfRoadW = DRIVE_ROUTE_WIDTH * 0.5;
+  const innerWidthZ = DRIVE_ROUTE_WIDTH - 0.56; // Fits flush inside the 0.28m left/right parapets
+  const deckY = GROUND_DECK_HEIGHT;
+  const spanLen = sCfg.deckXMax - sCfg.deckXMin; // 13.00m course
+  const spanMidX = (sCfg.deckXMax + sCfg.deckXMin) * 0.5;
+
+  // 1. Precast Concrete Viaduct Foundation Pad & Threshold Expansion Plates (x in [-6.55, +6.45])
+  box(course, mats.asphalt, V(spanMidX, deckY - 0.105, zL), V(spanLen, 0.22, DRIVE_ROUTE_WIDTH));
+  // Subtle yellow lane center guide across the flat valley floor sections (suppressed under hump arches)
+  for (const vx of [2.30, -2.30]) {
+    box(course, mats.laneStripeYellow, V(vx, deckY + 0.015, zL), V(1.00, 0.005, 0.08), 0, false);
+  }
+  for (const xEdge of [sCfg.deckXMax - 0.22, sCfg.deckXMin + 0.22]) {
+    box(course, mats.metal, V(xEdge, deckY + 0.004, zL), V(0.42, 0.010, innerWidthZ));
+  }
+  // Westbound entry warning stripe on East threshold ahead of Hump 0
+  box(course, mats.laneStripeYellow, V(sCfg.deckXMax - 0.14, deckY + 0.011, zL), V(0.14, 0.006, innerWidthZ - 0.24), 0, false);
+
+  // Heavy diamond-plate traction expansion trenches in the two valleys between humps
+  for (const vx of [2.30, -2.30]) {
+    box(course, mats.diamondPlate, V(vx, deckY + 0.006, zL), V(0.96, 0.012, innerWidthZ - 0.04));
+    for (const edgeOffset of [-0.46, 0.46]) {
+      box(course, mats.metal, V(vx + edgeOffset, deckY + 0.009, zL), V(0.08, 0.016, innerWidthZ));
+    }
+  }
+
+  // 2. Three Colossal Molded Mega-Hump Arches (alternating Yellow / Carbon Rubber / Yellow)
+  for (let i = 0; i < sCfg.centersX.length; i++) {
+    const cx = sCfg.centersX[i];
+    const primaryMat = i % 2 === 0 ? mats.yellow : mats.rubber;
+    const ribMat = i % 2 === 0 ? mats.black : mats.yellow;
+
+    // Smooth primary extruded arch matching exact cos^2 physics profile
+    course.add(createExtrudedArchMesh(
+      cx, zL, innerWidthZ,
+      -sCfg.halfLength, sCfg.halfLength,
+      sCfg.halfLength, sCfg.height, deckY, 0.03, 0.002, 56,
+      primaryMat,
+    ));
+
+    // Five contoured contrasting heavy-duty traction tread ribs gripping across the arch dome
+    for (const dRib of [-1.05, -0.52, 0.0, 0.52, 1.05]) {
+      course.add(createExtrudedArchMesh(
+        cx, zL, innerWidthZ - 0.26,
+        dRib - 0.09, dRib + 0.09,
+        sCfg.halfLength, sCfg.height, deckY, 0.025, 0.016, 6,
+        ribMat,
+      ));
+    }
+
+    // Cast-steel side anchoring cheek bolsters + chrome anchor bolts flush along both shoulders
+    for (const side of [-1, 1]) {
+      const zFlange = zL + side * (innerWidthZ * 0.5 - 0.065);
+      course.add(createExtrudedArchMesh(
+        cx, zFlange, 0.13,
+        -sCfg.halfLength + 0.06, sCfg.halfLength - 0.06,
+        sCfg.halfLength, sCfg.height, deckY, 0.04, 0.016, 32,
+        mats.metal,
+        true,
+      ));
+      for (const dBolt of [-0.90, -0.45, 0.0, 0.45, 0.90]) {
+        const cB = Math.cos((Math.abs(dBolt) / sCfg.halfLength) * Math.PI * 0.5);
+        const yBolt = deckY + sCfg.height * cB * cB + 0.020;
+        cyl(course, mats.chrome, V(cx + dBolt, yBolt, zFlange), 0.026, 0.018, 'y', 10);
+      }
+    }
+
+    colliders.push({
+      id: `speed_breaker_${i}`,
+      x: cx,
+      z: zL,
+      hx: sCfg.halfLength,
+      hz: halfRoadW,
+      y: deckY + sCfg.height * 0.5,
+      height: sCfg.height,
+      rot: 0,
+      walkable: true,
+    });
+  }
+
+  // 3. Elevated Reinforced Buttressed Containment Parapet Walls flanking the Gauntlet
+  // Tall walls (1.10m above deck) cleanly contain the 0.76m crests with smooth tapered end transitions.
+  const wallXMin = sCfg.deckXMin + 0.45; // -6.10
+  const wallXMax = sCfg.deckXMax - 0.45; // +6.00
+  const wallLen = wallXMax - wallXMin;   // 12.10
+  const wallMidX = (wallXMax + wallXMin) * 0.5;
+  const tallH = sCfg.shoulderWallHeight; // 1.10m
+  const stdH = 0.36;
+
+  for (const side of [-1, 1]) {
+    const zCurb = zL + side * (halfRoadW - 0.14);
+
+    // Tall containment concrete wall + yellow safety coping crest
+    box(course, mats.concretePier, V(wallMidX, deckY + tallH * 0.5, zCurb), V(wallLen, tallH, 0.28));
+    box(course, mats.yellow, V(wallMidX, deckY + tallH + 0.02, zCurb), V(wallLen, 0.04, 0.30), 0, false);
+
+    // Tapered transition cheek walls connecting 0.36m standard road parapet up to 1.10m containment crest
+    for (const end of [-1, 1]) {
+      const xHigh = end > 0 ? wallXMax : wallXMin;
+      const xA = end > 0 ? wallXMax : sCfg.deckXMin;
+      const xB = end > 0 ? sCfg.deckXMax : wallXMin;
+      const yTopA = deckY + (end > 0 ? tallH : stdH);
+      const yTopB = deckY + (end > 0 ? stdH : tallH);
+      const z0 = zCurb - 0.14;
+      const z1 = zCurb + 0.14;
+      const rPos = [
+        xA, yTopA, z0,  xA, yTopA, z1,  xA, deckY, z1,  xA, deckY, z0,
+        xB, yTopB, z0,  xB, yTopB, z1,  xB, deckY, z1,  xB, deckY, z0,
+      ];
+      const rIdx = [
+        0, 1, 4,  1, 5, 4, // Top (+Y)
+        0, 4, 3,  3, 4, 7, // North (-Z)
+        1, 2, 5,  2, 6, 5, // South (+Z)
+        0, 3, 1,  1, 3, 2, // West (-X)
+        4, 5, 7,  5, 6, 7, // East (+X)
+      ];
+      const rampGeo = new THREE.BufferGeometry();
+      rampGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
+      rampGeo.setIndex(rIdx);
+      rampGeo.computeVertexNormals();
+      const rampMesh = new THREE.Mesh(rampGeo, mats.concretePier);
+      rampMesh.castShadow = true;
+      rampMesh.receiveShadow = true;
+      course.add(rampMesh);
+
+      // Sloped yellow coping cap matching exact ramp top coordinates (immune to MAP_SCALE skew)
+      const cZ0 = zCurb - 0.15;
+      const cZ1 = zCurb + 0.15;
+      const cPos = [
+        xA, yTopA + 0.04, cZ0,  xA, yTopA + 0.04, cZ1,  xA, yTopA, cZ1,  xA, yTopA, cZ0,
+        xB, yTopB + 0.04, cZ0,  xB, yTopB + 0.04, cZ1,  xB, yTopB, cZ1,  xB, yTopB, cZ0,
+      ];
+      const copeGeo = new THREE.BufferGeometry();
+      copeGeo.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
+      copeGeo.setIndex(rIdx);
+      copeGeo.computeVertexNormals();
+      const copeMesh = new THREE.Mesh(copeGeo, mats.yellow);
+      copeMesh.receiveShadow = true;
+      course.add(copeMesh);
+
+      // End pilaster post + revolving amber warning strobe beacon
+      cyl(course, mats.metal, V(xHigh, deckY + tallH + 0.08, zCurb), 0.11, 0.10, 'y', 16);
+      const beaconGroup = new THREE.Group();
+      beaconGroup.position.set(xHigh, deckY + tallH + 0.19, zCurb);
+      beaconGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 12), mats.beaconAmber));
+      beaconGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.06), mats.yellow));
+      course.add(beaconGroup);
+      hazardRevolvingBeacons.push(beaconGroup);
+    }
+
+    // Structural steel H-beam external buttress ribs & reflective cat-eyes at each hump crest
+    for (const bx of sCfg.centersX) {
+      box(course, mats.metal, V(bx, deckY + tallH * 0.5, zCurb + side * 0.15), V(0.22, tallH + 0.06, 0.10));
+      box(course, mats.concretePier, V(bx, ARENA_FLOOR_HEIGHT + 0.12, zCurb + side * 0.15), V(0.38, 0.24, 0.22));
+      box(course, side > 0 ? mats.red : mats.laneStripeWhite, V(bx, deckY + 0.72, zCurb - side * 0.15), V(0.10, 0.10, 0.02), 0, false);
+    }
+
+    // Wall barrier collider spanning the full gauntlet edge [-6.55, +6.45]
+    colliders.push({
+      id: `lane_2_gauntlet_barrier_${side > 0 ? 'south' : 'north'}`,
+      x: spanMidX,
+      z: zCurb,
+      hx: spanLen * 0.5,
+      hz: 0.14,
+      y: deckY + 0.65,
+      height: 1.50,
+      rot: 0,
+      walkable: false,
+    });
+  }
+}
+
+buildMegaSpeedHumpGauntlet();
 
 // ---------------------------------------------------------------------------
 // SECTION 5A: Swinging Pendulum Gauntlet on Lane 4 (Z = -6.75, X in [3.8, 16.2])
@@ -2767,8 +2991,8 @@ for (const hp of hairpins) {
 const straightLaneSpecs = [
   { laneId: 1, z: 13.50, xMin: -18.5, xMax: 5.80, dir: 1 as const },   // Lane 1 Approach (Ground)
   { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
-  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: 6.50, dir: -1 as const },  // Lane 2 West Approach (Ground)
-  { laneId: 2, z: 6.75,  xMin: 6.50,  xMax: 14.50, dir: -1 as const }, // Lane 2 Mid Section (Ground)
+  { laneId: 2, z: 6.75,  xMin: -17.5, xMax: SPEED_BREAKER_CONFIG.deckXMin, dir: -1 as const },  // Lane 2 West Approach (Ground)
+  { laneId: 2, z: 6.75,  xMin: SPEED_BREAKER_CONFIG.deckXMax, xMax: 14.50, dir: -1 as const }, // Lane 2 Mid Section (Ground)
   { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit

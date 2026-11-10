@@ -353,9 +353,7 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   { x: -8.0, z: 13.50 },  // Slalom hurdle 2
   { x: -4.5, z: 13.50 },  // Slalom hurdle 3
   { x: -1.0, z: 13.50 },  // Slalom hurdle 4
-  { x: 1.2, z: 13.50 },   // Speed breaker 1
-  { x: 3.2, z: 13.50 },   // Speed breaker 3
-  { x: 4.2, z: 13.50 },   // Gate 02 - Slaloms Cleared (Exit of slaloms & speed breakers)
+  { x: 4.2, z: 13.50 },   // Gate 02 - Slaloms Cleared (Clean exit into Rock Field)
   { x: 6.0, z: 13.50 },   // Rock Field Entrance (Platform +0.45m)
   { x: 10.25, z: 13.50 }, // Rock Field center
   { x: 14.5, z: 13.50 },  // Rock Field exit descent
@@ -365,11 +363,13 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   // Hairpin 1: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
-  // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - Ground Level
-  { x: 14.5, z: 6.75 },   // Technical straight entry
-  { x: 7.5, z: 6.75 },    // Technical straight mid
-  { x: 0.0, z: 6.75 },    // Mid-corridor
-  { x: -7.5, z: 6.75 },   // Slippery sheet entry
+  // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - Mega Speed Hump Gauntlet -> Slippery Steel
+  { x: 14.5, z: 6.75 },   // Technical straight entry from Hairpin 1
+  { x: 7.5, z: 6.75 },    // Gauntlet approach runway
+  { x: 4.6, z: 6.75 },    // Mega Speed Hump 1 crest
+  { x: 0.0, z: 6.75 },    // Mega Speed Hump 2 crest
+  { x: -4.6, z: 6.75 },   // Mega Speed Hump 3 crest
+  { x: -7.5, z: 6.75 },   // Gauntlet exit runway -> Slippery sheet entry
   { x: -12.0, z: 6.75 },  // Slippery steel sheet
   { x: -14.8, z: 6.75 },  // Gate 04 - Technical Straight & Steel Sheet Cleared
   { x: -17.5, z: 6.75 },  // Lane 2 exit to Hairpin 2
@@ -444,8 +444,8 @@ export const TRACK_B_CHECKPOINTS: CheckpointGate[] = [
 export const TRACK_B_OBSTACLES: TrackObstacle[] = [
   { id: 'start_bay', name: 'Starting Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
   { id: 'slalom_hurdles', name: 'Precision Slaloms', kind: 'slalom', x: -8.0, z: 13.50, elevation: 0.0 },
-  { id: 'speed_breakers', name: 'Speed Breakers', kind: 'speed_breakers', x: 2.2, z: 13.50, elevation: 0.0 },
   { id: 'rock_field', name: 'Sculpted Rock Field', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
+  { id: 'speed_breakers', name: 'Mega Speed Hump Gauntlet', kind: 'speed_breakers', x: 0.0, z: 6.75, elevation: 0.76 },
   { id: 'spiral_tower', name: 'Compact Cardboard Spiral Stake', kind: 'spiral', x: -4.50, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'rooftop_turntable', name: 'Rooftop Turntable Platform', kind: 'turntable', x: 1.0, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'swinging_pendulums', name: 'Swinging Pendulums Gauntlet', kind: 'bridge', x: 10.0, z: -6.75, elevation: ELEVATION_TIER_MEDIUM },
@@ -574,17 +574,8 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
 
   // 2. LANE 1: South Straight (Z = 13.50, Eastbound)
   if (Math.abs(z - 13.50) <= halfW) {
-    // Start bay and approach on ground: -0.33m
+    // Start bay and slalom straightaway on ground: -0.33m
     if (x < 5.80) {
-      // Speed breakers: subtle bumps at ground level
-      if (x >= 0.8 && x <= 3.6) {
-        let bump = 0;
-        for (const bx of SPEED_BREAKER_XS) {
-          const d = Math.abs(x - bx);
-          if (d < 0.45) bump = Math.max(bump, GROUND_DECK_HEIGHT + 0.09 * Math.cos((d / 0.45) * Math.PI * 0.5) ** 2);
-        }
-        if (bump > 0) return bump;
-      }
       return GROUND_DECK_HEIGHT;
     }
 
@@ -622,6 +613,11 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
       // Switchback climb on Track D: x in [6.5, 14.5]
       const hClimb = hillHeightAt(x, z);
       if (hClimb !== null) return hClimb;
+    }
+    // Huge Polished Mega Speed Hump Gauntlet: x in [-6.45, +6.45]
+    if (x >= SPEED_BREAKER_CONFIG.deckXMin && x <= SPEED_BREAKER_CONFIG.deckXMax) {
+      const humpY = evaluateSpeedBreakerHeight(x, z);
+      if (humpY > GROUND_DECK_HEIGHT) return humpY;
     }
     // Ground level driving corridor
     if (x >= -17.5 && x <= 17.5) {
@@ -819,9 +815,16 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
     return { grip: 0.65, rollingResistance: 1.50, hazard: 'none' };
   }
 
-  // 4. Lane 2 Slippery Steel
-  if (Math.abs(z - 6.75) <= halfW && x >= -14.0 && x <= -9.5) {
-    return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
+  // 4. Lane 2 Mega Speed Humps & Slippery Steel
+  if (Math.abs(z - 6.75) <= halfW) {
+    for (const bx of SPEED_BREAKER_CONFIG.centersX) {
+      if (Math.abs(x - bx) < SPEED_BREAKER_CONFIG.halfLength) {
+        return { grip: 1.02, rollingResistance: 0.36, hazard: 'none' };
+      }
+    }
+    if (x >= -14.0 && x <= -9.5) {
+      return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
+    }
   }
 
   // 5. Lane 4 Elevated Obstacles (Swinging Pendulum Steel Deck & Dual Hanging Bridge)
@@ -872,7 +875,38 @@ export const SLALOM_BLOCKS = Array.from({ length: 5 }, (_, i) => {
   };
 });
 
-export const SPEED_BREAKER_XS = [1.2, 2.2, 3.2] as const;
+export const SPEED_BREAKER_CONFIG = {
+  laneZ: 6.75,
+  centersX: [4.6, 0.0, -4.6] as const,
+  halfLength: 1.80,     // 3.60m course (4.68m world) chord per arched hump
+  height: 0.76,         // 0.76m apex height above road (taller than robot's 0.52m hull!)
+  deckXMin: -6.55,
+  deckXMax: 6.45,
+  shoulderWallHeight: 1.10,
+} as const;
+
+export const SPEED_BREAKER_XS = SPEED_BREAKER_CONFIG.centersX;
+
+/**
+ * Evaluates exact surface elevation across the 3 huge polished Mega Speed Humps on Lane 2 (Z = 6.75).
+ * Uses a C1 smooth cos^2 profile matching the 3D custom extruded arch mesh to sub-millimeter precision.
+ */
+export function evaluateSpeedBreakerHeight(x: number, z: number): number {
+  if (Math.abs(z - SPEED_BREAKER_CONFIG.laneZ) > DRIVE_ROUTE_WIDTH / 2) {
+    return GROUND_DECK_HEIGHT;
+  }
+  const halfL = SPEED_BREAKER_CONFIG.halfLength;
+  let maxRise = 0;
+  for (const bx of SPEED_BREAKER_CONFIG.centersX) {
+    const d = Math.abs(x - bx);
+    if (d < halfL) {
+      const c = Math.cos((d / halfL) * Math.PI * 0.5);
+      const rise = SPEED_BREAKER_CONFIG.height * c * c;
+      if (rise > maxRise) maxRise = rise;
+    }
+  }
+  return GROUND_DECK_HEIGHT + maxRise;
+}
 
 export function validateSlalomClearance(
   blocks = SLALOM_BLOCKS,

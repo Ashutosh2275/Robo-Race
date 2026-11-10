@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACK_LENGTH } from './vehicleDynamics.ts';
+import { TRACK_LENGTH, TRACK_CONTACT_OFFSET, stepVehicle3D, type VehiclePose } from './vehicleDynamics.ts';
+import { integrateDrive, slopeAt } from './drivePhysics.ts';
 import {
   evaluateCourseHeight,
   evaluateCourseSurface,
@@ -13,6 +14,8 @@ import {
   SLALOM_BLOCKS,
   validateSlalomClearance,
   SPEED_BREAKER_XS,
+  SPEED_BREAKER_CONFIG,
+  TRACK_B_OBSTACLES,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
   ARENA_FLOOR_HEIGHT,
@@ -444,5 +447,90 @@ test('spiral central core pylon colliders provide snug barriers without intrudin
   const footingWestEdge = SPIRAL_CONFIG.cx - footingCol.hx; // -4.90m
   const entranceDist = Math.abs(-5.85 - footingWestEdge); // 0.95m
   assert.ok(entranceDist >= 0.90, `ground approach clearance (${entranceDist.toFixed(2)}m) must be >= 0.90m`);
+});
+
+test('Lane 1 speed bumps are removed and relocated to Lane 2 as 3 huge passable Mega Speed Hump obstacles', () => {
+  // 1. Old Lane 1 coordinates (x = 1.2, 2.2, 3.2 at z = 13.50) must be flat ground level before Gate 02 & Rock Field
+  for (const oldX of [1.2, 2.2, 3.2]) {
+    assert.equal(evaluateCourseHeight(oldX, 13.50), GROUND_DECK_HEIGHT, `Lane 1 at x=${oldX} must be flat ground without bumps`);
+  }
+
+  // 2. Obstacle order in Track B: Rock Field before Mega Speed Humps on Lane 2 (z = 6.75)
+  const rockIdx = TRACK_B_OBSTACLES.findIndex(o => o.kind === 'rockfield');
+  const speedIdx = TRACK_B_OBSTACLES.findIndex(o => o.kind === 'speed_breakers');
+  assert.ok(rockIdx >= 0 && speedIdx > rockIdx, 'speed_breakers obstacle must come AFTER rock_field');
+  assert.equal(TRACK_B_OBSTACLES[speedIdx].z, 6.75, 'speed_breakers obstacle must be on Lane 2 (z = 6.75)');
+
+  // 3. 3 massive full-width humps cleanly positioned on Lane 2 after Hairpin 1 and before Slippery Steel Sheet
+  assert.equal(SPEED_BREAKER_XS.length, 3);
+  assert.equal(SPEED_BREAKER_CONFIG.laneZ, 6.75);
+  assert.ok(SPEED_BREAKER_CONFIG.height >= 0.70, `each bump must be very huge (>= 0.70m), got ${SPEED_BREAKER_CONFIG.height}m`);
+  assert.ok(SPEED_BREAKER_CONFIG.halfLength >= 1.65, 'broad smooth chord lets robot pitch cleanly without cliff snap');
+  for (const bx of SPEED_BREAKER_XS) {
+    assert.ok(bx + SPEED_BREAKER_CONFIG.halfLength < 6.50, 'must leave clean separation from Track D switchback hill [6.5, 14.5]');
+    assert.ok(bx - SPEED_BREAKER_CONFIG.halfLength > -9.50, 'must leave runway before Slippery Steel Sheet [-14.0, -9.5]');
+    const apexH = evaluateCourseHeight(bx, SPEED_BREAKER_CONFIG.laneZ);
+    assert.ok(Math.abs((apexH - GROUND_DECK_HEIGHT) - SPEED_BREAKER_CONFIG.height) < 0.005, `apex height at x=${bx} expected +${SPEED_BREAKER_CONFIG.height}m`);
+    const surf = evaluateCourseSurface(bx, SPEED_BREAKER_CONFIG.laneZ);
+    assert.ok(surf.grip >= 1.00, `mega hump at x=${bx} must offer strong molded traction grip (>= 1.00), got ${surf.grip}`);
+  }
+
+  // 4. Live physics simulation: robot drives Westbound along Lane 2 across all 3 mega humps on Pro grip (0.68) without flipping
+  const worldH = (wx: number, wz: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE);
+  const dt = 1 / 120;
+  const startWorldX = 8.0 * MAP_SCALE;
+  const laneWorldZ = 6.75 * MAP_SCALE;
+  const driveState = { x: startWorldX, z: laneWorldZ, vx: 0, vz: 0, yaw: -Math.PI / 2, angular: 0 };
+  const pose: VehiclePose = {
+    x: startWorldX,
+    z: laneWorldZ,
+    y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    pitch: 0,
+    yaw: -Math.PI / 2,
+    roll: 0,
+    pitchRate: 0,
+    yawRate: 0,
+    rollRate: 0,
+    isFlipped: false,
+    isGrounded: true,
+    flippedTimer: 0,
+  };
+  let maxPitch = -Infinity;
+  let minPitch = Infinity;
+  let maxPoseY = -Infinity;
+  for (let step = 0; step < 120 * 10; step++) {
+    const lx = driveState.x / MAP_SCALE;
+    const lz = driveState.z / MAP_SCALE;
+    const slope = slopeAt((sx, sz) => evaluateCourseHeight(sx, sz), lx, lz);
+    const surf = evaluateCourseSurface(lx, lz);
+    integrateDrive(
+      driveState,
+      1.0,
+      1.0,
+      { grip: surf.grip * 0.68, rollingResistance: surf.rollingResistance },
+      slope,
+      { maxSpeed: 6.8, motorAcceleration: 8.5, braking: 10, turnRate: 1.25, turnResponse: 16, gravity: 9.81 },
+      dt,
+    );
+    pose.x = driveState.x;
+    pose.z = driveState.z;
+    pose.vx = driveState.vx;
+    pose.vz = driveState.vz;
+    pose.yaw = driveState.yaw;
+    stepVehicle3D(pose, worldH, Math.hypot(driveState.vx, driveState.vz), 0, dt, 9.81, false);
+    assert.equal(pose.isFlipped, false, `robot must not flip while traversing mega humps (step=${step}, x=${(pose.x / MAP_SCALE).toFixed(2)})`);
+    maxPitch = Math.max(maxPitch, pose.pitch);
+    minPitch = Math.min(minPitch, pose.pitch);
+    maxPoseY = Math.max(maxPoseY, pose.y);
+    if (driveState.x <= -7.5 * MAP_SCALE) break;
+  }
+  assert.ok(driveState.x <= -7.5 * MAP_SCALE, `robot must successfully pass all 3 mega humps, reached x=${(driveState.x / MAP_SCALE).toFixed(2)}`);
+  assert.ok(minPitch < -0.17, `climbing huge humps must pitch nose up meaningfully (< -0.17 rad), got ${minPitch.toFixed(3)}`);
+  assert.ok(maxPitch > 0.10, `descending huge humps must pitch nose down (> 0.10 rad), got ${maxPitch.toFixed(3)}`);
+  assert.ok((maxPitch - minPitch) > 0.28, `total pitch swing over mega humps expected > 0.28 rad, got ${(maxPitch - minPitch).toFixed(3)}`);
+  assert.ok(maxPoseY + TRACK_CONTACT_OFFSET >= GROUND_DECK_HEIGHT + 0.70, 'robot center must rise cleanly over the >= 0.70m crest without sinking inside');
 });
 

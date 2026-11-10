@@ -152,9 +152,10 @@ export function stepVehicle3D(
   const hFR = heightAt(patches.frontRight.x, patches.frontRight.z);
   const hRL = heightAt(patches.rearLeft.x, patches.rearLeft.z);
   const hRR = heightAt(patches.rearRight.x, patches.rearRight.z);
+  const hML = heightAt((patches.frontLeft.x + patches.rearLeft.x) * 0.5, (patches.frontLeft.z + patches.rearLeft.z) * 0.5);
+  const hMR = heightAt((patches.frontRight.x + patches.rearRight.x) * 0.5, (patches.frontRight.z + patches.rearRight.z) * 0.5);
 
   const avgGroundH = (hFL + hFR + hRL + hRR) / 4;
-  const targetY = avgGroundH - TRACK_CONTACT_OFFSET;
 
   // Compute terrain slope pitch and roll under the vehicle
   const frontH = (hFL + hFR) * 0.5;
@@ -176,6 +177,15 @@ export function stepVehicle3D(
   const isCliffStep = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.10;
   const isCliffSideDrop = rollDifferential >= 0.70 && (isCliffStep || rollDifferential >= 0.75);
   const isCliffEndDrop = pitchDifferential >= 0.90;
+
+  // Continuous track belt support over convex mound/hump crests:
+  // Prevents the crest of a huge smooth bump from clipping upward through the lower belt run and belly.
+  const midSupportH = (hML + hMR) * 0.5;
+  const isConvexBeltCrest = !isCliffSideDrop && !isCliffEndDrop
+    && hML > leftH + 0.015
+    && hMR > rightH + 0.015;
+  const effectiveGroundH = isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH;
+  const targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
 
   pose.sideDropTime = isCliffSideDrop ? (pose.sideDropTime ?? 0) + dt : 0;
   pose.endDropTime = isCliffEndDrop ? (pose.endDropTime ?? 0) + dt : 0;
