@@ -114,3 +114,32 @@ test('braking counters downhill motion and wall response removes inward velocity
   assert.ok(reflected.vx > 0);
   assert.equal(reflected.vz, 1);
 });
+
+test('steep incline stalls straight-up climb with spinning belts, while diagonal zigzag climbs with lateral grouser hold', () => {
+  // Slope in +X (climb East, gravity pulls -X). Downhill ratio S / sqrt(1 + S^2) = 0.514 > kineticGrip 0.36.
+  const steepSlope = { x: 0.60, z: 0 };
+  const climbSurface = {
+    grip: 0.78,
+    kineticGrip: 0.36,
+    breakawayGrade: 0.44,
+    rollingResistance: 0.12,
+    lateralGripMultiplier: 1.55,
+  };
+
+  // 1. Going straight up (+X, yaw = PI/2): belts spin forward at full speed while robot stalls & slides backward
+  const straight = state({ yaw: Math.PI / 2 });
+  let lastRes = integrateDrive(straight, 1, 1, climbSurface, steepSlope, config, 1 / 120);
+  for (let i = 0; i < 180; i++) {
+    lastRes = integrateDrive(straight, 1, 1, climbSurface, steepSlope, config, 1 / 120);
+  }
+  assert.ok(lastRes.trackSpeedLeft > 1.0 && lastRes.trackSpeedRight > 1.0, 'belts must keep rotating continuously forward');
+  assert.ok(lastRes.motorSlip > 0.45, 'traction stall must report high belt slip');
+  assert.ok(straight.vx < -0.1 && straight.x < 0, `straight climb must fail and slide downhill, got x=${straight.x.toFixed(2)}, vx=${straight.vx.toFixed(2)}`);
+
+  // 2. Diagonal traverse (~52 deg off uphill): reduced gravity along tracks lets robot climb uphill with minimal lateral slip
+  const diag = state({ yaw: Math.PI / 2 - 0.90 });
+  for (let i = 0; i < 360; i++) {
+    integrateDrive(diag, 1, 1, climbSurface, steepSlope, config, 1 / 120);
+  }
+  assert.ok(diag.vx > 0.5 && diag.x > 0.6, `diagonal tacking should climb uphill (+X), got x=${diag.x.toFixed(2)}, vx=${diag.vx.toFixed(2)}`);
+});

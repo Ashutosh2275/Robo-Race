@@ -15,6 +15,7 @@ import {
   validateSlalomClearance,
   SPEED_BREAKER_XS,
   SPEED_BREAKER_CONFIG,
+  HIGH_CLIMB_CONFIG,
   TRACK_B_OBSTACLES,
   DRIVE_ROUTE,
   DRIVE_ROUTE_WIDTH,
@@ -200,6 +201,11 @@ test('evaluateCourseSurface implements mandatory sequence: spiral -> fire -> wat
   // Slippery steel sheet on Lane 2
   const slipSurf = evaluateCourseSurface(-11.5, 6.75);
   assert.ok(slipSurf.grip < 0.30, 'slippery sheet has low grip');
+
+  // Iridescent Oil Spill Hazard Zone on Lane 3
+  const oilSurf = evaluateCourseSurface(-10.0, 0.00);
+  assert.equal(oilSurf.hazard, 'oil', 'oil skid pad on Lane 3 must report oil hazard');
+  assert.ok(oilSurf.grip <= 0.16, `oil slick must cause severe slip (grip <= 0.16), got ${oilSurf.grip}`);
 });
 
 test('generateRockFieldStones produces deterministic stones distributed across full usable road width', () => {
@@ -665,5 +671,143 @@ test('drifting off narrow spread bridge plunges under gravity into sand pit with
   assert.equal(sawAirborne, true, 'losing track support over open bridge chasm must transition into gravity free-fall');
   assert.ok(pose.y + TRACK_CONTACT_OFFSET <= HANGING_SAND_PIT_Y + 0.35, `robot must plunge into sunken sand pit (${HANGING_SAND_PIT_Y}m), ended at ${(pose.y + TRACK_CONTACT_OFFSET).toFixed(2)}m`);
   assert.ok(peakImpactSpeed >= 3.5, `gravity drop from elevated bridge must produce severe impact speed (>= 3.5 m/s), got ${peakImpactSpeed.toFixed(2)}`);
+});
+
+test('Lane 2 High-Incline Zigzag Challenge Ramp stalls straight climbs (spinning belts sliding down) yet clears via diagonal zigzagging', () => {
+  assert.equal(HIGH_CLIMB_CONFIG.laneZ, 6.75);
+  assert.ok(HIGH_CLIMB_CONFIG.ySummit - HIGH_CLIMB_CONFIG.yGround >= 3.0, 'towering ramp rise must be >= 3.0m');
+  assert.ok(HIGH_CLIMB_CONFIG.xExitEnd >= 8.60, 'must land cleanly before courseLayout horizontal Mega Hump test start');
+
+  const worldH = (wx: number, wz: number, curY = 0) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, curY);
+  const dt = 1 / 120;
+
+  // 1. Straight-up attempt under default Intermediate grip (1.0): stalls before summit, belts keep rotating, chassis slides downslope
+  const straightState = { x: 16.95 * MAP_SCALE, z: 6.75 * MAP_SCALE, vx: 0, vz: 0, yaw: -Math.PI / 2, angular: 0 };
+  const straightPose: VehiclePose = {
+    x: straightState.x,
+    z: straightState.z,
+    y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    pitch: 0,
+    yaw: -Math.PI / 2,
+    roll: 0,
+    pitchRate: 0,
+    yawRate: 0,
+    rollRate: 0,
+    isFlipped: false,
+    isGrounded: true,
+    flippedTimer: 0,
+  };
+  let minStraightX = straightState.x / MAP_SCALE;
+  let maxBeltSpeedWhileSliding = 0;
+  let maxDownhillSlideVx = 0;
+  for (let s = 0; s < 120 * 5; s++) {
+    const lx = straightState.x / MAP_SCALE;
+    const lz = straightState.z / MAP_SCALE;
+    const slope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, straightPose.y), straightState.x, straightState.z, 0.10);
+    const surf = evaluateCourseSurface(lx, lz, straightPose.y);
+    const res = integrateDrive(
+      straightState,
+      1.0,
+      1.0,
+      {
+        grip: surf.grip * 1.0,
+        kineticGrip: surf.kineticGrip !== undefined ? surf.kineticGrip * 1.0 : undefined,
+        breakawayGrade: surf.breakawayGrade,
+        rollingResistance: surf.rollingResistance,
+        lateralGripMultiplier: surf.lateralGripMultiplier,
+      },
+      slope,
+      { maxSpeed: 6.8, motorTrackSpeed: 5.34, motorAcceleration: 8.5, braking: 10, turnRate: 1.25, turnResponse: 16, gravity: 9.81 },
+      dt,
+    );
+    straightPose.x = straightState.x;
+    straightPose.z = straightState.z;
+    straightPose.vx = straightState.vx;
+    straightPose.vz = straightState.vz;
+    straightPose.yaw = straightState.yaw;
+    stepVehicle3D(straightPose, (wx, wz) => worldH(wx, wz, straightPose.y), res.longitudinalSpeed, 0, dt, 9.81, false);
+    minStraightX = Math.min(minStraightX, straightState.x / MAP_SCALE);
+    if (straightState.vx > 0.15) {
+      maxDownhillSlideVx = Math.max(maxDownhillSlideVx, straightState.vx);
+      maxBeltSpeedWhileSliding = Math.max(maxBeltSpeedWhileSliding, Math.min(res.trackSpeedLeft, res.trackSpeedRight));
+    }
+  }
+  assert.ok(minStraightX > HIGH_CLIMB_CONFIG.xSummitEast, `straight climb must stall below summit (${HIGH_CLIMB_CONFIG.xSummitEast}), reached x=${minStraightX.toFixed(2)}`);
+  assert.ok(maxDownhillSlideVx > 0.5, `stalled straight climb must slide backwards downhill, got maxVx=${maxDownhillSlideVx.toFixed(2)}`);
+  assert.ok(maxBeltSpeedWhileSliding > 2.0, `belts must stay continuously rotating forward while sliding down, got ${maxBeltSpeedWhileSliding.toFixed(2)}`);
+
+  // 2. Diagonal Zigzag Switchback climb across both Intermediate (1.0) and Expert (0.68) clears summit and descends cleanly
+  for (const gripMult of [1.0, 0.68]) {
+    const zigState = { x: 17.20 * MAP_SCALE, z: 6.75 * MAP_SCALE, vx: 0, vz: 0, yaw: -Math.PI / 2, angular: 0 };
+    const zigPose: VehiclePose = {
+      x: zigState.x,
+      z: zigState.z,
+      y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      pitch: 0,
+      yaw: -Math.PI / 2,
+      roll: 0,
+      pitchRate: 0,
+      yawRate: 0,
+      rollRate: 0,
+      isFlipped: false,
+      isGrounded: true,
+      flippedTimer: 0,
+    };
+    let zigDir = 1; // +1 zig south (+Z), -1 zag north (-Z)
+    let maxSummitY = -Infinity;
+    const halfInner = (HIGH_CLIMB_CONFIG.deckWidth * 0.5 - 1.65);
+    for (let s = 0; s < 120 * 24; s++) {
+      const lx = zigState.x / MAP_SCALE;
+      const lz = zigState.z / MAP_SCALE;
+      // Switch diagonal tack near lane edges while ascending, then straighten over summit & descent
+      let targetYaw = -Math.PI / 2;
+      if (lx > HIGH_CLIMB_CONFIG.xSummitEast - 0.10) {
+        if (lz > HIGH_CLIMB_CONFIG.laneZ + halfInner) zigDir = -1;
+        if (lz < HIGH_CLIMB_CONFIG.laneZ - halfInner) zigDir = 1;
+        const tackAngle = gripMult < 0.8 ? 0.80 : 0.78; // Diagonal zigzags keep tread load below breakawayGrade on all tiers
+        targetYaw = -Math.PI / 2 + zigDir * tackAngle; // +Z South for zigDir=+1, -Z North for zigDir=-1
+      }
+      const err = Math.atan2(Math.sin(targetYaw - zigState.yaw), Math.cos(targetYaw - zigState.yaw));
+      const steer = Math.max(-0.90, Math.min(0.90, err * 2.2));
+      const slope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, zigPose.y), zigState.x, zigState.z, 0.10);
+      const surf = evaluateCourseSurface(lx, lz, zigPose.y);
+      // Differential zigzag steering (mirrors real track drive + pivot/arc switchbacks at walls)
+      const baseThrottle = Math.abs(err) > 0.55 ? 0.45 : 1.0;
+      const lCmd = Math.max(-1, Math.min(1, baseThrottle - steer));
+      const rCmd = Math.max(-1, Math.min(1, baseThrottle + steer));
+      const res = integrateDrive(
+        zigState,
+        lCmd,
+        rCmd,
+        {
+          grip: surf.grip * gripMult,
+          kineticGrip: surf.kineticGrip !== undefined ? surf.kineticGrip * gripMult : undefined,
+          breakawayGrade: surf.breakawayGrade,
+          rollingResistance: surf.rollingResistance,
+          lateralGripMultiplier: surf.lateralGripMultiplier,
+        },
+        slope,
+        { maxSpeed: 6.8, motorTrackSpeed: 5.34, motorAcceleration: 8.5, braking: 10, turnRate: 1.5, turnResponse: 16, gravity: 9.81 },
+        dt,
+      );
+      zigPose.x = zigState.x;
+      zigPose.z = zigState.z;
+      zigPose.vx = zigState.vx;
+      zigPose.vz = zigState.vz;
+      zigPose.yaw = zigState.yaw;
+      stepVehicle3D(zigPose, (wx, wz) => worldH(wx, wz, zigPose.y), res.longitudinalSpeed, zigState.angular, dt, 9.81, false);
+      assert.equal(zigPose.isFlipped, false, `zigzag climb & steep descent must not flip (gripMult=${gripMult}, x=${lx.toFixed(2)}, pitch=${zigPose.pitch.toFixed(2)})`);
+      maxSummitY = Math.max(maxSummitY, zigPose.y + TRACK_CONTACT_OFFSET);
+      if (lx <= 8.20) break;
+    }
+    assert.ok(maxSummitY >= HIGH_CLIMB_CONFIG.ySummit - 0.05, `zigzag must reach ${HIGH_CLIMB_CONFIG.ySummit}m summit (gripMult=${gripMult}), reached ${maxSummitY.toFixed(2)}`);
+    assert.ok(zigState.x / MAP_SCALE <= 8.35, `robot must descend past High Climb exit onto Hump runway (gripMult=${gripMult}), ended at x=${(zigState.x / MAP_SCALE).toFixed(2)}`);
+  }
 });
 

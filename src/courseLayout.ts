@@ -6,6 +6,9 @@ export type SurfaceProperties = {
   grip: number;
   rollingResistance: number;
   hazard: 'none' | 'fire' | 'water' | 'oil' | 'sand';
+  lateralGripMultiplier?: number;
+  breakawayGrade?: number;
+  kineticGrip?: number;
 };
 
 export type CourseCollider = {
@@ -410,8 +413,10 @@ export const TRACK_B_ROUTE: CoursePoint[] = [
   // Hairpin 1: Ground-Level Semicircular Viaduct
   ...circularArc(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 12).slice(1),
 
-  // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - Mega Speed Hump Gauntlet -> Slippery Steel
-  { x: 14.5, z: 6.75 },   // Technical straight entry from Hairpin 1
+  // Lane 2: Mid-South Straight (Z = 6.75, Westbound) - High-Incline Zigzag Challenge -> Mega Speed Humps -> Slippery Steel
+  { x: 17.0, z: 6.75 },   // High Climb East Entry
+  { x: 12.0, z: 6.75 },   // High Climb Summit Plateau
+  { x: 8.7, z: 6.75 },    // High Climb West Touchdown
   { x: 7.5, z: 6.75 },    // Gauntlet approach runway
   { x: 4.6, z: 6.75 },    // Mega Speed Hump 1 crest
   { x: 0.0, z: 6.75 },    // Mega Speed Hump 2 crest
@@ -492,6 +497,7 @@ export const TRACK_B_OBSTACLES: TrackObstacle[] = [
   { id: 'start_bay', name: 'Starting Bay', kind: 'start', x: -20.5, z: 13.50, elevation: 0.0 },
   { id: 'slalom_hurdles', name: 'Precision Slaloms', kind: 'slalom', x: -8.0, z: 13.50, elevation: 0.0 },
   { id: 'rock_field', name: 'Sculpted Rock Field', kind: 'rockfield', x: 10.25, z: 13.50, elevation: ELEVATION_TIER_SMALL },
+  { id: 'high_climb', name: 'High-Incline Zigzag Challenge Ramp', kind: 'climbing_hill', x: 12.85, z: 6.75, elevation: 3.15 },
   { id: 'speed_breakers', name: 'Mega Speed Hump Gauntlet', kind: 'speed_breakers', x: 0.0, z: 6.75, elevation: 0.76 },
   { id: 'spiral_tower', name: 'Compact Cardboard Spiral Stake', kind: 'spiral', x: -4.50, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
   { id: 'rooftop_turntable', name: 'Rooftop Turntable Platform', kind: 'turntable', x: 1.0, z: 0.00, elevation: ELEVATION_TIER_MAJOR },
@@ -655,12 +661,16 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
   }
 
   // 4. LANE 2: Mid-South Straight (Z = 6.75, Westbound)
+  if (trackId === 'track_d' && Math.abs(z - 6.75) <= halfW) {
+    // Switchback climb on Track D: x in [6.5, 14.5]
+    const hClimb = hillHeightAt(x, z);
+    if (hClimb !== null) return hClimb;
+  }
+  if (trackId !== 'track_d' && track.hasSpiral && Math.abs(z - HIGH_CLIMB_CONFIG.laneZ) <= HIGH_CLIMB_CONFIG.deckWidth * 0.5 + 0.15) {
+    const highY = evaluateHighClimbHeight(x, z);
+    if (highY !== null) return highY;
+  }
   if (Math.abs(z - 6.75) <= halfW) {
-    if (trackId === 'track_d') {
-      // Switchback climb on Track D: x in [6.5, 14.5]
-      const hClimb = hillHeightAt(x, z);
-      if (hClimb !== null) return hClimb;
-    }
     // Huge Polished Mega Speed Hump Gauntlet: x in [-6.45, +6.45]
     if (x >= SPEED_BREAKER_CONFIG.deckXMin && x <= SPEED_BREAKER_CONFIG.deckXMax) {
       const humpY = evaluateSpeedBreakerHeight(x, z);
@@ -839,6 +849,12 @@ export function evaluateTrackHeight(trackId: TrackId, x: number, z: number, pose
 export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, poseY = 0): SurfaceProperties {
   const halfW = DRIVE_ROUTE_WIDTH / 2;
 
+  // 0. Lane 3 Iridescent Oil Spill Hazard Pad (Z = 0.00, X in [-12.0, -8.0] at ground grade)
+  // Checked before spiral's West ground-approach apron so oil zone always triggers authentic hydroplaning slip.
+  if (Math.abs(z - 0.00) <= halfW && poseY < 0.45 && x >= -12.0 && x <= -8.0) {
+    return { grip: 0.14, rollingResistance: 0.08, hazard: 'oil', lateralGripMultiplier: 0.72 };
+  }
+
   // 1. Spiral Ramp surface
   const track = TRACK_DEFINITIONS[trackId] || TRACK_B;
   if (track.hasSpiral) {
@@ -869,7 +885,25 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
     return { grip: 0.65, rollingResistance: 1.50, hazard: 'none' };
   }
 
-  // 4. Lane 2 Mega Speed Humps & Slippery Steel
+  // 4. Lane 2 High-Incline Zigzag Ramp, Mega Speed Humps & Slippery Steel
+  if (trackId !== 'track_d' && track.hasSpiral && Math.abs(z - HIGH_CLIMB_CONFIG.laneZ) <= HIGH_CLIMB_CONFIG.deckWidth * 0.5) {
+    if (x >= HIGH_CLIMB_CONFIG.xExitEnd && x <= HIGH_CLIMB_CONFIG.xEntryStart) {
+      if (x > HIGH_CLIMB_CONFIG.xSummitEast) {
+        // Slick epoxy/steel climb face: belt lugs break loose into spinning kinetic slip when climbing straight
+        // (< ~30 deg off fall-line), while diagonal zigzag tacks keep static bite across all difficulty tiers.
+        return {
+          grip: 0.78,
+          kineticGrip: 0.36,
+          breakawayGrade: 0.46,
+          rollingResistance: 0.12,
+          hazard: 'none',
+          lateralGripMultiplier: 1.55,
+        };
+      }
+      // Textured summit plateau & chevron descent deck
+      return { grip: 1.18, rollingResistance: 0.42, hazard: 'none', lateralGripMultiplier: 1.50 };
+    }
+  }
   if (Math.abs(z - 6.75) <= halfW) {
     for (const bx of SPEED_BREAKER_CONFIG.centersX) {
       if (Math.abs(x - bx) < SPEED_BREAKER_CONFIG.halfLength) {
@@ -879,6 +913,11 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
     if (x >= -14.0 && x <= -9.5) {
       return { grip: 0.22, rollingResistance: 0.15, hazard: 'none' };
     }
+  }
+
+  // 4b. Lane 3 Iridescent Oil Spill Hazard Pad (Z = 0.00, X in [-12.0, -8.0] at ground grade)
+  if (Math.abs(z - 0.00) <= halfW && poseY < 0.45 && x >= -12.0 && x <= -8.0) {
+    return { grip: 0.14, rollingResistance: 0.08, hazard: 'oil', lateralGripMultiplier: 0.72 };
   }
 
   // 5. Lane 4 Elevated Obstacles (Swinging Pendulum Steel Deck & Dual Hanging Bridge)
@@ -949,6 +988,39 @@ export const SPEED_BREAKER_CONFIG = {
 } as const;
 
 export const SPEED_BREAKER_XS = SPEED_BREAKER_CONFIG.centersX;
+
+// ---------------------------------------------------------------------------
+// LANE 2 OBSTACLE 1: HIGH-INCLINE ZIGZAG CHALLENGE RAMP (Z = 6.75, X in [8.70, 17.00])
+// Towering power/traction-limited ~31 deg incline: going straight stalls with belts spinning;
+// zigzag switchbacks or extreme momentum overcome the +2.82m summit cleanly.
+// ---------------------------------------------------------------------------
+export const HIGH_CLIMB_CONFIG = {
+  laneZ: 6.75,
+  xEntryStart: 17.00,
+  xSummitEast: 12.40,
+  xSummitWest: 11.65,
+  xExitEnd: 8.70,
+  yGround: -0.33,
+  ySummit: 2.87,
+  deckWidth: 5.20,
+  wallHeight: 1.40,
+  ascentEdgeFrac: 0.12,
+  descentEdgeFrac: 0.16,
+} as const;
+
+export function evaluateHighClimbHeight(x: number, z: number): number | null {
+  if (Math.abs(z - HIGH_CLIMB_CONFIG.laneZ) > HIGH_CLIMB_CONFIG.deckWidth * 0.5 + 0.15) return null;
+  if (x > HIGH_CLIMB_CONFIG.xEntryStart || x < HIGH_CLIMB_CONFIG.xExitEnd) return null;
+  if (x > HIGH_CLIMB_CONFIG.xSummitEast) {
+    const u = (HIGH_CLIMB_CONFIG.xEntryStart - x) / (HIGH_CLIMB_CONFIG.xEntryStart - HIGH_CLIMB_CONFIG.xSummitEast);
+    return HIGH_CLIMB_CONFIG.yGround + (HIGH_CLIMB_CONFIG.ySummit - HIGH_CLIMB_CONFIG.yGround) * easeCushionedRamp(u, HIGH_CLIMB_CONFIG.ascentEdgeFrac);
+  }
+  if (x >= HIGH_CLIMB_CONFIG.xSummitWest) {
+    return HIGH_CLIMB_CONFIG.ySummit;
+  }
+  const u = (x - HIGH_CLIMB_CONFIG.xExitEnd) / (HIGH_CLIMB_CONFIG.xSummitWest - HIGH_CLIMB_CONFIG.xExitEnd);
+  return HIGH_CLIMB_CONFIG.yGround + (HIGH_CLIMB_CONFIG.ySummit - HIGH_CLIMB_CONFIG.yGround) * easeCushionedRamp(u, HIGH_CLIMB_CONFIG.descentEdgeFrac);
+}
 
 /**
  * Evaluates exact surface elevation across the 3 huge polished Mega Speed Humps on Lane 2 (Z = 6.75).

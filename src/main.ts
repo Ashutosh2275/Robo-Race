@@ -60,6 +60,8 @@ import {
   CHECKPOINTS,
   SLALOM_BLOCKS,
   SPEED_BREAKER_CONFIG,
+  HIGH_CLIMB_CONFIG,
+  evaluateHighClimbHeight,
   HILL_NODES,
   HILL_DECK_WIDTH,
   evaluateCourseHeight,
@@ -289,35 +291,94 @@ function generateFlameTexture(): THREE.CanvasTexture {
 
 function generateOilSlickTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
+  canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#0a0d10';
-  ctx.fillRect(0, 0, 256, 256);
-  // Iridescent petroleum thin-film interference bands (optical dispersion on wet asphalt)
-  const bands = [
-    { r: 35, col: 'rgba(30, 110, 210, 0.55)' },
-    { r: 60, col: 'rgba(170, 40, 190, 0.48)' },
-    { r: 85, col: 'rgba(235, 185, 30, 0.50)' },
-    { r: 110, col: 'rgba(25, 210, 160, 0.42)' },
-    { r: 135, col: 'rgba(225, 75, 55, 0.38)' },
-    { r: 165, col: 'rgba(45, 160, 235, 0.35)' },
-    { r: 195, col: 'rgba(190, 60, 170, 0.30)' },
+  // Stained wet concrete bay margin around spilled dark crude oil lake
+  ctx.fillStyle = '#2d3236';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Irregular organic glossy black crude petroleum spill body
+  ctx.fillStyle = '#07090d';
+  ctx.beginPath();
+  ctx.ellipse(256, 256, 224, 212, 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(175, 195, 118, 92, -0.45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(342, 315, 110, 88, 0.38, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Soft natural iridescent rainbow thin-film gasoline/oil interference over deep black crude base
+  const swirls = [
+    { x: 245, y: 248, rx: 162, ry: 122, rot: 0.25, w: 20, col: 'rgba(18, 125, 175, 0.28)' },
+    { x: 268, y: 266, rx: 132, ry: 96, rot: -0.35, w: 18, col: 'rgba(125, 32, 168, 0.28)' },
+    { x: 246, y: 254, rx: 102, ry: 74, rot: 0.55, w: 16, col: 'rgba(185, 132, 22, 0.24)' },
+    { x: 264, y: 242, rx: 72, ry: 52, rot: -0.20, w: 14, col: 'rgba(20, 152, 112, 0.24)' },
+    { x: 165, y: 185, rx: 58, ry: 34, rot: -0.40, w: 12, col: 'rgba(128, 36, 165, 0.22)' },
+    { x: 335, y: 318, rx: 52, ry: 32, rot: 0.35, w: 12, col: 'rgba(22, 138, 175, 0.22)' },
   ];
-  for (const b of bands) {
-    ctx.strokeStyle = b.col;
-    ctx.lineWidth = 16;
+  for (const s of swirls) {
+    ctx.strokeStyle = s.col;
+    ctx.lineWidth = s.w;
     ctx.beginPath();
-    ctx.ellipse(128 + (b.r % 15 - 7), 128 + (b.r % 11 - 5), b.r, b.r * 0.75, b.r * 0.08, 0, Math.PI * 2);
+    ctx.ellipse(s.x, s.y, s.rx, s.ry, s.rot, 0, Math.PI * 2);
     ctx.stroke();
   }
+
+  // Subtle wet specular glint arcs & side droplets
+  ctx.strokeStyle = 'rgba(195, 220, 240, 0.16)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(230, 222, 92, -2.55, -1.35);
+  ctx.stroke();
+  ctx.fillStyle = '#080b10';
+  for (const [dx, dy, dr] of [[95, 360, 16], [415, 145, 18], [410, 405, 13], [115, 110, 14]]) {
+    ctx.beginPath();
+    ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2, 2);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function generateHighClimbTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  // Slick dark charcoal epoxy steel deck background
+  ctx.fillStyle = '#2b3137';
+  ctx.fillRect(0, 0, 512, 512);
+  for (let y = 0; y < 512; y += 32) {
+    ctx.fillStyle = y % 64 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(0, y, 512, 16);
+  }
+  // Subtle directional zigzag guidance chevron path painted cleanly across deck width
+  ctx.strokeStyle = 'rgba(232, 175, 40, 0.55)';
+  ctx.lineWidth = 10;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.setLineDash([22, 18]);
+  ctx.beginPath();
+  ctx.moveTo(40, 256);
+  ctx.lineTo(155, 110);
+  ctx.lineTo(285, 402);
+  ctx.lineTo(410, 110);
+  ctx.lineTo(485, 256);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
 }
 
 const flameTexture = generateFlameTexture();
 const oilSlickTexture = generateOilSlickTexture();
+const highClimbTexture = generateHighClimbTexture();
 
 const mats = {
   floor: new THREE.MeshStandardMaterial({ color: '#272a2c', roughness: 0.94, map: generateSurfaceTexture('#272a2c', ['#383b3d', '#1f2122', '#414446'], 'grain') }),
@@ -371,7 +432,8 @@ const mats = {
     roughness: 0.28,
     metalness: 0.88,
   }),
-  oil: new THREE.MeshStandardMaterial({ color: '#0d1318', roughness: 0.08, metalness: 0.88, map: oilSlickTexture }),
+  oil: new THREE.MeshStandardMaterial({ color: '#c4cbd2', roughness: 0.14, metalness: 0.06, map: oilSlickTexture }),
+  highClimbDeck: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.20, metalness: 0.44, map: highClimbTexture }),
   water: new THREE.MeshStandardMaterial({
     color: '#0e7e9e',
     emissive: '#04222c',
@@ -1023,12 +1085,13 @@ const corridorLane1: CoursePoint[] = [
 // Hairpin 1: Semicircular Viaduct (cx = 17.50, cz = 10.125, R = 3.375)
 const hairpin1Arc = circularArcPoints(17.50, 10.125, 3.375, Math.PI / 2, -Math.PI / 2, 24);
 
-// Lane 2: Mid-South Straight (Z = 6.75, Westbound) — split cleanly around the Mega Speed Hump Gauntlet
-const corridorLane2East: CoursePoint[] = [
+// Lane 2: Mid-South Straight (Z = 6.75, Westbound) — split cleanly around High-Incline Zigzag Ramp & Mega Speed Hump Gauntlet
+const corridorLane2EastEntry: CoursePoint[] = [
   { x: 17.5, z: 6.75 },
-  { x: 14.5, z: 6.75 },
-  { x: 11.5, z: 6.75 },
-  { x: 9.5, z: 6.75 },
+  { x: HIGH_CLIMB_CONFIG.xEntryStart, z: 6.75 },
+];
+const corridorLane2EastExit: CoursePoint[] = [
+  { x: HIGH_CLIMB_CONFIG.xExitEnd, z: 6.75 },
   { x: SPEED_BREAKER_CONFIG.deckXMax, z: 6.75 },
 ];
 const corridorLane2West: CoursePoint[] = [
@@ -1095,7 +1158,8 @@ export const VIADUCT_LANE_WIDTH = DRIVE_ROUTE_WIDTH; // 4.40m gives 2.89x robot 
 const allCircuitCorridors = [
   corridorLane1,
   hairpin1Arc,
-  corridorLane2East,
+  corridorLane2EastEntry,
+  corridorLane2EastExit,
   corridorLane2West,
   hairpin2Arc,
   corridorLane3Approach,
@@ -1127,9 +1191,7 @@ const pierBentPositions: CoursePoint[] = [
   { x: 16.0, z: 13.50 },
   // Hairpin 1
   { x: 20.8, z: 10.125 },
-  // Lane 2 (Z = 6.75)
-  { x: 16.0, z: 6.75 },
-  { x: 10.0, z: 6.75 },
+  // Lane 2 (Z = 6.75) — x=10 & x=16 omitted where High-Incline Zigzag Ramp builds dedicated 5.20m architectural piers
   { x: 4.0, z: 6.75 },
   { x: -3.0, z: 6.75 },
   { x: -10.0, z: 6.75 },
@@ -1963,6 +2025,199 @@ function buildMegaSpeedHumpGauntlet() {
 }
 
 buildMegaSpeedHumpGauntlet();
+
+// ---------------------------------------------------------------------------
+// SECTION 2B: Lane 2 High-Incline Zigzag Challenge Ramp (Z = 6.75, X in [8.70, 17.00])
+// Towering +3.20m vertical climb (y: -0.33m -> +2.87m) where straight throttle stalls
+// into continuous forward-spinning belt slip and slides down; diagonal zigzagging conquers it.
+// ---------------------------------------------------------------------------
+function buildHighClimbZigzagRamp() {
+  const cfg = HIGH_CLIMB_CONFIG;
+  const zL = cfg.laneZ;
+  const halfW = cfg.deckWidth * 0.5; // 2.60m (5.20m wide bowl)
+  const ascentLen = cfg.xEntryStart - cfg.xSummitEast; // 4.60m
+  const plateauLen = cfg.xSummitEast - cfg.xSummitWest; // 0.75m
+  const plateauMidX = (cfg.xSummitEast + cfg.xSummitWest) * 0.5;
+  const descentLen = cfg.xSummitWest - cfg.xExitEnd; // 2.95m
+  const totalLen = cfg.xEntryStart - cfg.xExitEnd; // 8.30m
+  const totalMidX = (cfg.xEntryStart + cfg.xExitEnd) * 0.5;
+  const wallH = 0.96;
+
+  // 1. Entry & Exit flush shoulder aprons bridging standard 4.40m Lane 2 tarmac -> 5.20m bowl (no coplanar Z-fighting!)
+  for (const [edgeX, sign] of [[cfg.xEntryStart, 1], [cfg.xExitEnd, -1]] as const) {
+    box(course, mats.laneStripeYellow, V(edgeX - sign * 0.06, cfg.yGround + 0.010, zL), V(0.14, 0.006, DRIVE_ROUTE_WIDTH - 0.56), 0, false);
+    // Seal step between standard 4.40m parapet (zCurb = +-2.06) and widened 5.20m ramp parapet (zCurb = +-2.46)
+    for (const side of [-1, 1]) {
+      const shoulderZ = zL + side * 2.34;
+      box(course, mats.asphalt, V(edgeX + sign * 0.12, cfg.yGround - 0.11, shoulderZ), V(0.40, 0.22, 0.52));
+      const wingZ = zL + side * 2.26;
+      box(course, mats.concretePier, V(edgeX, cfg.yGround + 0.34, wingZ), V(0.32, 0.68, 0.62));
+      box(course, mats.yellow, V(edgeX, cfg.yGround + 0.70, wingZ), V(0.34, 0.04, 0.64), 0, false);
+      colliders.push({
+        id: `high_climb_wing_${edgeX > 12 ? 'east' : 'west'}_${side > 0 ? 's' : 'n'}`,
+        x: edgeX,
+        z: wingZ,
+        hx: 0.16,
+        hz: 0.31,
+        y: cfg.yGround + 0.60,
+        height: 1.50,
+        rot: 0,
+        walkable: false,
+      });
+    }
+  }
+
+  // 2. Slick Coated Ascent Climb Face, Summit Plateau & High-Traction Rubberized Descent
+  const ascentEase = (t: number) => easeCushionedRamp(t, cfg.ascentEdgeFrac);
+  const descentEase = (t: number) => easeCushionedRamp(t, cfg.descentEdgeFrac);
+
+  curvedSlopedDeck(
+    'high_climb_ascent_deck',
+    cfg.xEntryStart,
+    cfg.xSummitEast,
+    zL,
+    cfg.deckWidth,
+    cfg.yGround,
+    cfg.ySummit,
+    0.26,
+    mats.highClimbDeck,
+    ascentEase,
+    40,
+  );
+
+  // Flat summit observation landing plateau
+  box(course, mats.asphalt, V(plateauMidX, cfg.ySummit - 0.13, zL), V(plateauLen + 0.06, 0.26, cfg.deckWidth));
+  box(course, mats.laneStripeYellow, V(cfg.xSummitEast - 0.08, cfg.ySummit + 0.005, zL), V(0.14, 0.008, cfg.deckWidth - 0.60), 0, false);
+  box(course, mats.curbWhite, V(cfg.xSummitWest + 0.08, cfg.ySummit + 0.005, zL), V(0.14, 0.008, cfg.deckWidth - 0.60), 0, false);
+
+  curvedSlopedDeck(
+    'high_climb_descent_deck',
+    cfg.xExitEnd,
+    cfg.xSummitWest,
+    zL,
+    cfg.deckWidth,
+    cfg.yGround,
+    cfg.ySummit,
+    0.26,
+    mats.rubber,
+    descentEase,
+    40,
+  );
+
+  // 3. Heavy Architectural Concrete Support Piers & Cross-Girders under Ascent, Summit & Descent
+  for (const px of [14.70, 13.00, 12.28, 11.72, 10.15]) {
+    const deckY = evaluateHighClimbHeight(px, zL) ?? cfg.yGround;
+    const colTop = deckY - 0.24;
+    const legH = colTop - ARENA_FLOOR_HEIGHT;
+    if (legH < 0.25) continue;
+    const beamW = cfg.deckWidth - 0.36;
+    box(course, mats.concretePier, V(px, colTop - 0.14, zL), V(0.46, 0.28, beamW));
+    for (const side of [-1, 1]) {
+      const colZ = zL + side * (beamW * 0.5 - 0.38);
+      cyl(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + legH * 0.5, colZ), 0.24, legH, 'y', 20);
+      box(course, mats.concretePier, V(px, ARENA_FLOOR_HEIGHT + 0.18, colZ), V(0.76, 0.36, 0.76));
+    }
+    // Cross steel structural K-bracing for tall summit piers
+    if (legH > 1.80) {
+      box(course, mats.trussRed, V(px, ARENA_FLOOR_HEIGHT + legH * 0.52, zL), V(0.14, 0.14, beamW - 0.70));
+    }
+  }
+
+  // Under-deck longitudinal steel support stringers spanning ascent & descent
+  for (const side of [-1, 1]) {
+    const strZ = zL + side * 1.45;
+    box(course, mats.metal, V(14.70, (cfg.yGround + cfg.ySummit) * 0.5 - 0.28, strZ), V(ascentLen * 0.96, 0.16, 0.16), 0, false).rotation.z = -Math.atan2(cfg.ySummit - cfg.yGround, ascentLen);
+    box(course, mats.metal, V(10.18, (cfg.yGround + cfg.ySummit) * 0.5 - 0.28, strZ), V(descentLen * 0.94, 0.16, 0.16), 0, false).rotation.z = Math.atan2(cfg.ySummit - cfg.yGround, descentLen);
+  }
+
+  // 4. Continuous Slope-Following Protective Parapets + Yellow Safety Coping + Strobe Beacons
+  for (const side of [-1, 1]) {
+    const zCurb = zL + side * (halfW - 0.14); // +-2.46m around laneZ
+
+    // Ascent sloped wall & coping
+    curvedSlopedDeck(
+      `high_climb_wall_asc_${side}`,
+      cfg.xEntryStart,
+      cfg.xSummitEast,
+      zCurb,
+      0.28,
+      cfg.yGround + wallH,
+      cfg.ySummit + wallH,
+      wallH + 0.28,
+      mats.concretePier,
+      ascentEase,
+      36,
+    );
+    curvedSlopedDeck(
+      `high_climb_cope_asc_${side}`,
+      cfg.xEntryStart,
+      cfg.xSummitEast,
+      zCurb,
+      0.30,
+      cfg.yGround + wallH + 0.04,
+      cfg.ySummit + wallH + 0.04,
+      0.04,
+      mats.yellow,
+      ascentEase,
+      36,
+    );
+
+    // Summit flat parapet & coping + warning strobe beacon
+    box(course, mats.concretePier, V(plateauMidX, cfg.ySummit + wallH * 0.5 - 0.12, zCurb), V(plateauLen + 0.06, wallH + 0.24, 0.28));
+    box(course, mats.yellow, V(plateauMidX, cfg.ySummit + wallH + 0.02, zCurb), V(plateauLen + 0.06, 0.04, 0.30), 0, false);
+
+    cyl(course, mats.metal, V(plateauMidX, cfg.ySummit + wallH + 0.08, zCurb), 0.10, 0.10, 'y', 14);
+    const summitBeacon = new THREE.Group();
+    summitBeacon.position.set(plateauMidX, cfg.ySummit + wallH + 0.19, zCurb);
+    summitBeacon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 12), mats.beaconAmber));
+    summitBeacon.add(new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.06), mats.yellow));
+    course.add(summitBeacon);
+    hazardRevolvingBeacons.push(summitBeacon);
+
+    // Descent sloped wall & coping
+    curvedSlopedDeck(
+      `high_climb_wall_desc_${side}`,
+      cfg.xExitEnd,
+      cfg.xSummitWest,
+      zCurb,
+      0.28,
+      cfg.yGround + wallH,
+      cfg.ySummit + wallH,
+      wallH + 0.28,
+      mats.concretePier,
+      descentEase,
+      36,
+    );
+    curvedSlopedDeck(
+      `high_climb_cope_desc_${side}`,
+      cfg.xExitEnd,
+      cfg.xSummitWest,
+      zCurb,
+      0.30,
+      cfg.yGround + wallH + 0.04,
+      cfg.ySummit + wallH + 0.04,
+      0.04,
+      mats.yellow,
+      descentEase,
+      36,
+    );
+
+    // Continuous full-height containment barrier collider spanning [xExitEnd, xEntryStart]
+    colliders.push({
+      id: `high_climb_barrier_${side > 0 ? 'south' : 'north'}`,
+      x: totalMidX,
+      z: zCurb,
+      hx: totalLen * 0.5,
+      hz: 0.14,
+      y: 1.75,
+      height: 4.50,
+      rot: 0,
+      walkable: false,
+    });
+  }
+}
+
+buildHighClimbZigzagRamp();
 
 // ---------------------------------------------------------------------------
 // SECTION 5A: Swinging Pendulum Gauntlet on Lane 4 (Z = -6.75, X in [3.8, 16.2])
@@ -2888,10 +3143,13 @@ for (let i = 0; i < 8; i++) {
   hazardWaterRipples.push(ripple);
 }
 
-// SECTION 8: Slippery Polished Steel Sheet / Ice Hazard on Lane 2 (Z = 6.75, X in [-14.0, -9.5])
+// SECTION 8: Slippery Polished Steel Sheet Hazard on Lane 2 (Z = 6.75, X in [-14.0, -9.5])
 // ---------------------------------------------------------------------------
 box(course, mats.concretePier, V(-11.75, ROUTE_DECK_HEIGHT - 0.08, 6.75), V(4.5, 0.18, DRIVE_ROUTE_WIDTH));
-box(course, mats.metal, V(-11.75, ROUTE_DECK_HEIGHT + 0.025, 6.75), V(4.45, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
+box(course, mats.ice, V(-11.75, ROUTE_DECK_HEIGHT + 0.025, 6.75), V(4.45, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
+for (const edgeX of [-13.92, -9.58]) {
+  box(course, mats.yellow, V(edgeX, ROUTE_DECK_HEIGHT + 0.036, 6.75), V(0.12, 0.008, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+}
 colliders.push({
   id: 'slippery_steel_sheet',
   x: -11.75,
@@ -2905,10 +3163,31 @@ colliders.push({
 });
 
 // ---------------------------------------------------------------------------
-// SECTION 8: High-Gloss Iridescent Oil Skid Pad on Lane 3 (Z = 0.00, X in [-12.0, -8.0])
+// SECTION 8: High-Gloss Iridescent Oil Spill Hazard Zone on Lane 3 (Z = 0.00, X in [-12.0, -8.0])
+// Clearly demarcated petroleum spill containment bay with caution borders & roadside oil drums
 // ---------------------------------------------------------------------------
 box(course, mats.concretePier, V(-10.0, ROUTE_DECK_HEIGHT - 0.08, 0.00), V(4.0, 0.18, DRIVE_ROUTE_WIDTH));
-box(course, mats.oil, V(-10.0, ROUTE_DECK_HEIGHT + 0.038, 0.00), V(3.95, 0.02, DRIVE_ROUTE_WIDTH - 0.20), 0, false);
+box(course, mats.oil, V(-10.0, ROUTE_DECK_HEIGHT + 0.038, 0.00), V(3.96, 0.02, DRIVE_ROUTE_WIDTH - 0.24), 0, false);
+for (const edgeX of [-11.94, -8.06]) {
+  for (let stripe = -3; stripe <= 3; stripe++) {
+    const sMat = (stripe + 3) % 2 === 0 ? mats.yellow : mats.black;
+    box(course, sMat, V(edgeX, ROUTE_DECK_HEIGHT + 0.049, stripe * 0.52), V(0.12, 0.006, 0.50), 0, false);
+  }
+}
+for (const side of [-1, 1]) {
+  // Galvanized steel spill-tray containment lips inside lane edges
+  box(course, mats.metal, V(-10.0, ROUTE_DECK_HEIGHT + 0.052, side * (DRIVE_ROUTE_WIDTH * 0.5 - 0.16)), V(3.98, 0.024, 0.08), 0, false);
+  // Roadside leaking oil drum assemblies placed outside parapets (never obstruct road clearance)
+  const drumZ = side * (DRIVE_ROUTE_WIDTH * 0.5 + 0.48);
+  const drumX = side > 0 ? -11.1 : -8.9;
+  const drumMat = side > 0 ? mats.orange : mats.yellow;
+  cyl(course, drumMat, V(drumX, ROUTE_DECK_HEIGHT + 0.34, drumZ), 0.22, 0.66, 'y', 16);
+  cyl(course, mats.black, V(drumX, ROUTE_DECK_HEIGHT + 0.34, drumZ), 0.23, 0.05, 'y', 16);
+  cyl(course, mats.metal, V(drumX, ROUTE_DECK_HEIGHT + 0.67, drumZ), 0.22, 0.02, 'y', 16);
+  // Secondary tipped spill barrel beside curb
+  const tipX = drumX + (side > 0 ? 0.62 : -0.62);
+  cyl(course, mats.black, V(tipX, ROUTE_DECK_HEIGHT + 0.20, drumZ + side * 0.05), 0.19, 0.54, 'z', 14);
+}
 colliders.push({
   id: 'oil_skid_pad',
   x: -10.0,
@@ -3196,8 +3475,8 @@ const straightLaneSpecs = [
   { laneId: 1, z: 13.50, xMin: -18.5, xMax: 5.80, dir: 1 as const },   // Lane 1 Approach (Ground)
   { laneId: 1, z: 13.50, xMin: 14.80, xMax: 17.5, dir: 1 as const },  // Lane 1 Exit to HP1 (Ground)
   { laneId: 2, z: 6.75,  xMin: -17.5, xMax: SPEED_BREAKER_CONFIG.deckXMin, dir: -1 as const },  // Lane 2 West Approach (Ground)
-  { laneId: 2, z: 6.75,  xMin: SPEED_BREAKER_CONFIG.deckXMax, xMax: 14.50, dir: -1 as const }, // Lane 2 Mid Section (Ground)
-  { laneId: 2, z: 6.75,  xMin: 14.50, xMax: 17.5, dir: -1 as const },  // Lane 2 East Exit (Ground)
+  { laneId: 2, z: 6.75,  xMin: SPEED_BREAKER_CONFIG.deckXMax, xMax: HIGH_CLIMB_CONFIG.xExitEnd, dir: -1 as const }, // Lane 2 Mid Section between High Climb & Mega Humps
+  { laneId: 2, z: 6.75,  xMin: HIGH_CLIMB_CONFIG.xEntryStart, xMax: 17.5, dir: -1 as const },  // Lane 2 East Entry off Hairpin 1
   { laneId: 3, z: 0.00,  xMin: -17.5, xMax: -5.60, dir: 1 as const },  // Lane 3 Ground Approach
   { laneId: 3, z: 0.00,  xMin: 10.45, xMax: 17.5, dir: 1 as const },   // Lane 3 Landing Exit
   { laneId: 4, z: -6.75, xMin: -17.5, xMax: -10.80, dir: -1 as const }, // Lane 4 West Runway to HP4
@@ -3818,6 +4097,7 @@ let isPointerLocked = false;
 let bestTime = Number(localStorage.getItem('robo-race-best-v2') || '0');
 let toastTimer = 0;
 let recoveryCooldown = 0;
+let lastHazardHintTime = -10;
 let audioCtx: AudioContext | undefined;
 let cutawayMode = false;
 let drivingHudVisible = false;
@@ -4982,7 +5262,13 @@ function stepPhysics(dt: number) {
     motionState,
     effectiveLeft,
     effectiveRight,
-    { grip: effectiveGrip, rollingResistance: surf.rollingResistance },
+    {
+      grip: effectiveGrip,
+      kineticGrip: surf.kineticGrip !== undefined ? surf.kineticGrip * gripMult : undefined,
+      breakawayGrade: surf.breakawayGrade,
+      rollingResistance: surf.rollingResistance,
+      lateralGripMultiplier: surf.lateralGripMultiplier,
+    },
     slope,
     {
       maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])) * healthThrottle,
@@ -5002,6 +5288,23 @@ function stepPhysics(dt: number) {
     inputs.brake,
     !pose.isGrounded,
   );
+
+  // Oil Slick Hydroplane Fishtail Instability & Contextual Driving Hints
+  if (surf.hazard === 'oil' && !pose.isFlipped && pose.isGrounded) {
+    const planSpeed = Math.hypot(motionState.vx, motionState.vz);
+    if (planSpeed > 0.65) {
+      const steerNoise = Math.sin(elapsed * 5.2 + motionState.x * 0.45) * 0.55;
+      motionState.angular += steerNoise * dt * 2.5;
+      motionState.yaw += motionState.angular * dt * 0.5;
+    }
+    if (elapsed - lastHazardHintTime > 5.0 || elapsed < lastHazardHintTime) {
+      lastHazardHintTime = elapsed;
+      displayToast('OIL SLICK ZONE · LOW GRIP SKID HAZARD');
+    }
+  } else if (surf.breakawayGrade !== undefined && driveResult.motorSlip > 0.50 && motionState.vx > 0.25 && (elapsed - lastHazardHintTime > 5.0 || elapsed < lastHazardHintTime)) {
+    lastHazardHintTime = elapsed;
+    displayToast('BELTS SPINNING STRAIGHT · ZIGZAG (W+A / W+D) OR GAIN SPEED!');
+  }
 
   // Physical Obstacle Reaction Torque ("broad twist" when tracks hit discrete raised boulders)
   // Uneven elevation from rock boulders creates asymmetric retarding drag on the climbing track, producing authentic yaw twist.
@@ -5313,6 +5616,9 @@ function stepPhysics(dt: number) {
     motionState,
     inputs,
     subsystems,
+    surface: surf,
+    driveResult,
+    trackPhase: tracks.map(t => t.phase),
     currentCheckpoint,
     setPose: (newX: number, newZ: number, newYaw?: number) => {
       pose.x = newX;

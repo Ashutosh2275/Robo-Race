@@ -1,7 +1,13 @@
 export type Vec2 = { x: number; z: number };
 export type DriveState = { x: number; z: number; vx: number; vz: number; yaw: number; angular: number };
 export type DriveConfig = { maxSpeed: number; motorAcceleration: number; braking: number; turnRate: number; turnResponse: number; gravity: number; coastDeceleration?: number; motorTrackSpeed?: number };
-export type Surface = { grip: number; rollingResistance: number };
+export type Surface = {
+  grip: number;
+  rollingResistance: number;
+  lateralGripMultiplier?: number;
+  breakawayGrade?: number;
+  kineticGrip?: number;
+};
 
 /**
  * Canonical differential-track mixing:
@@ -85,7 +91,13 @@ export function integrateDrive(
   const gravityX = -config.gravity * slope.x / gradeDenom;
   const gravityZ = -config.gravity * slope.z / gradeDenom;
   const normalGravity = config.gravity / Math.sqrt(gradeDenom);
-  const tractionLimit = Math.max(0.05, surface.grip * normalGravity);
+  const uphillSinRatio = (slope.x * forward.x + slope.z * forward.z) / Math.sqrt(gradeDenom);
+  const isBreakawaySlip = surface.breakawayGrade !== undefined
+    && surface.kineticGrip !== undefined
+    && uphillSinRatio > surface.breakawayGrade
+    && trackMean > 0.15;
+  const activeGrip = isBreakawaySlip ? surface.kineticGrip! : surface.grip;
+  const tractionLimit = Math.max(0.05, activeGrip * normalGravity);
   // Each track has its own torque request and traction ceiling. A single weak
   // contact patch therefore slips without granting the other track unlimited grip.
   const leftRequest = brake ? 0 : left * config.motorAcceleration;
@@ -108,9 +120,11 @@ export function integrateDrive(
     longitudinal += Math.max(-coastLimit, Math.min(coastLimit, -longitudinal)) * dt;
   }
 
-  // Tire/track friction opposes lateral drift up to the contact patch's grip limit.
-  const lateralDemand = -lateral * 7.5;
-  const lateralForce = Math.max(-tractionLimit, Math.min(tractionLimit, lateralDemand));
+  // Tire/track friction opposes lateral drift; tracked grouser edges may offer directional hold.
+  const latMult = surface.lateralGripMultiplier ?? 1.0;
+  const lateralTractionLimit = Math.max(0.05, surface.grip * latMult * normalGravity);
+  const lateralDemand = -lateral * (7.5 * latMult);
+  const lateralForce = Math.max(-lateralTractionLimit, Math.min(lateralTractionLimit, lateralDemand));
   lateral += lateralForce * dt;
 
   if (brake) {
@@ -137,8 +151,14 @@ export function integrateDrive(
   // When the left belt is faster (leftForce > rightForce), the chassis rotates
   // CLOCKWISE (nose turns right, yaw decreases: -Delta yaw).
   // Yaw follows actual traction-limited force difference, so low-grip surfaces lose authority naturally.
+  const angularLeftForce = isBreakawaySlip
+    ? Math.max(-Math.max(0.05, surface.grip * normalGravity), Math.min(Math.max(0.05, surface.grip * normalGravity), leftRequest))
+    : leftForce;
+  const angularRightForce = isBreakawaySlip
+    ? Math.max(-Math.max(0.05, surface.grip * normalGravity), Math.min(Math.max(0.05, surface.grip * normalGravity), rightRequest))
+    : rightForce;
   const angularTarget = config.motorAcceleration > 0
-    ? (rightForce - leftForce) / config.motorAcceleration * config.turnRate
+    ? (angularRightForce - angularLeftForce) / config.motorAcceleration * config.turnRate
     : 0;
   const angularBlend = 1 - Math.exp(-config.turnResponse * dt);
   state.angular += (angularTarget - state.angular) * angularBlend;
