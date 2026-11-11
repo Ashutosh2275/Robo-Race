@@ -415,12 +415,22 @@ test('hanging chain bridges stretch down under weight, sway left-right asymmetri
     assert.ok(maxRoll >= 0.02, `Expected physical roll response across independent planks, got ${maxRoll.toFixed(3)} rad`);
     assert.ok(maxSwayDiff <= 0.241, `Inner bridge collision safety violated: diff=${maxSwayDiff.toFixed(3)}m`);
 
-    // After unloading, chains smoothly spring back toward resting catenary (0.74m at midspan)
-    for (let i = 0; i < 180; i++) {
+    // Parking stationary at constant mid-bridge position (speed = 0, yawRate = 0):
+    // bridge must damp any residual sway to zero instead of swinging endlessly on a preset loop
+    for (let i = 0; i < 240; i++) {
+      stepHangingBridgeState(state, hb, hb.centerX, hb.laneZ, 0.45, 0, 0, 0, dt);
+    }
+    assert.ok(Math.abs(state.left.sway) < 0.005 && Math.abs(state.right.sway) < 0.005, `Stationary bridge must settle sway to 0, got L=${state.left.sway}, R=${state.right.sway}`);
+    assert.ok(Math.abs(state.left.swayVel) < 0.008 && Math.abs(state.right.swayVel) < 0.008, 'Stationary bridge sway velocity must decay cleanly to rest');
+    assert.ok(sampleHangingBridgeRibbon(state, 0, 0.5).y < 0.48, 'Static weight sag must still remain deflected under parked bot');
+
+    // After unloading, chains smoothly spring back toward resting catenary (0.74m at midspan) with 0 wind wobble
+    for (let i = 0; i < 240; i++) {
       stepHangingBridgeState(state, hb, null, null, 0, 0, 0, 0, dt);
     }
     const unloadedMid = sampleHangingBridgeRibbon(state, 0, 0.5);
-    assert.ok(Math.abs(unloadedMid.y - 0.74) < 0.04, `Unloaded chain should rebound smoothly to resting sag (0.74m), got ${unloadedMid.y.toFixed(3)}m`);
+    assert.ok(Math.abs(unloadedMid.y - 0.74) < 0.015, `Unloaded chain should settle cleanly at static resting sag (0.74m), got ${unloadedMid.y.toFixed(3)}m`);
+    assert.ok(Math.abs(unloadedMid.swayV) < 1e-4, `Unloaded bridge sway must decay to zero, got ${unloadedMid.swayV}`);
   } finally {
     setActiveGeneratedCourse(null);
   }

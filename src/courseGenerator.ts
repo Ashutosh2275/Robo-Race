@@ -215,12 +215,18 @@ export function stepHangingBridgeState(
   dt: number,
 ): { deltaMeanSwayV: number; twistTorque: number } {
   const clampedDt = Math.min(0.05, Math.max(0.001, dt));
-  state.phaseTime += clampedDt;
-
   const u = roverLocalX !== null ? slot.dir * (roverLocalX - slot.centerX) : 999;
   const v = roverLocalZ !== null ? slot.dir * (roverLocalZ - slot.laneZ) : 999;
   const supported = Math.abs(u) <= 4.55 && Math.abs(v) <= 1.45 && roverY >= GROUND_DECK_HEIGHT - 0.15;
   state.onBridge = supported;
+
+  // Dynamic excitation only advances in proportion to real rover travel & steering (zero preset idle swing)
+  const motionIntensity = supported
+    ? Math.min(1.0, Math.abs(roverSpeed) / 1.8 + Math.abs(roverYawRate) * 0.55)
+    : 0;
+  if (motionIntensity > 0.01) {
+    state.phaseTime += (Math.abs(roverSpeed) * 1.45 + Math.abs(roverYawRate) * 0.85) * clampedDt;
+  }
 
   state.loadMix += ((supported ? 1 : 0) - state.loadMix) * (1 - Math.exp(-clampedDt * 7.5));
   if (supported) {
@@ -236,29 +242,25 @@ export function stepHangingBridgeState(
     const { left, right } = state;
     if (supported) {
       const spanWeight = Math.sin(Math.PI * state.smoothBotS);
-      const moveFactor = Math.min(1.0, 0.38 + Math.abs(roverSpeed) * 0.16);
-      const swayMid = (left.sway + right.sway) * 0.5;
-      const latOffset = Math.max(-0.85, Math.min(0.85, (v - swayMid) / 0.61));
+      const latOffset = Math.max(-0.85, Math.min(0.85, (v - prevSwayMean) / 0.61));
       const rollTransfer = Math.max(-0.55, Math.min(0.55, roverRoll * 0.85 - roverYawRate * 0.10));
 
-      // Alternating asynchronous differential sag & stretch ("one goes deeper down, one rebounds")
-      const heaveDiff = 0.115 * spanWeight * moveFactor * Math.sin(state.phaseTime * 2.85);
+      // Static weight stretch persists at rest; alternating heave & sway only respond while the bot actually moves/turns
+      const heaveDiff = 0.115 * spanWeight * motionIntensity * Math.sin(state.phaseTime * 1.10);
       const loadBase = 0.44 * spanWeight;
       const bias = -latOffset * 0.46 + rollTransfer * 0.35;
       const targetSagL = Math.max(0.05, Math.min(0.56, loadBase * (1 + bias) + heaveDiff));
       const targetSagR = Math.max(0.05, Math.min(0.56, loadBase * (1 - bias) - heaveDiff));
 
-      // Coupled left-right pendulum oscillation (shared sway + out-of-phase alternating mode)
-      const swayAmp = 0.21 * spanWeight * moveFactor + 0.045 * spanWeight;
-      const steerKick = (roverYawRate * 0.32 + Math.sin(roverRoll) * 0.80) * spanWeight;
-      const targetSwayL = swayAmp * Math.sin(state.phaseTime * 2.95) - steerKick * 0.45;
-      const targetSwayR = swayAmp * Math.sin(state.phaseTime * 2.95 + 2.15) - steerKick * 0.35;
+      const swayAmp = 0.21 * spanWeight * motionIntensity;
+      const steerKick = (roverYawRate * 0.32 + Math.sin(roverRoll) * 0.45 * motionIntensity) * spanWeight;
+      const targetSwayL = swayAmp * Math.sin(state.phaseTime * 1.15) - steerKick * 0.45;
+      const targetSwayR = swayAmp * Math.sin(state.phaseTime * 1.15 + 2.15) - steerKick * 0.35;
 
-      // Slightly asymmetric natural cable frequencies make Left and Right behave authentically independently
-      const aSagL = 32.0 * (targetSagL - left.sag) - 4.0 * left.sagVel + 3.5 * (right.sag - left.sag);
-      const aSagR = 26.5 * (targetSagR - right.sag) - 3.6 * right.sagVel + 3.5 * (left.sag - right.sag);
-      const aSwayL = 16.0 * (targetSwayL - left.sway) - 1.85 * left.swayVel;
-      const aSwayR = 14.2 * (targetSwayR - right.sway) - 1.75 * right.swayVel;
+      const aSagL = 32.0 * (targetSagL - left.sag) - 4.4 * left.sagVel + 3.0 * (right.sag - left.sag);
+      const aSagR = 26.5 * (targetSagR - right.sag) - 4.0 * right.sagVel + 3.0 * (left.sag - right.sag);
+      const aSwayL = 16.0 * (targetSwayL - left.sway) - 2.6 * left.swayVel;
+      const aSwayR = 14.2 * (targetSwayR - right.sway) - 2.4 * right.swayVel;
 
       left.sagVel += aSagL * hDt;
       right.sagVel += aSagR * hDt;
@@ -270,12 +272,10 @@ export function stepHangingBridgeState(
       left.sway += left.swayVel * hDt;
       right.sway += right.swayVel * hDt;
     } else {
-      const breezeL = 0.022 * Math.sin(state.phaseTime * 1.85);
-      const breezeR = 0.022 * Math.sin(state.phaseTime * 1.85 + 1.6);
-      const aSagL = -24.0 * left.sag - 3.8 * left.sagVel;
-      const aSagR = -21.0 * right.sag - 3.5 * right.sagVel;
-      const aSwayL = 12.0 * (breezeL - left.sway) - 2.1 * left.swayVel;
-      const aSwayR = 11.0 * (breezeR - right.sway) - 2.0 * right.swayVel;
+      const aSagL = -24.0 * left.sag - 4.2 * left.sagVel;
+      const aSagR = -21.0 * right.sag - 3.9 * right.sagVel;
+      const aSwayL = -16.0 * left.sway - 2.8 * left.swayVel;
+      const aSwayR = -14.2 * right.sway - 2.6 * right.swayVel;
 
       left.sagVel += aSagL * hDt;
       right.sagVel += aSagR * hDt;

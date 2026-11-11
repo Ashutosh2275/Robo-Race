@@ -167,10 +167,8 @@ export type HangingBridgeRibbonVisual = {
   vNominal: number;
   sideSign: -1 | 1;
   planks: THREE.Mesh[];      // 18 slats preserving exact (0.54, 0.08, 0.62) size
-  hangers: THREE.Mesh[];     // 18 suspender rods connecting main cable to outer slat edge
-  mainCables: THREE.Mesh[];  // 18 overhead main suspension cable segments
-  edgeChainsL: THREE.Mesh[]; // 17 carrier chain segments along inner/left slat edge
-  edgeChainsR: THREE.Mesh[]; // 17 carrier chain segments along outer/right slat edge
+  edgeChainsL: THREE.Mesh[]; // 19 under-deck carrier chain segments pinned to entry & exit anchors
+  edgeChainsR: THREE.Mesh[]; // 19 under-deck carrier chain segments pinned to entry & exit anchors
 };
 
 export type HangingBridgeRuntime = {
@@ -239,53 +237,32 @@ function alignBridgeSegment(
 function updateHangingBridgeVisuals(hb: HangingBridgeRuntime, state: HangingBridgeState) {
   const { slot } = hb;
   const segCount = 18;
+  const bridgeY = 0.88;
   const stepU = 9.0 / segCount;
-  const yTowerCable = 2.48;
-  const cableRestSag = 0.86;
   const toCX = (u: number) => slot.centerX + slot.dir * u;
   const toCZ = (v: number) => slot.laneZ + slot.dir * v;
 
   for (const rib of hb.ribbons) {
-    const bridgeRestSagAt = (s: number) => 0.14 * 4 * s * (1 - s);
-    const sampleMainCable = (s: number) => {
-      const sClamped = Math.max(0, Math.min(1, s));
-      const ribS = sampleHangingBridgeRibbon(state, rib.side, sClamped);
-      const restDeckY = 0.88 - bridgeRestSagAt(sClamped);
-      const extraDip = Math.max(-0.08, restDeckY - ribS.y);
-      const yMain = yTowerCable - cableRestSag * 4 * sClamped * (1 - sClamped) - extraDip * 0.56;
-      const vMain = rib.sideSign * 1.10 + ribS.swayV * 0.65;
-      return {
-        x: toCX(-4.5 + sClamped * 9.0),
-        y: yMain,
-        z: toCZ(vMain),
-        plank: ribS,
-      };
-    };
+    // 1. Planks & under-deck longitudinal carrier chains anchored directly to both ground ramps (no side ropes or barriers)
+    const startX = toCX(-4.5);
+    const startZLeft = toCZ(rib.vNominal - 0.23);
+    const startZRight = toCZ(rib.vNominal + 0.23);
+    const anchorY = bridgeY - 0.075;
 
-    // 1. Overhead main suspension cable (18 articulated links from tower post to tower post)
-    let prevC = sampleMainCable(0);
-    for (let k = 0; k < segCount; k++) {
-      const nextC = sampleMainCable((k + 1) / segCount);
-      alignBridgeSegment(rib.mainCables[k], prevC.x, prevC.y, prevC.z, nextC.x, nextC.y, nextC.z);
-      prevC = nextC;
-    }
-
-    // 2. Planks & suspender hangers + longitudinal carrier chains
-    let prevX = 0;
-    let prevY = 0;
-    let prevZLeft = 0;
-    let prevZRight = 0;
+    let prevX = startX;
+    let prevY = anchorY;
+    let prevZLeft = startZLeft;
+    let prevZRight = startZRight;
 
     for (let pi = 0; pi < segCount; pi++) {
       const s0 = pi / segCount;
       const s1 = (pi + 1) / segCount;
       const sMid = (pi + 0.5) / segCount;
-      const midCable = sampleMainCable(sMid);
       const r0 = sampleHangingBridgeRibbon(state, rib.side, s0);
       const r1 = sampleHangingBridgeRibbon(state, rib.side, s1);
-      const rM = midCable.plank;
+      const rM = sampleHangingBridgeRibbon(state, rib.side, sMid);
 
-      const xM = midCable.x;
+      const xM = toCX(-4.5 + sMid * 9.0);
       const yM = rM.y;
       const vM = rib.vNominal + rM.swayV;
       const zM = toCZ(vM);
@@ -294,33 +271,27 @@ function updateHangingBridgeVisuals(hb: HangingBridgeRuntime, state: HangingBrid
       plankMesh.position.set(xM, yM - 0.04, zM);
       // Pitch plank cleanly along the deformed catenary tangent slope
       plankMesh.rotation.z = Math.atan2(r1.y - r0.y, slot.dir * stepU);
-      // Subtle cradle roll angle as cables swing laterally
+      // Subtle tilt as chains swing laterally
       plankMesh.rotation.x = rM.swayV * 0.24 * slot.dir;
-
-      // Vertical suspender cable from overhead main chain down to outer plank edge
-      const vOuterEdge = rib.vNominal + rib.sideSign * 0.28 + rM.swayV;
-      alignBridgeSegment(
-        rib.hangers[pi],
-        xM,
-        yM - 0.01,
-        toCZ(vOuterEdge),
-        midCable.x,
-        midCable.y,
-        midCable.z,
-      );
 
       const zEdgeL = toCZ(vM - 0.23);
       const zEdgeR = toCZ(vM + 0.23);
       const yChain = yM - 0.075;
-      if (pi > 0) {
-        alignBridgeSegment(rib.edgeChainsL[pi - 1], prevX, prevY, prevZLeft, xM, yChain, zEdgeL);
-        alignBridgeSegment(rib.edgeChainsR[pi - 1], prevX, prevY, prevZRight, xM, yChain, zEdgeR);
-      }
+      alignBridgeSegment(rib.edgeChainsL[pi], prevX, prevY, prevZLeft, xM, yChain, zEdgeL);
+      alignBridgeSegment(rib.edgeChainsR[pi], prevX, prevY, prevZRight, xM, yChain, zEdgeR);
+
       prevX = xM;
       prevY = yChain;
       prevZLeft = zEdgeL;
       prevZRight = zEdgeR;
     }
+
+    // Final chain link segment pinned cleanly to exit ramp anchor lip (s = 1)
+    const endX = toCX(4.5);
+    const endZLeft = toCZ(rib.vNominal - 0.23);
+    const endZRight = toCZ(rib.vNominal + 0.23);
+    alignBridgeSegment(rib.edgeChainsL[segCount], prevX, prevY, prevZLeft, endX, anchorY, endZLeft);
+    alignBridgeSegment(rib.edgeChainsR[segCount], prevX, prevY, prevZRight, endX, anchorY, endZRight);
   }
 }
 
@@ -1703,30 +1674,28 @@ export function buildDynamicCourseGroup(
       makeBox(courseGroup, mats.sand, new THREE.Vector3(cx, HANGING_SAND_PIT_Y - 0.12, lz), new THREE.Vector3(9.4, 0.24, 4.2));
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -6.1), toCourseX(slot, -4.5), lz, DRIVE_ROUTE_WIDTH, GROUND_DECK_HEIGHT, bridgeY, 0.18, mats.metal, easeCushionedRamp, 14, 2.50);
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 4.5), toCourseX(slot, 6.1), lz, 2.50, bridgeY, GROUND_DECK_HEIGHT, 0.18, mats.metal, easeCushionedRamp, 14, DRIVE_ROUTE_WIDTH);
-      for (const tu of [-4.5, 4.5]) {
-        const tx = toCourseX(slot, tu);
-        for (const side of [-1, 1]) {
-          makeCyl(courseGroup, mats.metal, new THREE.Vector3(tx, 1.35, lz + side * 1.15), 0.11, 4.6, 'y', 12);
-        }
-        makeBox(courseGroup, mats.orange, new THREE.Vector3(tx, 2.55, lz), new THREE.Vector3(0.16, 0.14, 2.50));
-      }
 
-      // Articulated Twin Hanging Chain Bridge Ribbons (exact spacing = TRACK_WIDTH / MAP_SCALE, exact 0.54 x 0.08 x 0.62 slats)
+      // Articulated Twin Hanging Chain Bridge Ribbons (only two suspended plank-chain spans; zero overhead/side barricades)
       const trackSpacingHalf = (TRACK_WIDTH / MAP_SCALE) * 0.5;
       const segCount = 18;
-      const mainCableGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 8);
-      const hangerGeo = new THREE.CylinderGeometry(0.013, 0.013, 1, 7);
-      const edgeChainGeo = new THREE.CylinderGeometry(0.018, 0.018, 1, 7);
+      const edgeChainGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 8);
       const plankGeo = new THREE.BoxGeometry(0.54, 0.08, 0.62);
 
       const ribbons: HangingBridgeRibbonVisual[] = ([0, 1] as const).map(side => {
         const sideSign: -1 | 1 = side === 0 ? -1 : 1;
         const vNominal = sideSign * trackSpacingHalf;
         const planks: THREE.Mesh[] = [];
-        const hangers: THREE.Mesh[] = [];
-        const mainCables: THREE.Mesh[] = [];
         const edgeChainsL: THREE.Mesh[] = [];
         const edgeChainsR: THREE.Mesh[] = [];
+
+        // Bolted ground anchor brackets fastening chain ends into both metal approach/exit ramp lips
+        for (const anchorU of [-4.5, 4.5]) {
+          const ax = toCourseX(slot, anchorU);
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(ax, bridgeY - 0.055, toCourseZ(slot, vNominal)), new THREE.Vector3(0.16, 0.09, 0.60), 0, false);
+          for (const edgeOff of [-0.23, 0.23]) {
+            makeCyl(courseGroup, mats.black, new THREE.Vector3(ax, bridgeY - 0.02, toCourseZ(slot, vNominal + edgeOff)), 0.032, 0.06, 'y', 8);
+          }
+        }
 
         for (let i = 0; i < segCount; i++) {
           const plank = new THREE.Mesh(plankGeo, mats.wood);
@@ -1734,29 +1703,19 @@ export function buildDynamicCourseGroup(
           plank.receiveShadow = true;
           courseGroup.add(plank);
           planks.push(plank);
-
-          const hMesh = new THREE.Mesh(hangerGeo, mats.chrome);
-          hMesh.castShadow = true;
-          courseGroup.add(hMesh);
-          hangers.push(hMesh);
-
-          const cMesh = new THREE.Mesh(mainCableGeo, mats.black);
-          cMesh.castShadow = true;
-          courseGroup.add(cMesh);
-          mainCables.push(cMesh);
-
-          if (i < segCount - 1) {
-            const cL = new THREE.Mesh(edgeChainGeo, mats.chrome);
-            const cR = new THREE.Mesh(edgeChainGeo, mats.chrome);
-            cL.castShadow = true;
-            cR.castShadow = true;
-            courseGroup.add(cL);
-            courseGroup.add(cR);
-            edgeChainsL.push(cL);
-            edgeChainsR.push(cR);
-          }
         }
-        return { side, vNominal, sideSign, planks, hangers, mainCables, edgeChainsL, edgeChainsR };
+
+        for (let i = 0; i <= segCount; i++) {
+          const cL = new THREE.Mesh(edgeChainGeo, mats.chrome);
+          const cR = new THREE.Mesh(edgeChainGeo, mats.chrome);
+          cL.castShadow = true;
+          cR.castShadow = true;
+          courseGroup.add(cL);
+          courseGroup.add(cR);
+          edgeChainsL.push(cL);
+          edgeChainsR.push(cR);
+        }
+        return { side, vNominal, sideSign, planks, edgeChainsL, edgeChainsR };
       });
 
       const hbRuntime: HangingBridgeRuntime = {
