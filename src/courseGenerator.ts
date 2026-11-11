@@ -350,9 +350,11 @@ const STANDARD_LANE_SLOTS: LaneCandidateSlot[] = [
 ];
 
 const ALL_HURDLE_TYPES = Object.keys(HURDLE_CATALOG) as HurdleType[];
+const MANDATORY_END_TYPES: readonly HurdleType[] = ['fire_hearth', 'water_basin'];
 const HARD_TYPES = ALL_HURDLE_TYPES.filter(t => HURDLE_CATALOG[t].tier === 'hard');
 const MEDIUM_TYPES = ALL_HURDLE_TYPES.filter(t => HURDLE_CATALOG[t].tier === 'medium');
 const EASY_TYPES = ALL_HURDLE_TYPES.filter(t => HURDLE_CATALOG[t].tier === 'easy');
+const EARLY_EASY_TYPES = EASY_TYPES.filter(t => !MANDATORY_END_TYPES.includes(t));
 
 function shuffleInPlace<T>(arr: T[], rand: () => number): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -390,31 +392,47 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
   const arena = ARENA_METADATA[trackId] || ARENA_METADATA.track_b;
   const rand = createDeterministicRNG(seed);
 
+  // Mandatory final gauntlet at end of every map: Fire (2nd-to-last) -> Water (last) = 20 pts
+  const RESERVED_END_PTS = MANDATORY_END_TYPES.reduce((acc, t) => acc + HURDLE_CATALOG[t].basePoints, 0);
+  const MAX_EARLY_PTS = 150 - RESERVED_END_PTS;
+  const MIN_EARLY_PTS = 100 - RESERVED_END_PTS;
+
   const chosen = new Set<HurdleType>();
   const picked: HurdleType[] = [];
 
+  const currentPts = () => picked.reduce((acc, t) => acc + HURDLE_CATALOG[t].basePoints, 0);
+  const stdCount = () => picked.filter(t => t !== 'spiral_tower').length;
+  const canAddEarly = (t: HurdleType, extraReserve = 0): boolean => {
+    if (chosen.has(t) || MANDATORY_END_TYPES.includes(t)) return false;
+    if (currentPts() + HURDLE_CATALOG[t].basePoints + extraReserve > MAX_EARLY_PTS) return false;
+    const hasSpiralAfter = chosen.has('spiral_tower') || t === 'spiral_tower';
+    const stdAfter = stdCount() + (t === 'spiral_tower' ? 0 : 1);
+    return stdAfter <= (hasSpiralAfter ? 6 : 8);
+  };
+
   // 1. Most runs include the Football Goal Arena (4-5 tennis balls, bonus up to +2)
-  if (rand() < arena.includeFootballChance) {
+  if (rand() < arena.includeFootballChance && canAddEarly('football_arena')) {
     chosen.add('football_arena');
     picked.push('football_arena');
   }
 
-  // 2. Always guarantee at least 2 Easy (10 pts) hurdles so all 3 difficulty tiers mix cleanly
-  const easyPool = shuffleInPlace([...EASY_TYPES], rand);
-  const baseEasyCount = trackId === 'track_a' ? 3 : 2;
+  // 2. Include 1-2 early Easy (10 pts) hurdles alongside the mandatory Fire/Water easy obstacles
+  const easyPool = shuffleInPlace([...EARLY_EASY_TYPES], rand);
+  const baseEasyCount = trackId === 'track_a' ? 2 : 1;
   for (let i = 0; i < baseEasyCount && i < easyPool.length; i++) {
-    chosen.add(easyPool[i]);
-    picked.push(easyPool[i]);
+    if (canAddEarly(easyPool[i])) {
+      chosen.add(easyPool[i]);
+      picked.push(easyPool[i]);
+    }
   }
 
-  // 3. Pick 1-3 Hard (30 pts) hurdles while leaving budget for >= 2 Medium hurdles
+  // 3. Pick 1-3 Hard (30 pts) hurdles while leaving budget for Medium hurdles + mandatory finale
   const hardPool = shuffleInPlace([...HARD_TYPES], rand);
   const wantHard = trackId === 'track_d' ? (rand() < 0.55 ? 3 : 2) : trackId === 'track_a' ? (rand() < 0.55 ? 2 : 1) : 2;
-  const currentPts = () => picked.reduce((acc, t) => acc + HURDLE_CATALOG[t].basePoints, 0);
   for (let i = 0; i < wantHard && i < hardPool.length; i++) {
     const medCount = picked.filter(t => HURDLE_CATALOG[t].tier === 'medium').length;
     const minMedReserve = Math.max(0, 2 - medCount) * 20;
-    if (!chosen.has(hardPool[i]) && currentPts() + 30 + minMedReserve <= 150) {
+    if (canAddEarly(hardPool[i], minMedReserve)) {
       chosen.add(hardPool[i]);
       picked.push(hardPool[i]);
     }
@@ -425,44 +443,46 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
   const wantMed = trackId === 'track_a' ? 3 : 2 + (rand() < 0.45 ? 1 : 0);
   for (const m of medPool) {
     if (picked.filter(t => HURDLE_CATALOG[t].tier === 'medium').length >= wantMed) break;
-    if (!chosen.has(m) && currentPts() + 20 <= 150 && picked.length < 8) {
+    if (canAddEarly(m)) {
       chosen.add(m);
       picked.push(m);
     }
   }
 
-  // 5. Fill remaining budget up to target points [100..150] using additional Easy (10 pts) hurdles
-  const targetPts = arena.targetMinPts + Math.floor(rand() * (arena.targetMaxPts - arena.targetMinPts + 1));
+  // 5. Fill remaining budget up to target points [100..150] (including 20 pts reserved for Fire + Water)
+  const targetEarlyPts = Math.max(
+    MIN_EARLY_PTS,
+    arena.targetMinPts - RESERVED_END_PTS + Math.floor(rand() * (arena.targetMaxPts - arena.targetMinPts + 1)),
+  );
 
   for (const e of easyPool) {
-    if (currentPts() >= targetPts && currentPts() >= 100) break;
-    if (picked.length >= 9) break;
-    if (!chosen.has(e) && currentPts() + 10 <= 150) {
+    if (currentPts() >= targetEarlyPts && currentPts() >= MIN_EARLY_PTS) break;
+    if (canAddEarly(e)) {
       chosen.add(e);
       picked.push(e);
     }
   }
 
-  // Top up if under 100 pts (only possible if randomized target was low)
+  // Top up if under minimum total (100 pts)
   for (const m of medPool) {
-    if (currentPts() >= 100) break;
-    if (!chosen.has(m) && currentPts() + 20 <= 150 && picked.length < 9) {
+    if (currentPts() >= MIN_EARLY_PTS) break;
+    if (canAddEarly(m)) {
       chosen.add(m);
       picked.push(m);
     }
   }
   for (const e of easyPool) {
-    if (currentPts() >= 100) break;
-    if (!chosen.has(e) && currentPts() + 10 <= 150 && picked.length < 9) {
+    if (currentPts() >= MIN_EARLY_PTS) break;
+    if (canAddEarly(e)) {
       chosen.add(e);
       picked.push(e);
     }
   }
 
-  // 5. Shuffle hurdle order so bridges, climbs, football, or spirals can land FIRST, MIDDLE, or LAST!
+  // 5. Shuffle early hurdle order so bridges, climbs, football, or spirals randomize across Lanes 1..4
   shuffleInPlace(picked, rand);
 
-  // 6. Assign ordered hurdles cleanly onto driving lane slots along Lanes 1..5
+  // 6. Assign early hurdles onto Lanes 1..4, and lock Fire (2nd-to-last) + Water (last) onto Lane 5
   const hasSpiral = picked.includes('spiral_tower');
   // Choose which full lane (1, 2, 3, or 4) hosts the Spiral Tower if present
   const spiralLane = hasSpiral ? [1, 2, 3, 4][Math.floor(rand() * 4)] : -1;
@@ -493,18 +513,22 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
   const seesawStates: Record<number, number> = {};
   const hangingBridgeStates: Record<number, HangingBridgeState> = {};
 
-  // Pair Spiral onto full-lane slot and standard hurdles onto ordered standard slots
+  // Pair Spiral onto full-lane slot and standard early hurdles onto ordered Lanes 1..4 slots
   const standardPicked = picked.filter(t => t !== 'spiral_tower');
-  const standardSlotIndices: number[] = [];
+  const earlyStdSlotIndices: number[] = [];
+  const endSlotIndices: number[] = [];
   candidatePositions.forEach((pos, idx) => {
-    if (!pos.forSpiral) standardSlotIndices.push(idx);
+    if (pos.laneIndex === 5) {
+      endSlotIndices.push(idx);
+    } else if (!pos.forSpiral) {
+      earlyStdSlotIndices.push(idx);
+    }
   });
 
-  // Spread standard hurdles evenly across available standard slots (including early Lane 1 & late Lane 5 slots!)
+  // Spread standard early hurdles across available Lanes 1..4 slots
   const chosenStdSlots = new Set<number>();
-  if (standardPicked.length <= standardSlotIndices.length) {
-    // Ensure randomized spread across start, middle, and late lanes
-    const pool = shuffleInPlace([...standardSlotIndices], rand)
+  if (standardPicked.length <= earlyStdSlotIndices.length) {
+    const pool = shuffleInPlace([...earlyStdSlotIndices], rand)
       .slice(0, standardPicked.length)
       .sort((a, b) => a - b);
     for (const i of pool) chosenStdSlots.add(i);
@@ -515,7 +539,11 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
 
   candidatePositions.forEach((pos, idx) => {
     let type: HurdleType | null = null;
-    if (pos.forSpiral && hasSpiral) {
+    if (idx === endSlotIndices[endSlotIndices.length - 2]) {
+      type = 'fire_hearth';
+    } else if (idx === endSlotIndices[endSlotIndices.length - 1]) {
+      type = 'water_basin';
+    } else if (pos.forSpiral && hasSpiral) {
       type = 'spiral_tower';
     } else if (!pos.forSpiral && chosenStdSlots.has(idx) && stdCursor < standardPicked.length) {
       type = standardPicked[stdCursor++];

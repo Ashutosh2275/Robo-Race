@@ -494,6 +494,9 @@ let cachedTurfMat: THREE.MeshStandardMaterial | null = null;
 let cachedWreckingBallMat: THREE.MeshStandardMaterial | null = null;
 let cachedBrickMat: THREE.MeshStandardMaterial | null = null;
 let cachedGoalNetMat: THREE.MeshBasicMaterial | null = null;
+let cachedChicaneDecalMat: THREE.MeshStandardMaterial | null = null;
+let cachedChicaneSignMat: THREE.MeshStandardMaterial | null = null;
+let cachedReflectiveTapeMat: THREE.MeshStandardMaterial | null = null;
 let cachedWaterBasinConcreteMats: {
   floorMat: THREE.MeshStandardMaterial;
   wallMat: THREE.MeshStandardMaterial;
@@ -754,6 +757,199 @@ function getGoalNetMat() {
     });
   }
   return cachedGoalNetMat;
+}
+
+function getReflectiveTapeMat() {
+  if (!cachedReflectiveTapeMat) {
+    cachedReflectiveTapeMat = new THREE.MeshStandardMaterial({
+      color: '#d4d5ce',
+      emissive: '#3a3b34',
+      emissiveIntensity: 0.22,
+      roughness: 0.32,
+      metalness: 0.28,
+    });
+  }
+  return cachedReflectiveTapeMat;
+}
+
+function getChicaneDecalMat() {
+  if (!cachedChicaneDecalMat) {
+    const W = 1024;
+    const H = 448;
+    const cvs = document.createElement('canvas');
+    cvs.width = W;
+    cvs.height = H;
+    const ctx = cvs.getContext('2d')!;
+    ctx.clearRect(0, 0, W, H);
+
+    // Coordinate map for 10.0m (u: -5..+5) x 4.24m (v: -2.12..+2.12)
+    const toPxX = (u: number) => ((u + 5.0) / 10.0) * W;
+    const toPxY = (v: number) => ((v + 2.12) / 4.24) * H;
+
+    // 1. Entry & exit optical amber chevron hazard bars (work-zone speed control)
+    ctx.fillStyle = 'rgba(196, 152, 54, 0.78)';
+    for (const barU of [-4.65, -4.35, 4.35, 4.65]) {
+      const bx = toPxX(barU);
+      for (let seg = -3; seg <= 3; seg++) {
+        const yTop = toPxY(seg * 0.56 - 0.18);
+        const yBot = toPxY(seg * 0.56 + 0.18);
+        const slant = seg >= 0 ? 12 : -12;
+        ctx.beginPath();
+        ctx.moveTo(bx - 10, yTop);
+        ctx.lineTo(bx + 10, yTop);
+        ctx.lineTo(bx + 10 + slant, yBot);
+        ctx.lineTo(bx - 10 + slant, yBot);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // 2. Entry "SLOW" stencil & exit arrow facing oncoming driver (+u)
+    ctx.save();
+    ctx.translate(toPxX(-3.92), toPxY(0));
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = 'rgba(202, 162, 66, 0.76)';
+    ctx.font = 'bold 54px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('SLOW', 0, 0);
+    ctx.restore();
+
+    // 3. Yellow/black hazard target exclusion pads directly under the 4 chicane pylons
+    const obstacleCoords: Array<[number, number]> = [
+      [-2.6, -0.95],
+      [-0.8, 0.95],
+      [1.0, -0.95],
+      [2.8, 0.95],
+    ];
+    for (const [ou, ov] of obstacleCoords) {
+      const px = toPxX(ou);
+      const py = toPxY(ov);
+      const rad = 46;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(px, py, rad, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(22, 23, 24, 0.80)';
+      ctx.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+      ctx.fillStyle = 'rgba(196, 152, 54, 0.80)';
+      for (let s = -rad * 2; s < rad * 2; s += 20) {
+        ctx.beginPath();
+        ctx.moveTo(px + s, py - rad);
+        ctx.lineTo(px + s + 10, py - rad);
+        ctx.lineTo(px + s - 28, py + rad);
+        ctx.lineTo(px + s - 38, py + rad);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(196, 152, 54, 0.85)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(px, py, rad, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 4. Weaving white directional S-curve chevrons guiding driver around pylons
+    const guideArrows: Array<[number, number, number]> = [
+      [-2.6, 0.92, -0.35],
+      [-0.8, -0.92, 0.42],
+      [1.0, 0.92, -0.42],
+      [2.8, -0.92, 0.35],
+      [3.88, 0.0, 0.0],
+    ];
+    ctx.strokeStyle = 'rgba(205, 206, 198, 0.68)';
+    ctx.lineWidth = 9;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const [au, av, ang] of guideArrows) {
+      ctx.save();
+      ctx.translate(toPxX(au), toPxY(av));
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(-18, -22);
+      ctx.lineTo(6, 0);
+      ctx.lineTo(-18, 22);
+      ctx.moveTo(0, -22);
+      ctx.lineTo(24, 0);
+      ctx.lineTo(0, 22);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 5. Realistic asphalt grain wear-through on thermoplastic road markings
+    ctx.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < 650; i++) {
+      const sx = (i * 197) % W;
+      const sy = (i * 89 + 17) % H;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.22)';
+      ctx.fillRect(sx, sy, 3 + (i % 6), 2);
+    }
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedChicaneDecalMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      roughness: 0.86,
+      metalness: 0.04,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+  }
+  return cachedChicaneDecalMat;
+}
+
+function getChicaneSignMat() {
+  if (!cachedChicaneSignMat) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 256;
+    cvs.height = 256;
+    const ctx = cvs.getContext('2d')!;
+    // Weathered amber diamond warning sign face
+    ctx.fillStyle = '#c4932c';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = '#181a1c';
+    ctx.lineWidth = 14;
+    ctx.strokeRect(14, 14, 228, 228);
+
+    // Crisp S-curve winding traffic arrow symbol inside sign (oriented after 45deg diamond tilt)
+    ctx.save();
+    ctx.translate(128, 128);
+    ctx.rotate(Math.PI / 4);
+    ctx.strokeStyle = '#181a1c';
+    ctx.lineWidth = 24;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, 66);
+    ctx.bezierCurveTo(36, 34, -36, -12, 0, -48);
+    ctx.stroke();
+    ctx.fillStyle = '#181a1c';
+    ctx.beginPath();
+    ctx.moveTo(0, -76);
+    ctx.lineTo(-24, -40);
+    ctx.lineTo(24, -40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Fine outdoor patina scratches
+    for (let i = 0; i < 120; i++) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(30,28,22,0.12)' : 'rgba(230,215,175,0.08)';
+      ctx.fillRect((i * 47) % 250, (i * 79) % 250, 3, 2);
+    }
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedChicaneSignMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.48,
+      metalness: 0.25,
+    });
+  }
+  return cachedChicaneSignMat;
 }
 
 const _strutUp = new THREE.Vector3(0, 1, 0);
@@ -1557,7 +1753,35 @@ export function buildDynamicCourseGroup(
         makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, GROUND_DECK_HEIGHT + 0.016, lz + side * 2.52), new THREE.Vector3(10.0, 0.012, 0.10), 0, false);
       }
     } else if (slot.type === 'oil_chicane') {
-      makeBox(courseGroup, mats.oil, new THREE.Vector3(cx, GROUND_DECK_HEIGHT + 0.015, lz), new THREE.Vector3(7.4, 0.02, DRIVE_ROUTE_WIDTH - 0.25), 0, false);
+      // 1. Flush weathered thermoplastic traffic lane markings & SLOW/weave chevrons
+      const decalGroup = new THREE.Group();
+      decalGroup.position.set(cx, GROUND_DECK_HEIGHT + 0.011, lz);
+      decalGroup.rotation.y = slot.dir > 0 ? 0 : Math.PI;
+      const decalMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(10.0, DRIVE_ROUTE_WIDTH - 0.16),
+        getChicaneDecalMat(),
+      );
+      decalMesh.rotation.x = -Math.PI / 2;
+      decalMesh.receiveShadow = true;
+      decalMesh.renderOrder = 2;
+      decalGroup.add(decalMesh);
+      courseGroup.add(decalGroup);
+
+      // 2. Organic glossy crude oil puddle overlay aligned over center 7.4m hazard zone
+      const oilGroup = new THREE.Group();
+      oilGroup.position.set(cx, GROUND_DECK_HEIGHT + 0.015, lz);
+      oilGroup.rotation.y = slot.dir > 0 ? 0 : Math.PI;
+      const oilMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(7.35, DRIVE_ROUTE_WIDTH - 0.12),
+        mats.oil,
+      );
+      oilMesh.rotation.x = -Math.PI / 2;
+      oilMesh.receiveShadow = true;
+      oilMesh.renderOrder = 3;
+      oilGroup.add(oilMesh);
+      courseGroup.add(oilGroup);
+
+      // 3. Alternating red/white circuit apex kerbs on outer shoulders opposite weave points
       const chicanes = [
         { u: -2.6, v: -0.95 },
         { u: -0.8, v: 0.95 },
@@ -1565,12 +1789,131 @@ export function buildDynamicCourseGroup(
         { u: 2.8, v: 0.95 },
       ];
       chicanes.forEach((c, ci) => {
+        const apexSide = -Math.sign(c.v);
+        const kerbV = apexSide * (DRIVE_ROUTE_WIDTH * 0.5 - 0.14);
+        for (let kb = 0; kb < 3; kb++) {
+          const ku = c.u + (kb - 1) * 0.44;
+          makeBox(
+            courseGroup,
+            kb % 2 === 0 ? mats.red : mats.concreteCurb,
+            new THREE.Vector3(toCourseX(slot, ku), GROUND_DECK_HEIGHT + 0.016, toCourseZ(slot, kerbV)),
+            new THREE.Vector3(0.42, 0.032, 0.22),
+            0,
+            false,
+          );
+        }
+
+        // 4. Multi-part traffic chicane pylon: octagonal rubber base + stacked toroidal tires + highway cone/barrel
         const tx = toCourseX(slot, c.u);
         const tz = toCourseZ(slot, c.v);
-        makeCyl(courseGroup, mats.rubber, new THREE.Vector3(tx, GROUND_DECK_HEIGHT + 0.26, tz), 0.36, 0.52, 'y', 16);
-        makeCyl(courseGroup, mats.orange, new THREE.Vector3(tx, GROUND_DECK_HEIGHT + 0.56, tz), 0.22, 0.14, 'y', 14);
+        const pylonGroup = new THREE.Group();
+        pylonGroup.position.set(tx, GROUND_DECK_HEIGHT, tz);
+
+        const baseHex = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.37, 0.055, 8), mats.rubber);
+        baseHex.position.y = 0.028;
+        baseHex.rotation.y = ci * 0.35;
+        baseHex.castShadow = true;
+        baseHex.receiveShadow = true;
+        pylonGroup.add(baseHex);
+
+        for (let t = 0; t < 2; t++) {
+          const tire = new THREE.Mesh(new THREE.TorusGeometry(0.24 - t * 0.008, 0.112, 12, 24), mats.rubber);
+          tire.rotation.x = Math.PI / 2;
+          tire.position.set(t === 1 ? (ci % 2 === 0 ? 0.016 : -0.016) : 0, 0.145 + t * 0.185, t === 1 ? 0.012 : 0);
+          tire.castShadow = true;
+          tire.receiveShadow = true;
+          pylonGroup.add(tire);
+        }
+
+        const innerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.40, 16), mats.metal);
+        innerCore.position.y = 0.21;
+        innerCore.castShadow = true;
+        innerCore.receiveShadow = true;
+        pylonGroup.add(innerCore);
+
+        const collarBand = new THREE.Mesh(new THREE.CylinderGeometry(0.172, 0.172, 0.055, 16), mats.yellow);
+        collarBand.position.y = 0.36;
+        collarBand.castShadow = true;
+        pylonGroup.add(collarBand);
+
+        if (ci % 2 === 0) {
+          // Weighted reflector safety traffic cone
+          const coneCap = new THREE.Mesh(new THREE.CylinderGeometry(0.195, 0.21, 0.04, 14), mats.black);
+          coneCap.position.y = 0.43;
+          coneCap.castShadow = true;
+          pylonGroup.add(coneCap);
+
+          const coneBody = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.165, 0.58, 20), mats.orange);
+          coneBody.position.y = 0.74;
+          coneBody.castShadow = true;
+          coneBody.receiveShadow = true;
+          pylonGroup.add(coneBody);
+
+          const lowerTape = new THREE.Mesh(new THREE.CylinderGeometry(0.120, 0.143, 0.088, 20), getReflectiveTapeMat());
+          lowerTape.position.y = 0.635;
+          pylonGroup.add(lowerTape);
+
+          const upperTape = new THREE.Mesh(new THREE.CylinderGeometry(0.086, 0.109, 0.095, 20), getReflectiveTapeMat());
+          upperTape.position.y = 0.825;
+          pylonGroup.add(upperTape);
+        } else {
+          // Striped highway channelizer barrel + amber barricade beacon
+          const drumFoot = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.245, 0.045, 18), mats.black);
+          drumFoot.position.y = 0.43;
+          drumFoot.castShadow = true;
+          pylonGroup.add(drumFoot);
+
+          const drumLow = new THREE.Mesh(new THREE.CylinderGeometry(0.218, 0.226, 0.155, 20), mats.orange);
+          drumLow.position.y = 0.53;
+          drumLow.castShadow = true;
+          drumLow.receiveShadow = true;
+          pylonGroup.add(drumLow);
+
+          const drumWhite = new THREE.Mesh(new THREE.CylinderGeometry(0.212, 0.219, 0.145, 20), getReflectiveTapeMat());
+          drumWhite.position.y = 0.68;
+          drumWhite.castShadow = true;
+          pylonGroup.add(drumWhite);
+
+          const drumTop = new THREE.Mesh(new THREE.CylinderGeometry(0.200, 0.210, 0.145, 20), mats.orange);
+          drumTop.position.y = 0.825;
+          drumTop.castShadow = true;
+          drumTop.receiveShadow = true;
+          pylonGroup.add(drumTop);
+
+          const lampStem = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.06, 12), mats.black);
+          lampStem.position.y = 0.925;
+          pylonGroup.add(lampStem);
+
+          const lampLens = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.075, 12), mats.beaconAmber);
+          lampLens.position.y = 0.985;
+          pylonGroup.add(lampLens);
+        }
+
+        courseGroup.add(pylonGroup);
         colliders.push({ id: `oil_tire_${slot.index}_${ci}`, x: tx, z: tz, hx: 0.36, hz: 0.36, y: GROUND_DECK_HEIGHT + 0.26, height: 0.52, rot: 0, walkable: false });
       });
+
+      // 5. Roadside shoulder Chicane Ahead diamond warning sign (outside +/-2.20m lane shoulder)
+      const signX = toCourseX(slot, -4.65);
+      const signZ = toCourseZ(slot, -2.42);
+      const signPost = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 1.32, 10), mats.metal);
+      signPost.position.set(signX, GROUND_DECK_HEIGHT + 0.66, signZ);
+      signPost.castShadow = true;
+      courseGroup.add(signPost);
+
+      const signFoot = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.06, 10), mats.concretePier);
+      signFoot.position.set(signX, GROUND_DECK_HEIGHT + 0.03, signZ);
+      courseGroup.add(signFoot);
+
+      const signPlateGroup = new THREE.Group();
+      signPlateGroup.position.set(signX, GROUND_DECK_HEIGHT + 1.18, signZ);
+      // Orient plate facing approaching traffic along -dir on X
+      signPlateGroup.rotation.y = slot.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+      const signPlate = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.03), getChicaneSignMat());
+      signPlate.rotation.z = Math.PI / 4;
+      signPlate.castShadow = true;
+      signPlateGroup.add(signPlate);
+      courseGroup.add(signPlateGroup);
     } else if (slot.type === 'turntable_deck') {
       const deckY = 0.92;
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -5.0), toCourseX(slot, -2.1), lz, 3.3, GROUND_DECK_HEIGHT, deckY, 0.20, mats.diamondPlate, easeCushionedRamp, 18);

@@ -97,8 +97,8 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 // 1. Scene, Renderer, Weathered Proving-Ground Lighting & PBR
 // -------------------------------------------------------------
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#1b1d1e');
-scene.fog = new THREE.Fog('#1b1d1e', 40, 108);
+scene.background = new THREE.Color('#202325');
+scene.fog = new THREE.Fog('#202325', 48, 128);
 
 const course = new THREE.Group();
 course.scale.set(MAP_SCALE, 1, MAP_SCALE);
@@ -112,16 +112,16 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.96;
+renderer.toneMappingExposure = 1.22;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.42;
+scene.environmentIntensity = 0.62;
 pmrem.dispose();
 
-scene.add(new THREE.HemisphereLight('#b5bfc2', '#28231e', 0.92));
-const sun = new THREE.DirectionalLight('#e3d6bc', 1.82);
+scene.add(new THREE.HemisphereLight('#cfd7db', '#3c342b', 1.32));
+const sun = new THREE.DirectionalLight('#efe3cb', 2.32);
 sun.position.set(-12, 22, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -133,11 +133,17 @@ sun.shadow.normalBias = 0.022;
 sun.shadow.bias = -0.00018;
 scene.add(sun);
 
-// Muted overhead industrial sodium-vapor bay lighting
+const fillSun = new THREE.DirectionalLight('#9ab2c4', 0.76);
+fillSun.position.set(16, 15, -14);
+scene.add(fillSun);
+
+// Balanced overhead industrial high-bay lighting across all five driving lanes
 for (const x of [-16, 0, 16]) {
-  const light = new THREE.PointLight('#d8c7a6', 16, 24, 1.75);
-  light.position.set(x, 7.8, 0);
-  scene.add(light);
+  for (const z of [-11, 11]) {
+    const light = new THREE.PointLight('#efe2c8', 24, 38, 1.45);
+    light.position.set(x, 12.2, z);
+    scene.add(light);
+  }
 }
 
 const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.1, 150);
@@ -299,56 +305,95 @@ function generateFlameTexture(): THREE.CanvasTexture {
 
 function generateOilSlickTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 512;
+  canvas.width = 512;
+  canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
-  // Stained wet concrete bay margin around spilled dark crude oil lake
-  ctx.fillStyle = '#2d3236';
-  ctx.fillRect(0, 0, 512, 512);
+  // Transparent outer boundary so underlying asphalt, yellow line & road texture stay visible
+  ctx.clearRect(0, 0, 512, 512);
 
-  // Irregular organic glossy black crude petroleum spill body
-  ctx.fillStyle = '#07090d';
-  ctx.beginPath();
-  ctx.ellipse(256, 256, 224, 212, 0.22, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(175, 195, 118, 92, -0.45, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(342, 315, 110, 88, 0.38, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Soft natural iridescent rainbow thin-film gasoline/oil interference over deep black crude base
-  const swirls = [
-    { x: 245, y: 248, rx: 162, ry: 122, rot: 0.25, w: 20, col: 'rgba(18, 125, 175, 0.28)' },
-    { x: 268, y: 266, rx: 132, ry: 96, rot: -0.35, w: 18, col: 'rgba(125, 32, 168, 0.28)' },
-    { x: 246, y: 254, rx: 102, ry: 74, rot: 0.55, w: 16, col: 'rgba(185, 132, 22, 0.24)' },
-    { x: 264, y: 242, rx: 72, ry: 52, rot: -0.20, w: 14, col: 'rgba(20, 152, 112, 0.24)' },
-    { x: 165, y: 185, rx: 58, ry: 34, rot: -0.40, w: 12, col: 'rgba(128, 36, 165, 0.22)' },
-    { x: 335, y: 318, rx: 52, ry: 32, rot: 0.35, w: 12, col: 'rgba(22, 138, 175, 0.22)' },
+  // Outer capillary asphalt-absorption oil stain halo
+  const stainGrad = ctx.createRadialGradient(252, 256, 65, 252, 256, 244);
+  stainGrad.addColorStop(0, 'rgba(9, 10, 12, 0.72)');
+  stainGrad.addColorStop(0.58, 'rgba(13, 14, 16, 0.42)');
+  stainGrad.addColorStop(1, 'rgba(15, 16, 18, 0)');
+  ctx.fillStyle = stainGrad;
+  const lobes: Array<[number, number, number, number, number]> = [
+    [256, 256, 222, 188, 0.14],
+    [164, 186, 124, 92, -0.35],
+    [348, 326, 132, 98, 0.28],
+    [192, 338, 105, 76, 0.42],
+    [325, 178, 108, 72, -0.25],
+    [118, 256, 86, 62, 0.08],
+    [396, 248, 92, 68, -0.15],
   ];
-  for (const s of swirls) {
-    ctx.strokeStyle = s.col;
-    ctx.lineWidth = s.w;
+  for (const [cx, cy, rx, ry, rot] of lobes) {
     ctx.beginPath();
-    ctx.ellipse(s.x, s.y, s.rx, s.ry, s.rot, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Thick glossy dark crude-petroleum core with organic scalloped margins
+  ctx.fillStyle = 'rgba(5, 6, 8, 0.92)';
+  const coreLobes: Array<[number, number, number, number, number]> = [
+    [254, 256, 182, 152, 0.18],
+    [168, 188, 96, 70, -0.38],
+    [342, 322, 104, 74, 0.30],
+    [195, 330, 82, 58, 0.40],
+    [322, 184, 80, 54, -0.22],
+    [408, 266, 62, 36, 0.10],
+  ];
+  for (const [cx, cy, rx, ry, rot] of coreLobes) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Subtle realistic hydrocarbon thin-film sheen (soft diffuse gradients, never comic rings)
+  const sheens: Array<[number, number, number, string]> = [
+    [215, 224, 118, 'rgba(34, 64, 72, 0.18)'],
+    [292, 286, 108, 'rgba(72, 54, 34, 0.15)'],
+    [250, 270, 92, 'rgba(52, 36, 64, 0.14)'],
+    [176, 196, 64, 'rgba(42, 68, 58, 0.14)'],
+  ];
+  for (const [sx, sy, sr, col] of sheens) {
+    const g = ctx.createRadialGradient(sx, sy, 4, sx, sy, sr);
+    g.addColorStop(0, col);
+    g.addColorStop(0.55, col.replace(/0\.\d+\)/, '0.07)'));
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Greasy weaving vehicle tire track smears leaving downstream oil drag marks
+  ctx.strokeStyle = 'rgba(4, 5, 7, 0.62)';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 14;
+  for (const laneOffset of [-34, 34]) {
+    ctx.beginPath();
+    ctx.moveTo(46, 256 + laneOffset + 32);
+    ctx.bezierCurveTo(160, 256 + laneOffset + 66, 235, 256 + laneOffset - 68, 340, 256 + laneOffset + 54);
+    ctx.bezierCurveTo(405, 256 + laneOffset + 36, 458, 256 + laneOffset - 22, 496, 256 + laneOffset - 18);
     ctx.stroke();
   }
 
-  // Subtle wet specular glint arcs & side droplets
-  ctx.strokeStyle = 'rgba(195, 220, 240, 0.16)';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(230, 222, 92, -2.55, -1.35);
-  ctx.stroke();
-  ctx.fillStyle = '#080b10';
-  for (const [dx, dy, dr] of [[95, 360, 16], [415, 145, 18], [410, 405, 13], [115, 110, 14]]) {
+  // Scattered small oil splatters & faint meniscus highlights
+  ctx.fillStyle = 'rgba(6, 7, 9, 0.84)';
+  for (const [dx, dy, dr] of [[78, 336, 11], [435, 165, 13], [442, 376, 9], [96, 148, 10], [468, 294, 7], [58, 212, 8]]) {
     ctx.beginPath();
     ctx.arc(dx, dy, dr, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.strokeStyle = 'rgba(180, 200, 215, 0.12)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(232, 224, 112, -2.55, -1.35);
+  ctx.stroke();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
@@ -513,7 +558,20 @@ const mats = {
     roughness: 0.42,
     metalness: 0.80,
   }),
-  oil: new THREE.MeshStandardMaterial({ color: '#9ea6ad', roughness: 0.18, metalness: 0.08, map: oilSlickTexture }),
+  oil: new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    map: oilSlickTexture,
+    bumpMap: asphaltMaps.bumpMap,
+    bumpScale: 0.014,
+    roughness: 0.56,
+    metalness: 0.02,
+    envMapIntensity: 0.14,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+  }),
   highClimbDeck: new THREE.MeshStandardMaterial({
     map: highClimbMaps.map,
     bumpMap: highClimbMaps.bumpMap,

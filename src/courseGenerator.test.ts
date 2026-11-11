@@ -99,6 +99,22 @@ test('hurdle placement randomizes across early, middle, and late track lanes acr
   assert.ok(seenFootballLanes.size >= 3, `Football arena should rotate across multiple lanes: ${[...seenFootballLanes]}`);
 });
 
+test('every generated course places fire_hearth second-to-last and water_basin last', () => {
+  for (const tid of TRACK_IDS) {
+    for (let s = 1; s <= 25; s++) {
+      const course = generateRandomizedCourse(tid, s * 13007 + tid.charCodeAt(6) * 53);
+      assert.ok(course.slots.length >= 4, `${tid} seed ${s} must contain at least 4 slots`);
+      const secondLast = course.slots[course.slots.length - 2];
+      const last = course.slots[course.slots.length - 1];
+      assert.equal(secondLast.type, 'fire_hearth', `${tid} seed ${s} second-to-last slot must be fire_hearth, got ${secondLast.type}`);
+      assert.equal(last.type, 'water_basin', `${tid} seed ${s} last slot must be water_basin, got ${last.type}`);
+      assert.equal(secondLast.laneIndex, 5);
+      assert.equal(last.laneIndex, 5);
+      assert.equal(course.waterPools.length, 1, 'exactly one mandatory water pool on final lane');
+    }
+  }
+});
+
 test('football arena goal scoring equals hurdle points across base goals and caps extra bonus at +2', () => {
   // 5-ball arena (medium = 20 pts, baseGoals = 3 -> 6+6+8=20, extra goals 4 & 5 give +1 each = +2 max)
   const state5 = createCompetitionScoreState(DEFAULT_SCORING_CONFIG);
