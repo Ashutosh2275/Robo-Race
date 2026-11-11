@@ -549,13 +549,14 @@ export function evaluateWaterBuoyancy(
   leftTrackSpeed: number,
   rightTrackSpeed: number,
   baseGrip: number,
-  mapScale = 1.3
+  mapScale = 1.3,
+  pools: WaterPoolConfig[] = WATER_POOLS
 ): WaterBuoyancyResult {
   const courseX = worldX / mapScale;
   const courseZ = worldZ / mapScale;
 
   let matchedPool: WaterPoolConfig | null = null;
-  for (const pool of WATER_POOLS) {
+  for (const pool of pools) {
     if (courseX >= pool.xMin && courseX <= pool.xMax && Math.abs(courseZ - pool.zCenter) <= pool.width / 2) {
       matchedPool = pool;
       break;
@@ -616,7 +617,7 @@ export function evaluateWaterBuoyancy(
   // Floating equilibrium condition: when buoyant force balances vehicle gravity
   // Equilibrium immersion depth is ~0.32m (submerged 32cm, leaving 14cm freeboard to chassis top)
   const isFloating = buoyantForce >= totalWeight * 0.92;
-  const buoyantWaterlineY = WATER_POOL_CONFIG.waterLevelY - 0.32 - TRACK_CONTACT_OFFSET;
+  const buoyantWaterlineY = matchedPool.waterLevelY - 0.32 - TRACK_CONTACT_OFFSET;
 
   // Normal force on bottom: F_N = max(0, totalWeight - buoyantForce)
   const effectiveNormal = Math.max(0, totalWeight - buoyantForce);

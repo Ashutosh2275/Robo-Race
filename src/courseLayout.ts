@@ -512,10 +512,10 @@ export const TRACK_B_OBSTACLES: TrackObstacle[] = [
 // ---------------------------------------------------------------------------
 export const TRACK_A: TrackConfig = {
   id: 'track_a',
-  name: 'Track A — Basic Elevation Challenge',
-  shortName: 'Basic Elevation',
-  subtitle: 'Gentle Grades & Standard Bridges',
-  description: 'Ground-level circuit featuring a short raised tabletop platform, Warren steel arch bridge, moderate descent, and the mandatory fire-water gauntlet.',
+  name: 'Apex Steelworks',
+  shortName: 'Apex Steelworks',
+  subtitle: 'Technical Bridges & Goal Arena',
+  description: 'Randomized circuit blending balance bridges, speed humps, slalom weaves, and football goal challenges.',
   hasSpiral: false,
   driveRoute: TRACK_B_ROUTE,
   checkpoints: TRACK_B_CHECKPOINTS,
@@ -534,10 +534,10 @@ export const TRACK_A: TrackConfig = {
 
 export const TRACK_B: TrackConfig = {
   id: 'track_b',
-  name: 'Track B — Spiral Tower Challenge',
-  shortName: 'Spiral Tower',
-  subtitle: 'Parking-Garage Multi-Level Climb',
-  description: 'Ground-level circuit with large 450° spiral climbing ramp, elevated rooftop observation deck (+1.78m), connected downhill viaduct ramp, and final fire-water sequence.',
+  name: 'Vanguard Proving Ground',
+  shortName: 'Vanguard Ground',
+  subtitle: 'Balanced Signature Proving Course',
+  description: 'Balanced randomized mix across bridges, helical climbs, football arena, and terrain hazards.',
   hasSpiral: true,
   driveRoute: TRACK_B_ROUTE,
   checkpoints: TRACK_B_CHECKPOINTS,
@@ -549,10 +549,10 @@ export const TRACK_B: TrackConfig = {
 
 export const TRACK_C: TrackConfig = {
   id: 'track_c',
-  name: 'Track C — Advanced Multi-Level Challenge',
-  shortName: 'Multi-Level',
-  subtitle: 'Multi-Tier Elevated Engineering',
-  description: 'Several raised platforms, steep climbing ramp, multi-level spiral tower, elevated narrow bridge, and technical downhill return to ground.',
+  name: 'Helios Gauntlet',
+  shortName: 'Helios Gauntlet',
+  subtitle: 'Aerial Crossings & Speed Mix',
+  description: 'Randomized high-elevation mix combining aerial spans, helical ramps, and precision weaves.',
   hasSpiral: true,
   driveRoute: TRACK_B_ROUTE,
   checkpoints: TRACK_B_CHECKPOINTS,
@@ -571,10 +571,10 @@ export const TRACK_C: TrackConfig = {
 
 export const TRACK_D: TrackConfig = {
   id: 'track_d',
-  name: 'Track D — Extreme Climbing Challenge',
-  shortName: 'Extreme Climb',
-  subtitle: 'Switchback Ascents & Steep Descents',
-  description: 'Challenging switchback climbs, elevated stepping platforms, large spiral structure with rooftop deck, steep gravity-accelerated descents, and fire-water climax.',
+  name: 'Titan Crucible',
+  shortName: 'Titan Crucible',
+  subtitle: 'Endurance High-Effort Course',
+  description: 'High-difficulty randomized gauntlet blending extreme climbs, slick bends, bridges, and hazards.',
   hasSpiral: true,
   driveRoute: TRACK_B_ROUTE,
   checkpoints: TRACK_B_CHECKPOINTS,
@@ -944,13 +944,38 @@ export function evaluateTrackSurface(trackId: TrackId, x: number, z: number, pos
 }
 
 // ---------------------------------------------------------------------------
-// GLOBAL COMPATIBILITY WRAPPERS
+// GLOBAL COMPATIBILITY & DYNAMIC GENERATOR WRAPPERS
 // ---------------------------------------------------------------------------
+export type DynamicCourseHooks = {
+  evaluateHeight: (x: number, z: number, poseY?: number) => number | null;
+  evaluateSurface: (x: number, z: number, poseY?: number) => SurfaceProperties | null;
+  evaluateRock: (x: number, z: number) => number | null;
+  isWithinBoundary: (x: number, z: number, poseY: number) => boolean | null;
+};
+
+let activeDynamicCourseHooks: DynamicCourseHooks | null = null;
+
+export function registerDynamicCourseHooks(hooks: DynamicCourseHooks | null): void {
+  activeDynamicCourseHooks = hooks;
+}
+
+export function getDynamicCourseHooks(): DynamicCourseHooks | null {
+  return activeDynamicCourseHooks;
+}
+
 export function evaluateCourseHeight(x: number, z: number, poseY = 0): number {
+  if (activeDynamicCourseHooks) {
+    const h = activeDynamicCourseHooks.evaluateHeight(x, z, poseY);
+    if (h !== null) return h;
+  }
   return evaluateTrackHeight(currentActiveTrackId, x, z, poseY);
 }
 
 export function evaluateCourseSurface(x: number, z: number, poseY = 0): SurfaceProperties {
+  if (activeDynamicCourseHooks) {
+    const s = activeDynamicCourseHooks.evaluateSurface(x, z, poseY);
+    if (s !== null) return s;
+  }
   return evaluateTrackSurface(currentActiveTrackId, x, z, poseY);
 }
 
@@ -1191,6 +1216,10 @@ export function generateRockFieldStones(seed = 20261027): StoneData[] {
 export const ROCK_FIELD_STONES: StoneData[] = generateRockFieldStones(20261027);
 
 export function evaluateRockHeight(x: number, z: number): number {
+  if (activeDynamicCourseHooks) {
+    const rh = activeDynamicCourseHooks.evaluateRock(x, z);
+    if (rh !== null) return rh;
+  }
   if (x < 6.0 || x > 14.5 || Math.abs(z - 13.50) > 2.20) return 0;
   let maxH = 0;
   for (let i = 0; i < ROCK_FIELD_STONES.length; i++) {

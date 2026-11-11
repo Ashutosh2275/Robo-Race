@@ -7,6 +7,7 @@ import {
   SPIRAL_CONFIG,
   TURNTABLE_CENTER,
   TURNTABLE_RADIUS,
+  getDynamicCourseHooks,
 } from './courseLayout.ts';
 import {
   ROBOT_HALF_LENGTH,
@@ -134,10 +135,71 @@ export function awardObstacleGatePoints(
 }
 
 /**
+ * Awards points for a dynamically placed randomized hurdle slot (deduplicated by unique key).
+ */
+export function awardDynamicHurdlePoints(
+  state: CompetitionScoreState,
+  hurdleKey: string,
+  label: string,
+  tier: ObstacleDifficultyTier,
+  config: ScoringConfig,
+): number {
+  if (state.awardedIds.has(hurdleKey)) return 0;
+  const pts = pointsForTier(tier, config);
+  state.awardedIds.add(hurdleKey);
+  state.pointsEarned += pts;
+  state.score += pts;
+  state.events.push({ label, delta: pts, detail: tier.toUpperCase() });
+  return pts;
+}
+
+/**
+ * Awards Football Arena goal points: base hurdle points are split across required base goals
+ * (`ballCount - 2`, min 2) so scoring those goals equals the hurdle's assigned points,
+ * plus +1 extra bonus point for each additional goal up to a strict maximum of +2 extra bonus points.
+ */
+export function awardFootballGoalPoints(
+  state: CompetitionScoreState,
+  goalIndex: number,
+  ballCount: number,
+  tier: ObstacleDifficultyTier,
+  config: ScoringConfig,
+): { delta: number; isBonus: boolean; totalGoals: number } {
+  const goalKey = `football_goal_${goalIndex}`;
+  if (state.awardedIds.has(goalKey)) return { delta: 0, isBonus: false, totalGoals: goalIndex };
+  state.awardedIds.add(goalKey);
+
+  const tierPts = pointsForTier(tier, config);
+  const baseGoals = Math.max(2, ballCount - 2);
+  if (goalIndex <= baseGoals) {
+    const perBase = Math.floor(tierPts / baseGoals);
+    const delta = goalIndex === baseGoals ? tierPts - perBase * (baseGoals - 1) : perBase;
+    state.pointsEarned += delta;
+    state.score += delta;
+    state.events.push({ label: `Football Goal ${goalIndex}/${baseGoals}`, delta, detail: tier.toUpperCase() });
+    return { delta, isBonus: false, totalGoals: goalIndex };
+  }
+
+  const bonusIndex = goalIndex - baseGoals;
+  const delta = bonusIndex <= 2 ? 1 : 0;
+  if (delta > 0) {
+    state.pointsEarned += delta;
+    state.score += delta;
+    state.events.push({ label: `Football Bonus Goal (+${bonusIndex}/2)`, delta, detail: 'EXTRA BONUS' });
+  }
+  return { delta, isBonus: delta > 0, totalGoals: goalIndex };
+}
+
+/**
  * Checks whether a single local course point `(x, z)` at elevation `poseY` lies inside
  * the legal painted boundary lines of any continuous track corridor segment.
  */
 export function isLocalPointWithinBoundaryLines(x: number, z: number, poseY: number): boolean {
+  const dynHook = getDynamicCourseHooks();
+  if (dynHook) {
+    const dyn = dynHook.isWithinBoundary(x, z, poseY);
+    if (dyn !== null) return dyn;
+  }
   const halfW = DRIVE_ROUTE_WIDTH * 0.5; // 2.20m
 
   // Elevated Lane 3 Spiral Tower, Approach Bridge, Turntable & Descent Ramp
