@@ -1152,12 +1152,12 @@ function evalSlotLocal(
       if (Math.hypot(u - ttU, v) <= rTt + 0.08 && trackBottomY > 1.85) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 0.90, rollingResistance: 0.35, hazard: 'none' } };
       }
-      // Upper bridge from spiral to turntable (connects cleanly at 540° summit without cutting into <540° North arc)
-      if (u >= -2.05 && u <= 0.55 && Math.abs(v) <= 1.68 && (u >= -1.15 || v >= -0.12) && trackBottomY > 2.00) {
+      // Upper summit transition apron from 540° exit into rooftop turntable (cleanly East of Turn 2 on North side, full South curve fillet)
+      if (u >= -3.40 && u <= 0.65 && Math.abs(v) <= 1.68 && (u >= -0.92 || (v >= -0.05 && dist >= 0.78)) && trackBottomY > 2.00) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.05, rollingResistance: 0.28, hazard: 'none' } };
       }
-      // Summit 540° exit safety guard: probes crossing v = 0 past the East summit seam (v in [0..1.45]) remain on yTop instead of dropping onto Turn 1 below
-      if (trackBottomY >= 2.45 && dx >= 0.5 && v >= 0.0 && v <= 1.45 && dist <= rOuter + 0.15) {
+      // Summit 540° exit guard: probes crossing v = 0 past the East summit seam (v in [0..1.65]) remain on yTop instead of dropping onto Turn 1 below
+      if (trackBottomY >= 2.45 && dx >= 0.5 && v >= 0.0 && v <= 1.65 && dist <= rOuter + 0.15) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.08, rollingResistance: 0.28, hazard: 'none' } };
       }
       // Helix climb (540 deg = 1.5 turns starting at West tangent du=-rMid, dv=0 climbing North -> East -> South -> West -> Summit)
@@ -1276,9 +1276,9 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
       if (slot.type === 'spiral_tower') {
         if (poseY > 0.30) {
           const spDist = Math.hypot(u - (-4.20), v);
-          if (spDist >= 0.96 && spDist <= 3.38) return true;
+          if (spDist >= 0.78 && spDist <= 3.38) return true;
           if (Math.hypot(u - 2.20, v) <= 2.40) return true;
-          if (u >= -2.05 && u <= 0.25 && Math.abs(v) <= 1.45) return true;
+          if (u >= -3.40 && u <= 0.65 && Math.abs(v) <= 1.65 && (u >= -0.92 || v >= -0.05)) return true;
           if (u >= 4.4 && u <= 11.8 && Math.abs(v) <= 1.65) return true;
           return false;
         }

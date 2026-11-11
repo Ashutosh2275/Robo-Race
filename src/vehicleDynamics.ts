@@ -418,19 +418,19 @@ export type TurntableSurfaceState = {
  */
 export function getTurntableOmega(difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | 'Pro'): number {
   switch (difficulty) {
-    case 'Beginner': return 0.28;      // ~2.7 RPM (stable, gentle rotation)
-    case 'Intermediate': return 0.48;  // ~4.6 RPM (competition standard)
-    case 'Advanced': return 0.75;      // ~7.2 RPM (challenging slip)
-    case 'Pro': return 1.05;           // ~10.0 RPM (intense drift & centrifugal challenge)
+    case 'Beginner': return 0.20;      // ~1.9 RPM (smooth gentle rotation)
+    case 'Intermediate': return 0.28;  // ~2.7 RPM (calibrated balanced drift)
+    case 'Advanced': return 0.44;      // ~4.2 RPM (brisk counter-steering test)
+    case 'Pro': return 0.90;           // ~8.6 RPM (high-rpm competitive challenge)
   }
 }
 
 /**
  * Genuine physical interaction between the rotating platform and the robot chassis.
  * When on the platform:
- * 1. Deck rotation imparts linear tangential surface velocity via track contact friction.
- * 2. Asymmetric track surface speed creates genuine rotational torque aligning yaw heading.
- * 3. Centrifugal tendency exerts radial outward acceleration allowing authentic drift/slip.
+ * 1. Deck rotation imparts controlled tangential surface drift without stalling active track drive.
+ * 2. Asymmetric track surface contact creates gentle rotational yaw torque matching turntable omega.
+ * 3. Mild centrifugal outward drift occurs only under high-RPM offset rotation.
  * 4. Rim bevel smoothly transitions friction coupling onto and off the platform without popping.
  */
 export function applyTurntableSurfaceInteraction(
@@ -475,22 +475,20 @@ export function applyTurntableSurfaceInteraction(
   const vSurfZ = -turntable.omega * dx;
   const surfaceSpeed = Math.hypot(vSurfX, vSurfZ);
 
-  // Smooth edge blend over outer 0.28m of the rim
-  const blend = Math.max(0, Math.min(1, (worldRadius - dist) / 0.28));
+  // Smooth edge blend over outer 0.30m of the rim
+  const blend = Math.max(0, Math.min(1, (worldRadius - dist) / 0.30));
 
-  // 1. Linear friction drag coupling:
-  // Surface friction pulls the robot tracks toward local deck velocity
-  const linearCoupling = Math.min(1, 4.8 * effectiveGrip * blend * dt);
+  // 1. Controlled tangential friction carry without killing forward longitudinal velocity
+  const linearCoupling = Math.min(1, 1.45 * effectiveGrip * blend * dt);
   const newVx = robotVx + (vSurfX - robotVx) * linearCoupling;
   const newVz = robotVz + (vSurfZ - robotVz) * linearCoupling;
 
-  // 2. Rotational yaw torque coupling:
-  // Rotating deck under the dual track contact patches imparts authentic rotational torque
-  const yawCoupling = Math.min(1, 3.8 * effectiveGrip * blend * dt);
+  // 2. Smooth rotational yaw torque coupling
+  const yawCoupling = Math.min(1, 1.65 * effectiveGrip * blend * dt);
   const newYawRate = robotYawRate + (turntable.omega - robotYawRate) * yawCoupling;
   const newYaw = robotYaw + newYawRate * dt;
 
-  // 3. Centrifugal outward radial acceleration:
+  // 3. Gentler centrifugal outward radial drift (only noticeable at high omega / outer rim)
   let finalVx = newVx;
   let finalVz = newVz;
   let centrifugalForce = 0;
@@ -498,8 +496,8 @@ export function applyTurntableSurfaceInteraction(
     const centrifugalA = (turntable.omega * turntable.omega) * dist;
     centrifugalForce = centrifugalA;
     const maxCentripetalA = effectiveGrip * 9.81;
-    if (centrifugalA > maxCentripetalA * 0.40) {
-      const slipA = (centrifugalA - maxCentripetalA * 0.40) * 0.38 * blend;
+    if (centrifugalA > maxCentripetalA * 0.65) {
+      const slipA = (centrifugalA - maxCentripetalA * 0.65) * 0.16 * blend;
       finalVx += (dx / dist) * slipA * dt;
       finalVz += (dz / dist) * slipA * dt;
     }

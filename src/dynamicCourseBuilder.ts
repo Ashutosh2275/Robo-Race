@@ -516,6 +516,8 @@ let cachedChicaneSignMat: THREE.MeshStandardMaterial | null = null;
 let cachedReflectiveTapeMat: THREE.MeshStandardMaterial | null = null;
 let cachedHazardStripeMat: THREE.MeshStandardMaterial | null = null;
 let cachedChevronBoardMat: THREE.MeshStandardMaterial | null = null;
+let cachedPolishedDeckMat: THREE.MeshStandardMaterial | null = null;
+let cachedPolishedTurntableMat: THREE.MeshStandardMaterial | null = null;
 let cachedWaterBasinConcreteMats: {
   floorMat: THREE.MeshStandardMaterial;
   wallMat: THREE.MeshStandardMaterial;
@@ -1035,6 +1037,331 @@ function getChevronBoardMat() {
     });
   }
   return cachedChevronBoardMat;
+}
+
+function getPolishedDeckMat() {
+  if (!cachedPolishedDeckMat) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 512;
+    cvs.height = 512;
+    const ctx = cvs.getContext('2d')!;
+    ctx.fillStyle = '#4c5156';
+    ctx.fillRect(0, 0, 512, 512);
+    // Power-troweled satin epoxy concrete clouds for seamless architectural sheen
+    for (let i = 0; i < 42; i++) {
+      const rx = (i * 137 + 41) % 512;
+      const ry = (i * 211 + 83) % 512;
+      const rad = 42 + (i % 4) * 26;
+      const g = ctx.createRadialGradient(rx, ry, 4, rx, ry, rad);
+      g.addColorStop(0, i % 2 === 0 ? 'rgba(95, 102, 108, 0.08)' : 'rgba(28, 31, 34, 0.08)');
+      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedPolishedDeckMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.22,
+      metalness: 0.14,
+      envMapIntensity: 0.85,
+    });
+  }
+  return cachedPolishedDeckMat;
+}
+
+function getPolishedTurntableMat() {
+  if (!cachedPolishedTurntableMat) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 512;
+    cvs.height = 512;
+    const ctx = cvs.getContext('2d')!;
+    ctx.fillStyle = '#4f555b';
+    ctx.fillRect(0, 0, 512, 512);
+    // Concentric machined satin polish sheen rings
+    const g = ctx.createRadialGradient(256, 256, 20, 256, 256, 252);
+    g.addColorStop(0, 'rgba(110, 118, 126, 0.14)');
+    g.addColorStop(0.75, 'rgba(72, 78, 84, 0.06)');
+    g.addColorStop(1, 'rgba(24, 27, 30, 0.18)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 512);
+
+    // Subtle flush painted gauge lines & concentric outer rim (baked directly, zero 3D protruding boards)
+    ctx.strokeStyle = 'rgba(182, 148, 72, 0.58)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(256, 256, 240, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(195, 200, 204, 0.26)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(256, 256, 152, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(182, 148, 72, 0.42)';
+    ctx.lineWidth = 4;
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4;
+      ctx.beginPath();
+      ctx.moveTo(256 + Math.cos(a) * 44, 256 + Math.sin(a) * 44);
+      ctx.lineTo(256 + Math.cos(a) * 232, 256 + Math.sin(a) * 232);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#383d42';
+    ctx.beginPath();
+    ctx.arc(256, 256, 36, 0, Math.PI * 2);
+    ctx.fill();
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedPolishedTurntableMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.20,
+      metalness: 0.16,
+      envMapIntensity: 0.90,
+    });
+  }
+  return cachedPolishedTurntableMat;
+}
+
+/**
+ * Builds a closed solid deck ribbon between dynamic (uMinFn(v), uMaxFn(v)) curved boundaries,
+ * enabling flush circular arcs around turntable pockets with zero overlap or step seams.
+ */
+function makeCurvedBoundaryDeck(
+  parent: THREE.Object3D,
+  slot: HurdleSlot,
+  vBreaks: number[],
+  uSegs: number,
+  uMinFn: (v: number) => number,
+  uMaxFn: (v: number) => number,
+  heightAt: (u: number, v: number) => number,
+  thickness: number,
+  mat: THREE.Material,
+) {
+  const nu = uSegs + 1;
+  const nv = vBreaks.length;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const toX = (u: number) => slot.centerX + slot.dir * u;
+  const toZ = (v: number) => slot.laneZ + slot.dir * v;
+  const vMin = vBreaks[0];
+  const vMax = vBreaks[nv - 1];
+
+  const topGrid: Array<Array<[number, number, number]>> = [];
+  const botGrid: Array<Array<[number, number, number]>> = [];
+  for (let iu = 0; iu < nu; iu++) {
+    const tu = iu / uSegs;
+    const rowT: Array<[number, number, number]> = [];
+    const rowB: Array<[number, number, number]> = [];
+    for (let iv = 0; iv < nv; iv++) {
+      const v = vBreaks[iv];
+      const u = uMinFn(v) + tu * (uMaxFn(v) - uMinFn(v));
+      const yT = heightAt(u, v);
+      rowT.push([toX(u), yT, toZ(v)]);
+      rowB.push([toX(u), yT - thickness, toZ(v)]);
+    }
+    topGrid.push(rowT);
+    botGrid.push(rowB);
+  }
+
+  // Top & Bottom flat-shaded-isolated vertex grids so curved edges keep sharp outer fascia contrast
+  const topBase = 0;
+  for (let iu = 0; iu < nu; iu++) {
+    for (let iv = 0; iv < nv; iv++) {
+      const [px, py, pz] = topGrid[iu][iv];
+      positions.push(px, py, pz);
+      uvs.push(iu / uSegs, (vBreaks[iv] - vMin) / Math.max(1e-3, vMax - vMin));
+    }
+  }
+  const botBase = positions.length / 3;
+  for (let iu = 0; iu < nu; iu++) {
+    for (let iv = 0; iv < nv; iv++) {
+      const [px, py, pz] = botGrid[iu][iv];
+      positions.push(px, py, pz);
+      uvs.push(iu / uSegs, (vBreaks[iv] - vMin) / Math.max(1e-3, vMax - vMin));
+    }
+  }
+  for (let iu = 0; iu < nu - 1; iu++) {
+    for (let iv = 0; iv < nv - 1; iv++) {
+      const a = topBase + iu * nv + iv;
+      const b = a + 1;
+      const c = topBase + (iu + 1) * nv + iv;
+      const d = c + 1;
+      indices.push(a, b, d, a, d, c);
+
+      const ab = botBase + iu * nv + iv;
+      const bb = ab + 1;
+      const cb = botBase + (iu + 1) * nv + iv;
+      const db = cb + 1;
+      indices.push(ab, db, bb, ab, cb, db);
+    }
+  }
+
+  const addSideStrip = (ptsTop: Array<[number, number, number]>, ptsBot: Array<[number, number, number]>, flip: boolean) => {
+    const base = positions.length / 3;
+    for (let i = 0; i < ptsTop.length; i++) {
+      positions.push(...ptsTop[i], ...ptsBot[i]);
+      const t = i / Math.max(1, ptsTop.length - 1);
+      uvs.push(t * 2, 1, t * 2, 0);
+    }
+    for (let i = 0; i < ptsTop.length - 1; i++) {
+      const a = base + i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      if (flip) indices.push(a, c, d, a, d, b);
+      else indices.push(a, b, d, a, d, c);
+    }
+  };
+
+  addSideStrip(topGrid.map(r => r[0]), botGrid.map(r => r[0]), true);
+  addSideStrip(topGrid.map(r => r[nv - 1]), botGrid.map(r => r[nv - 1]), false);
+  addSideStrip(topGrid[0], botGrid[0], false);
+  addSideStrip(topGrid[nu - 1], botGrid[nu - 1], true);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+/**
+ * Builds a single glass-smooth continuous 540° helical ramp ribbon mesh with shared smooth
+ * upper-surface normals, clean cylindrical fascia, and zero staircase step seams.
+ */
+function makeContinuousSpiralHelixMesh(
+  parent: THREE.Object3D,
+  slot: HurdleSlot,
+  spU: number,
+  rInner: number,
+  rOuter: number,
+  yStart: number,
+  yTop: number,
+  thickness: number,
+  mat: THREE.Material,
+  segs = 108,
+  radSegs = 6,
+) {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const toX = (u: number) => slot.centerX + slot.dir * u;
+  const toZ = (v: number) => slot.laneZ + slot.dir * v;
+  const nr = radSegs + 1;
+
+  // Multi-ring radial subdivision eliminates diagonal Gouraud shading streaks across helicoid twist
+  const topRings: Array<Array<[number, number, number]>> = [];
+  const botRings: Array<Array<[number, number, number]>> = [];
+
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const beta = t * 3 * Math.PI;
+    const yT = yStart + t * (yTop - yStart);
+    const yB = i === 0 ? yStart - 0.14 : yT - thickness;
+    const cosB = -Math.cos(beta);
+    const sinB = -Math.sin(beta);
+    const rowT: Array<[number, number, number]> = [];
+    const rowB: Array<[number, number, number]> = [];
+    for (let ir = 0; ir <= radSegs; ir++) {
+      const fr = ir / radSegs;
+      const r = rInner + fr * (rOuter - rInner);
+      const px = toX(spU + cosB * r);
+      const pz = toZ(sinB * r);
+      rowT.push([px, yT, pz]);
+      rowB.push([px, yB, pz]);
+    }
+    topRings.push(rowT);
+    botRings.push(rowB);
+  }
+
+  // Top helical driving surface (smooth continuous shared vertices)
+  for (let i = 0; i <= segs; i++) {
+    const tv = (i / segs) * 4.5;
+    for (let ir = 0; ir <= radSegs; ir++) {
+      positions.push(...topRings[i][ir]);
+      uvs.push(ir / radSegs, tv);
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    for (let ir = 0; ir < radSegs; ir++) {
+      const a = i * nr + ir;
+      const b = a + 1;
+      const c = (i + 1) * nr + ir;
+      const d = c + 1;
+      indices.push(a, c, d, a, d, b);
+    }
+  }
+
+  // Bottom soffit surface
+  const botBase = positions.length / 3;
+  for (let i = 0; i <= segs; i++) {
+    const tv = (i / segs) * 4.5;
+    for (let ir = 0; ir <= radSegs; ir++) {
+      positions.push(...botRings[i][ir]);
+      uvs.push(ir / radSegs, tv);
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    for (let ir = 0; ir < radSegs; ir++) {
+      const a = botBase + i * nr + ir;
+      const b = a + 1;
+      const c = botBase + (i + 1) * nr + ir;
+      const d = c + 1;
+      indices.push(a, d, c, a, b, d);
+    }
+  }
+
+  const addFascia = (topPts: Array<[number, number, number]>, botPts: Array<[number, number, number]>, flipOutward: boolean) => {
+    const fBase = positions.length / 3;
+    for (let i = 0; i <= segs; i++) {
+      positions.push(...topPts[i], ...botPts[i]);
+      const tv = (i / segs) * 6;
+      uvs.push(tv, 1, tv, 0);
+    }
+    for (let i = 0; i < segs; i++) {
+      const a = fBase + i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      if (flipOutward) indices.push(a, c, d, a, d, b);
+      else indices.push(a, b, d, a, d, c);
+    }
+  };
+
+  addFascia(topRings.map(r => r[radSegs]), botRings.map(r => r[radSegs]), true);
+  addFascia(topRings.map(r => r[0]), botRings.map(r => r[0]), false);
+
+  // Entry cap (i = 0)
+  for (let ir = 0; ir < radSegs; ir++) {
+    const capBase = positions.length / 3;
+    positions.push(...topRings[0][ir], ...topRings[0][ir + 1], ...botRings[0][ir], ...botRings[0][ir + 1]);
+    uvs.push(0, 1, 1, 1, 0, 0, 1, 0);
+    indices.push(capBase, capBase + 1, capBase + 3, capBase, capBase + 3, capBase + 2);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
 }
 
 /**
@@ -2150,25 +2477,52 @@ export function buildDynamicCourseGroup(
       courseGroup.add(signPlateGroup);
     } else if (slot.type === 'turntable_deck') {
       const deckY = 0.92;
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -5.0), toCourseX(slot, -2.1), lz, 3.3, GROUND_DECK_HEIGHT, deckY, 0.20, mats.diamondPlate, easeCushionedRamp, 18);
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 2.1), toCourseX(slot, 5.0), lz, 3.3, deckY, GROUND_DECK_HEIGHT, 0.20, mats.diamondPlate, easeCushionedRamp, 18);
+      const rTt = 2.30;
+      const rPocket = 2.34;
+      const vBreaks: number[] = [];
+      for (let i = 0; i <= 16; i++) vBreaks.push(-1.65 + (3.30 * i) / 16);
+      makeCurvedBoundaryDeck(
+        courseGroup,
+        slot,
+        vBreaks,
+        14,
+        () => -5.0,
+        v => -Math.sqrt(Math.max(0.01, rPocket * rPocket - v * v)),
+        u => {
+          const t = Math.max(0, Math.min(1, (u + 5.0) / 2.9));
+          return GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t);
+        },
+        0.20,
+        getPolishedDeckMat(),
+      );
+      makeCurvedBoundaryDeck(
+        courseGroup,
+        slot,
+        vBreaks,
+        14,
+        v => Math.sqrt(Math.max(0.01, rPocket * rPocket - v * v)),
+        () => 5.0,
+        u => {
+          const t = Math.max(0, Math.min(1, (5.0 - u) / 2.9));
+          return GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t);
+        },
+        0.20,
+        getPolishedDeckMat(),
+      );
       makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(cx, (deckY + ARENA_FLOOR_HEIGHT) / 2 - 0.1, lz), 0.55, deckY - ARENA_FLOOR_HEIGHT - 0.15, 'y', 24);
       const ttGroup = new THREE.Group();
       ttGroup.position.set(cx, deckY, lz);
       courseGroup.add(ttGroup);
-      const disc = new THREE.Mesh(new THREE.CylinderGeometry(2.30, 2.30, 0.16, 36), mats.diamondPlate);
-      disc.position.y = -0.08;
+      const polishedTtMat = getPolishedTurntableMat();
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(rTt, rTt, 0.20, 48),
+        [mats.metal, polishedTtMat, mats.metal],
+      );
+      disc.position.y = -0.10;
       disc.castShadow = true;
       disc.receiveShadow = true;
       ttGroup.add(disc);
-      for (let sp = 0; sp < 8; sp++) {
-        const ang = (sp * Math.PI) / 4;
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.015, 0.12), mats.yellow);
-        bar.position.y = 0.008;
-        bar.rotation.y = ang;
-        ttGroup.add(bar);
-      }
-      turntables.push({ group: ttGroup, x: cx, z: lz, radius: 2.30, deckY });
+      turntables.push({ group: ttGroup, x: cx, z: lz, radius: rTt, deckY });
     } else if (slot.type === 'moguls_stagger') {
       const uBreaks: number[] = [];
       for (let i = 0; i <= 36; i++) uBreaks.push(-4.2 + (8.4 * i) / 36);
@@ -2455,16 +2809,19 @@ export function buildDynamicCourseGroup(
     } else if (slot.type === 'spiral_tower') {
       const spU = -4.20;
       const spX = toCourseX(slot, spU);
-      const rInner = 1.00;
+      const rInner = 0.76;
       const rOuter = 3.30;
       const yTop = 3.20;
       const ttU = 2.20;
       const ttX = toCourseX(slot, ttU);
+      const rTt = 2.35;
+      const rPocket = 2.385;
+      const polishedDeck = getPolishedDeckMat();
 
-      // Central structural steel pylon + smooth circular inner core guard drum
-      const pylonH = yTop + 0.35 - ARENA_FLOOR_HEIGHT;
-      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.18, lz), 0.94, 0.36, 'y', 24);
-      makeCyl(courseGroup, mats.metal, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + pylonH / 2, lz), 0.72, pylonH, 'y', 24);
+      // Smooth monolithic central structural column (top flush at summit level, zero jagged gaps)
+      const pylonH = yTop - ARENA_FLOOR_HEIGHT;
+      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.14, lz), 0.96, 0.28, 'y', 32);
+      makeCyl(courseGroup, mats.metal, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + pylonH * 0.5, lz), 0.78, pylonH, 'y', 36);
       for (let k = 0; k < 8; k++) {
         const ka = (k * Math.PI) / 4;
         const kx = spX + Math.cos(ka) * 0.80;
@@ -2472,176 +2829,111 @@ export function buildDynamicCourseGroup(
         colliders.push({ id: `spiral_core_${slot.index}_${k}`, x: kx, z: kz, hx: 0.34, hz: 0.10, y: ARENA_FLOOR_HEIGHT + pylonH / 2, height: pylonH, rot: -ka + Math.PI / 2, walkable: false });
       }
 
-      // 540-degree helical spiral ramp ribbon + outer safety guardrail + low-wedge retaining skirt
-      const spSegs = 54;
-      for (let s = 0; s < spSegs; s++) {
-        const t0 = s / spSegs;
-        const t1 = (s + 1) / spSegs;
+      // 1. Continuous Glass-Smooth 540-degree Helical Ribbon (zero staircase steps, zero brackets, zero barricades)
+      makeContinuousSpiralHelixMesh(courseGroup, slot, spU, rInner, rOuter, GROUND_DECK_HEIGHT, yTop, 0.22, polishedDeck, 108);
+
+      // Clean continuous architectural plinth collider beneath low Turn 1 overhang tucked flush inside outer rim
+      for (let s = 2; s <= 24; s++) {
+        const t0 = s / 54;
+        const t1 = (s + 1) / 54;
         const beta0 = t0 * 3 * Math.PI;
         const beta1 = t1 * 3 * Math.PI;
-        const y0 = GROUND_DECK_HEIGHT + t0 * (yTop - GROUND_DECK_HEIGHT);
-        const y1 = GROUND_DECK_HEIGHT + t1 * (yTop - GROUND_DECK_HEIGHT);
-        const yMid = (y0 + y1) * 0.5;
         const midBeta = (beta0 + beta1) * 0.5;
-        const rMid = (rInner + rOuter) * 0.5;
-        const du = -Math.cos(midBeta) * rMid;
-        const dv = -Math.sin(midBeta) * rMid;
-        const p0x = toCourseX(slot, spU - Math.cos(beta0) * rMid);
-        const p0z = toCourseZ(slot, -Math.sin(beta0) * rMid);
-        const p1x = toCourseX(slot, spU - Math.cos(beta1) * rMid);
-        const p1z = toCourseZ(slot, -Math.sin(beta1) * rMid);
-        const segLen = Math.hypot(p1x - p0x, p1z - p0z) + 0.14;
-        const px = toCourseX(slot, spU + du);
-        const pz = toCourseZ(slot, dv);
-        const ang = Math.atan2(-(p1z - p0z), p1x - p0x);
-        makeBox(courseGroup, mats.asphalt, new THREE.Vector3(px, yMid - 0.10, pz), new THREE.Vector3(segLen, 0.20, rOuter - rInner), ang);
-
-        // Outer painted curb & containment guardrail wall (leaves entry s<2 and summit bridge merge s>=47 open)
-        const duOut = -Math.cos(midBeta) * (rOuter - 0.08);
-        const dvOut = -Math.sin(midBeta) * (rOuter - 0.08);
-        makeBox(courseGroup, mats.yellow, new THREE.Vector3(toCourseX(slot, spU + duOut), yMid + 0.008, toCourseZ(slot, dvOut)), new THREE.Vector3(segLen * 1.04, 0.014, 0.09), ang, false);
-
-        if (s >= 2 && s <= 49) {
-          const rRail = rOuter + 0.06;
-          const o0x = toCourseX(slot, spU - Math.cos(beta0) * rRail);
-          const o0z = toCourseZ(slot, -Math.sin(beta0) * rRail);
-          const o1x = toCourseX(slot, spU - Math.cos(beta1) * rRail);
-          const o1z = toCourseZ(slot, -Math.sin(beta1) * rRail);
-          const oLen = Math.hypot(o1x - o0x, o1z - o0z) + 0.08;
-          const oAng = Math.atan2(-(o1z - o0z), o1x - o0x);
-          const rx = toCourseX(slot, spU - Math.cos(midBeta) * rRail);
-          const rz = toCourseZ(slot, -Math.sin(midBeta) * rRail);
-          makeBox(courseGroup, mats.metal, new THREE.Vector3(rx, yMid + 0.17, rz), new THREE.Vector3(oLen, 0.34, 0.12), oAng);
-          makeBox(courseGroup, mats.yellow, new THREE.Vector3(rx, yMid + 0.36, rz), new THREE.Vector3(oLen, 0.05, 0.13), oAng, false);
-          colliders.push({
-            id: `spiral_rail_${slot.index}_${s}`,
-            x: rx,
-            z: rz,
-            hx: oLen * 0.5,
-            hz: 0.08,
-            y: yMid + 0.20,
-            height: 0.44,
-            rot: oAng,
-            walkable: false,
-          });
-
-          // Solid retaining skirt beneath low-clearance Turn 1 overhang so ground vehicles cannot clip inside/under ramp
-          if (s <= 24 && yMid > ARENA_FLOOR_HEIGHT + 0.08) {
-            const skirtH = yMid - ARENA_FLOOR_HEIGHT;
-            makeBox(courseGroup, mats.concretePier, new THREE.Vector3(rx, ARENA_FLOOR_HEIGHT + skirtH * 0.5 - 0.04, rz), new THREE.Vector3(oLen, skirtH, 0.14), oAng);
-            colliders.push({
-              id: `spiral_skirt_${slot.index}_${s}`,
-              x: rx,
-              z: rz,
-              hx: oLen * 0.5,
-              hz: 0.09,
-              y: ARENA_FLOOR_HEIGHT + skirtH * 0.5,
-              height: skirtH + 0.12,
-              rot: oAng,
-              walkable: false,
-            });
-          }
-        }
-      }
-
-      // Upper Summit Approach Bridge + Side Guardrails + Rotating Rooftop Turntable + Downhill Descent Ramp
-      makeBox(courseGroup, mats.asphalt, new THREE.Vector3(toCourseX(slot, -0.65), yTop - 0.11, lz), new THREE.Vector3(2.4, 0.22, 3.20));
-      for (const side of [-1, 1]) {
-        // Keep North (-1) rail clear of the arriving 540-deg upper helix merge throat (starts past merge u=-0.35)
-        const minU = side < 0 ? -0.35 : -1.85;
-        const maxU = 0.55;
-        const bLen = maxU - minU;
-        const bx = toCourseX(slot, (minU + maxU) * 0.5);
-        const bz = toCourseZ(slot, side * 1.65);
-        makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, yTop + 0.17, bz), new THREE.Vector3(bLen, 0.34, 0.12));
-        makeBox(courseGroup, mats.yellow, new THREE.Vector3(bx, yTop + 0.36, bz), new THREE.Vector3(bLen, 0.05, 0.13), 0, false);
+        const yMid = GROUND_DECK_HEIGHT + ((t0 + t1) * 0.5) * (yTop - GROUND_DECK_HEIGHT);
+        if (yMid <= ARENA_FLOOR_HEIGHT + 0.14) continue;
+        const rSkirt = rOuter - 0.16;
+        const rx = toCourseX(slot, spU - Math.cos(midBeta) * rSkirt);
+        const rz = toCourseZ(slot, -Math.sin(midBeta) * rSkirt);
+        const o0x = toCourseX(slot, spU - Math.cos(beta0) * rSkirt);
+        const o0z = toCourseZ(slot, -Math.sin(beta0) * rSkirt);
+        const o1x = toCourseX(slot, spU - Math.cos(beta1) * rSkirt);
+        const o1z = toCourseZ(slot, -Math.sin(beta1) * rSkirt);
+        const oLen = Math.hypot(o1x - o0x, o1z - o0z) + 0.04;
+        const oAng = Math.atan2(-(o1z - o0z), o1x - o0x);
+        const skirtH = Math.max(0.08, yMid - 0.22 - ARENA_FLOOR_HEIGHT);
+        makeBox(courseGroup, mats.concretePier, new THREE.Vector3(rx, ARENA_FLOOR_HEIGHT + skirtH * 0.5, rz), new THREE.Vector3(oLen, skirtH, 0.14), oAng);
         colliders.push({
-          id: `spiral_bridge_rail_${slot.index}_${side}`,
-          x: bx,
-          z: bz,
-          hx: bLen * 0.5,
-          hz: 0.08,
-          y: yTop + 0.20,
-          height: 0.44,
-          rot: 0,
+          id: `spiral_skirt_${slot.index}_${s}`,
+          x: rx,
+          z: rz,
+          hx: oLen * 0.5,
+          hz: 0.09,
+          y: ARENA_FLOOR_HEIGHT + skirtH * 0.5,
+          height: skirtH + 0.06,
+          rot: oAng,
           walkable: false,
         });
       }
-      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(ttX, (yTop + ARENA_FLOOR_HEIGHT) / 2 - 0.1, lz), 0.72, yTop - ARENA_FLOOR_HEIGHT - 0.18, 'y', 24);
+
+      // 2. Monolithic Flush Polished Summit Apron fitted cleanly from beta=3pi summit seam into circular turntable pocket
+      // North side (v in [-1.65..0]) stays clear East of Turn 2 helix (u = -0.90);
+      // South side (v in [0..+1.65]) welds flush to beta=3pi (u = -3.44..-0.90) and sweeps tangentially East.
+      const vNorth: number[] = [];
+      const vSouth: number[] = [];
+      for (let i = 0; i <= 10; i++) vNorth.push(-1.65 + (1.65 * i) / 10);
+      for (let i = 0; i <= 12; i++) vSouth.push((1.65 * i) / 12);
+      const ttWestArc = (v: number) => ttU - Math.sqrt(Math.max(0.01, rPocket * rPocket - v * v));
+
+      makeCurvedBoundaryDeck(
+        courseGroup,
+        slot,
+        vNorth,
+        8,
+        () => -0.90,
+        ttWestArc,
+        () => yTop,
+        0.22,
+        polishedDeck,
+      );
+      makeCurvedBoundaryDeck(
+        courseGroup,
+        slot,
+        vSouth,
+        12,
+        v => -3.44 + 1.65 * (1 - Math.sqrt(Math.max(0, 1 - Math.pow(v / 1.65, 2)))),
+        ttWestArc,
+        () => yTop,
+        0.22,
+        polishedDeck,
+      );
+
+      // 3. Flush Polished Rotating Rooftop Turntable (zero overlapping boards, zero rim barricades)
+      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(ttX, (yTop + ARENA_FLOOR_HEIGHT) / 2 - 0.1, lz), 0.72, yTop - ARENA_FLOOR_HEIGHT - 0.18, 'y', 28);
       colliders.push({ id: `spiral_tt_pier_${slot.index}`, x: ttX, z: lz, hx: 0.72, hz: 0.72, y: ARENA_FLOOR_HEIGHT + 1.5, height: 3.0, rot: 0, walkable: false });
       const ttGroup = new THREE.Group();
       ttGroup.position.set(ttX, yTop, lz);
       courseGroup.add(ttGroup);
-      const ttDisc = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.35, 0.18, 36), mats.diamondPlate);
-      ttDisc.position.y = -0.09;
+      const polishedTtMat = getPolishedTurntableMat();
+      const ttDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(rTt, rTt, 0.22, 48),
+        [mats.metal, polishedTtMat, mats.metal],
+      );
+      ttDisc.position.y = -0.11;
       ttDisc.castShadow = true;
       ttDisc.receiveShadow = true;
       ttGroup.add(ttDisc);
-      for (let sp = 0; sp < 8; sp++) {
-        const ang = (sp * Math.PI) / 4;
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.015, 0.12), mats.yellow);
-        bar.position.y = 0.009;
-        bar.rotation.y = ang;
-        ttGroup.add(bar);
-      }
-      turntables.push({ group: ttGroup, x: ttX, z: lz, radius: 2.35, deckY: yTop });
-      // Stationary North & South curved safety curbs around rotating turntable (leaving West/East mouths wide open)
-      for (const side of [-1, 1]) {
-        for (let k = 0; k < 5; k++) {
-          const a = side * (Math.PI * 0.5) + (k - 2) * 0.28;
-          const cr = 2.42;
-          const cxRim = ttX + Math.cos(a) * cr;
-          const czRim = lz + Math.sin(a) * cr;
-          const rimAng = Math.atan2(-Math.cos(a), -Math.sin(a));
-          makeBox(courseGroup, mats.metal, new THREE.Vector3(cxRim, yTop + 0.17, czRim), new THREE.Vector3(0.72, 0.34, 0.12), rimAng);
-          makeBox(courseGroup, mats.yellow, new THREE.Vector3(cxRim, yTop + 0.36, czRim), new THREE.Vector3(0.72, 0.05, 0.13), rimAng, false);
-          colliders.push({
-            id: `spiral_tt_rim_${slot.index}_${side}_${k}`,
-            x: cxRim,
-            z: czRim,
-            hx: 0.36,
-            hz: 0.08,
-            y: yTop + 0.20,
-            height: 0.44,
-            rot: rimAng,
-            walkable: false,
-          });
-        }
-      }
-      // Descent Viaduct Ramp back down to ground + smooth sloped side guardrails
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 4.40), toCourseX(slot, 11.80), lz, 3.20, yTop, GROUND_DECK_HEIGHT, 0.24, mats.asphalt, t => easeCushionedRamp(t, 0.16), 34);
-      for (const side of [-1, 1]) {
-        for (let ds = 0; ds < 12; ds++) {
-          const du0 = 4.42 + ds * 0.61;
-          const du1 = du0 + 0.61;
-          const t0d = (du0 - 4.40) / 7.40;
-          const t1d = (du1 - 4.40) / 7.40;
-          const dy0 = yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t0d, 0.16);
-          const dy1 = yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t1d, 0.16);
-          const dym = (dy0 + dy1) * 0.5;
-          const segDx = (du1 - du0) * slot.dir;
-          const segDy = dy1 - dy0;
-          const segHyp = Math.hypot(segDx, segDy) + 0.04;
-          const slopeRotZ = Math.atan2(segDy, segDx);
-          const rxD = toCourseX(slot, (du0 + du1) * 0.5);
-          const rzD = toCourseZ(slot, side * 1.66);
-          const railMesh = makeBox(courseGroup, mats.metal, new THREE.Vector3(rxD, dym + 0.14, rzD), new THREE.Vector3(segHyp, 0.28, 0.10));
-          railMesh.rotation.z = slopeRotZ;
-          const capMesh = makeBox(courseGroup, mats.yellow, new THREE.Vector3(rxD, dym + 0.29, rzD), new THREE.Vector3(segHyp, 0.045, 0.11), 0, false);
-          capMesh.rotation.z = slopeRotZ;
-          colliders.push({
-            id: `spiral_desc_rail_${slot.index}_${side}_${ds}`,
-            x: rxD,
-            z: rzD,
-            hx: 0.36,
-            hz: 0.07,
-            y: dym + 0.16,
-            height: 0.36,
-            rot: 0,
-            walkable: false,
-          });
-        }
-      }
+      turntables.push({ group: ttGroup, x: ttX, z: lz, radius: rTt, deckY: yTop });
+
+      // 4. Single Seamless Polished Descent Viaduct fitted directly onto East circular turntable pocket down to ground grade
+      const vFull: number[] = [];
+      for (let i = 0; i <= 18; i++) vFull.push(-1.65 + (3.30 * i) / 18);
+      makeCurvedBoundaryDeck(
+        courseGroup,
+        slot,
+        vFull,
+        36,
+        v => ttU + Math.sqrt(Math.max(0.01, rPocket * rPocket - v * v)),
+        () => 11.80,
+        u => {
+          if (u <= 4.40) return yTop;
+          const t = Math.max(0, Math.min(1, (u - 4.40) / 7.40));
+          return yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t, 0.16);
+        },
+        0.22,
+        polishedDeck,
+      );
+      // Clean cylindrical support pier under descent upper bridge head
+      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(toCourseX(slot, 4.95), (yTop + ARENA_FLOOR_HEIGHT) / 2 - 0.15, lz), 0.36, yTop - ARENA_FLOOR_HEIGHT - 0.25, 'y', 18);
     }
   }
 
