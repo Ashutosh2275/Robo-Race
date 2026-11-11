@@ -19,6 +19,7 @@ import {
   type HurdleSlot,
   type HurdleTier,
 } from './courseGenerator.ts';
+import { createBrickMasonryPbrMaps } from './proceduralTextures.ts';
 import {
   TRACK_CONTACT_OFFSET,
   TRACK_WIDTH,
@@ -469,9 +470,14 @@ function createTennisBallTexture(): THREE.CanvasTexture {
   cvs.width = 128;
   cvs.height = 128;
   const ctx = cvs.getContext('2d')!;
-  ctx.fillStyle = '#c4e412';
+  // Weathered muted felt wool optic yellow-olive (never glowing plastic)
+  ctx.fillStyle = '#8b9440';
   ctx.fillRect(0, 0, 128, 128);
-  ctx.strokeStyle = '#ffffff';
+  for (let i = 0; i < 240; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(40,44,20,0.14)' : 'rgba(210,214,160,0.10)';
+    ctx.fillRect((i * 41) % 126, (i * 67) % 126, 2, 2);
+  }
+  ctx.strokeStyle = '#c2bfb2';
   ctx.lineWidth = 7;
   ctx.beginPath();
   ctx.arc(32, 64, 44, -Math.PI * 0.42, Math.PI * 0.42);
@@ -479,31 +485,42 @@ function createTennisBallTexture(): THREE.CanvasTexture {
   ctx.beginPath();
   ctx.arc(96, 64, 44, Math.PI * 0.58, Math.PI * 1.42);
   ctx.stroke();
-  return new THREE.CanvasTexture(cvs);
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 let cachedTennisMat: THREE.MeshStandardMaterial | null = null;
 let cachedTurfMat: THREE.MeshStandardMaterial | null = null;
 let cachedWreckingBallMat: THREE.MeshStandardMaterial | null = null;
+let cachedBrickMat: THREE.MeshStandardMaterial | null = null;
 
 function getWreckingBallMat() {
   if (!cachedWreckingBallMat) {
     const cvs = document.createElement('canvas');
-    cvs.width = 256;
-    cvs.height = 128;
+    const bmp = document.createElement('canvas');
+    cvs.width = bmp.width = 256;
+    cvs.height = bmp.height = 128;
     const ctx = cvs.getContext('2d')!;
-    // Deep forged charcoal cast-iron body
-    ctx.fillStyle = '#1e2226';
+    const bx = bmp.getContext('2d')!;
+    // Deep oxidized cast-iron body
+    ctx.fillStyle = '#1b1d1f';
     ctx.fillRect(0, 0, 256, 128);
-    // Subtle forged grain & panel rivets
-    for (let i = 0; i < 180; i++) {
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.22)';
-      ctx.fillRect((i * 47) % 252, (i * 31) % 124, 3, 3);
+    bx.fillStyle = '#7e7e7e';
+    bx.fillRect(0, 0, 256, 128);
+    // Casting sand pits & rust patina
+    for (let i = 0; i < 260; i++) {
+      const px = (i * 47) % 252;
+      const py = (i * 31) % 124;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(115,68,42,0.18)' : i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.28)';
+      ctx.fillRect(px, py, 3, 3);
+      bx.fillStyle = i % 2 === 0 ? 'rgba(42,42,42,0.4)' : 'rgba(195,195,195,0.25)';
+      bx.fillRect(px, py, 3, 3);
     }
-    // High-visibility amber & obsidian industrial hazard chevron band across mid-hemisphere
-    ctx.fillStyle = '#f5b82e';
+    // Faded chipped industrial ochre hazard chevron belt around mid-hemisphere
+    ctx.fillStyle = '#9c7d36';
     ctx.fillRect(0, 40, 256, 48);
-    ctx.fillStyle = '#121518';
+    ctx.fillStyle = '#151718';
     for (let sx = -32; sx < 288; sx += 32) {
       ctx.beginPath();
       ctx.moveTo(sx, 40);
@@ -513,21 +530,30 @@ function getWreckingBallMat() {
       ctx.closePath();
       ctx.fill();
     }
-    // Brushed steel reinforcing bands & bolt dots
-    ctx.fillStyle = '#4c555d';
+    // Weather scratches across hazard stripe
+    for (let i = 0; i < 90; i++) {
+      ctx.fillStyle = 'rgba(26,28,30,0.45)';
+      ctx.fillRect((i * 53) % 250, 38 + ((i * 19) % 52), 4 + (i % 5), 2);
+    }
+    // Oxidized steel reinforcing trim bands & bolt studs
+    ctx.fillStyle = '#3c4246';
     ctx.fillRect(0, 35, 256, 5);
     ctx.fillRect(0, 88, 256, 5);
-    ctx.fillStyle = '#8b959e';
+    ctx.fillStyle = '#6e757a';
     for (let rx = 8; rx < 256; rx += 16) {
       ctx.fillRect(rx, 36, 3, 3);
       ctx.fillRect(rx, 89, 3, 3);
     }
     const tex = new THREE.CanvasTexture(cvs);
-    tex.wrapS = THREE.RepeatWrapping;
+    const bumpTex = new THREE.CanvasTexture(bmp);
+    tex.wrapS = bumpTex.wrapS = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
     cachedWreckingBallMat = new THREE.MeshStandardMaterial({
       map: tex,
-      roughness: 0.48,
-      metalness: 0.48,
+      bumpMap: bumpTex,
+      bumpScale: 0.03,
+      roughness: 0.58,
+      metalness: 0.44,
     });
   }
   return cachedWreckingBallMat;
@@ -537,10 +563,10 @@ function getTennisMat() {
   if (!cachedTennisMat) {
     cachedTennisMat = new THREE.MeshStandardMaterial({
       map: createTennisBallTexture(),
-      roughness: 0.78,
-      metalness: 0.02,
-      emissive: '#3b4a04',
-      emissiveIntensity: 0.08,
+      roughness: 0.90,
+      metalness: 0.01,
+      emissive: '#222608',
+      emissiveIntensity: 0.02,
     });
   }
   return cachedTennisMat;
@@ -549,22 +575,55 @@ function getTennisMat() {
 function getTurfMat() {
   if (!cachedTurfMat) {
     const cvs = document.createElement('canvas');
-    cvs.width = 256;
-    cvs.height = 256;
+    const bmp = document.createElement('canvas');
+    cvs.width = bmp.width = 256;
+    cvs.height = bmp.height = 256;
     const ctx = cvs.getContext('2d')!;
+    const bx = bmp.getContext('2d')!;
+    // Faded natural weathered proving-ground stadium grass stripes
     for (let i = 0; i < 8; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#16612b' : '#104d21';
+      ctx.fillStyle = i % 2 === 0 ? '#2b432d' : '#233725';
       ctx.fillRect(i * 32, 0, 32, 256);
     }
+    bx.fillStyle = '#7e7e7e';
+    bx.fillRect(0, 0, 256, 256);
+    // Natural worn soil scuffs & grass blade texture grain
+    for (let i = 0; i < 1600; i++) {
+      const gx = (i * 73) % 254;
+      const gy = (i * 151 + 29) % 254;
+      ctx.fillStyle = i % 7 === 0 ? 'rgba(64, 58, 42, 0.22)' : i % 2 === 0 ? 'rgba(18, 28, 19, 0.22)' : 'rgba(84, 108, 80, 0.14)';
+      ctx.fillRect(gx, gy, 2, 2);
+      bx.fillStyle = i % 2 === 0 ? 'rgba(205,205,205,0.28)' : 'rgba(55,55,55,0.28)';
+      bx.fillRect(gx, gy, 2, 2);
+    }
     const tex = new THREE.CanvasTexture(cvs);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    cachedTurfMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.90, metalness: 0.02 });
+    const bumpTex = new THREE.CanvasTexture(bmp);
+    tex.wrapS = tex.wrapT = bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedTurfMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      bumpMap: bumpTex,
+      bumpScale: 0.02,
+      roughness: 0.94,
+      metalness: 0.02,
+    });
   }
   return cachedTurfMat;
 }
 
-function createBrickTextureMat(baseMat: THREE.Material) {
-  return baseMat;
+function createBrickTextureMat(_baseMat: THREE.Material) {
+  if (!cachedBrickMat) {
+    const brickMaps = createBrickMasonryPbrMaps();
+    cachedBrickMat = new THREE.MeshStandardMaterial({
+      map: brickMaps.map,
+      bumpMap: brickMaps.bumpMap,
+      bumpScale: 0.048,
+      roughnessMap: brickMaps.roughnessMap,
+      roughness: 0.94,
+      metalness: 0.02,
+    });
+  }
+  return cachedBrickMat;
 }
 
 function clearGroupDeep(group: THREE.Group) {
@@ -621,14 +680,14 @@ export function buildDynamicCourseGroup(
     }
   }
 
-  // Stadium Perimeter Barriers & Yellow Coping
+  // Weathered Concrete Perimeter Barriers, Faded Coping & Corner Floodlight Pylons
   for (const [id, x, z, w, d] of [
     ['wall_north', 0, -17.82, 46, 0.32],
     ['wall_south', 0, 17.82, 46, 0.32],
     ['wall_west', -24.02, 0, 0.32, 36],
     ['wall_east', 24.02, 0, 0.32, 36],
   ] as [string, number, number, number, number][]) {
-    makeBox(courseGroup, mats.black, new THREE.Vector3(x, ARENA_FLOOR_HEIGHT + 0.39, z), new THREE.Vector3(w, 0.78, d));
+    makeBox(courseGroup, mats.concretePier, new THREE.Vector3(x, ARENA_FLOOR_HEIGHT + 0.39, z), new THREE.Vector3(w, 0.78, d));
     colliders.push({ id, x, z, hx: w / 2, hz: d / 2, y: ARENA_FLOOR_HEIGHT + 0.39, height: 0.78, rot: 0, walkable: false });
   }
   const wallTopY = ARENA_FLOOR_HEIGHT + 0.78;
@@ -636,6 +695,10 @@ export function buildDynamicCourseGroup(
   makeBox(courseGroup, mats.yellow, new THREE.Vector3(0, wallTopY + 0.015, 17.82), new THREE.Vector3(46, 0.03, 0.34), 0, false);
   makeBox(courseGroup, mats.yellow, new THREE.Vector3(-24.02, wallTopY + 0.015, 0), new THREE.Vector3(0.34, 0.03, 36), 0, false);
   makeBox(courseGroup, mats.yellow, new THREE.Vector3(24.02, wallTopY + 0.015, 0), new THREE.Vector3(0.34, 0.03, 36), 0, false);
+  for (const [lx, lz] of [[-23.6, -17.4], [23.6, -17.4], [-23.6, 17.4], [23.6, 17.4]]) {
+    makeCyl(courseGroup, mats.metal, new THREE.Vector3(lx, ARENA_FLOOR_HEIGHT + 3.2, lz), 0.14, 6.4, 'y', 12);
+    makeBox(courseGroup, mats.black, new THREE.Vector3(lx, ARENA_FLOOR_HEIGHT + 6.4, lz), new THREE.Vector3(0.75, 0.24, 0.42), 0, false);
+  }
 
   // Start Bay & Finish Tire Stop Wall
   makeBox(courseGroup, mats.asphalt, new THREE.Vector3(-19.5, ARENA_FLOOR_HEIGHT + 0.01, 13.50), new THREE.Vector3(4.0, 0.02, DRIVE_ROUTE_WIDTH), 0, false);
@@ -882,8 +945,8 @@ export function buildDynamicCourseGroup(
 
       // Build BOTH Realistic Full-Width Stadium Goalposts + Penalty Boxes + Low Side Containment Curbs
       const ledMats: Record<-1 | 1, THREE.MeshBasicMaterial> = {
-        [-1]: new THREE.MeshBasicMaterial({ color: '#f0bd53' }),
-        [1]: new THREE.MeshBasicMaterial({ color: '#f0bd53' }),
+        [-1]: new THREE.MeshBasicMaterial({ color: '#b08a42' }),
+        [1]: new THREE.MeshBasicMaterial({ color: '#b08a42' }),
       };
 
       for (const side of [-1, 1] as const) {
@@ -929,10 +992,10 @@ export function buildDynamicCourseGroup(
         // Solid green goal-pocket turf deck extending to rear stanchion so net floor is supported at deck level
         makeBox(courseGroup, getTurfMat(), new THREE.Vector3(cx, GROUND_DECK_HEIGHT - 0.004, zMid), new THREE.Vector3(goalMouthHalfU * 2 + 0.24, 0.04, goalDepthV + 0.08), 0, false);
 
-        // Woven Net Shell (wireframe net + subtle translucent pocket)
+        // Woven Net Shell (weathered muted steel wireframe net)
         const netShell = new THREE.Mesh(
           new THREE.BoxGeometry(goalMouthHalfU * 2, goalH * 0.94, goalDepthV),
-          new THREE.MeshBasicMaterial({ color: '#eef4ef', transparent: true, opacity: 0.42, wireframe: true }),
+          new THREE.MeshBasicMaterial({ color: '#aeb4b0', transparent: true, opacity: 0.34, wireframe: true }),
         );
         netShell.position.set(cx, turfTopY + goalH * 0.47, zMid);
         courseGroup.add(netShell);
@@ -1499,26 +1562,40 @@ export function buildDynamicCourseGroup(
     cvs.width = 512;
     cvs.height = 96;
     const ctx = cvs.getContext('2d')!;
-    ctx.fillStyle = '#111413';
+    // Weathered riveted dark-steel signboard with faded brass stencil text
+    ctx.fillStyle = '#151718';
     ctx.fillRect(0, 0, 512, 96);
-    ctx.strokeStyle = isFinishGate ? '#ffd700' : '#f0bd53';
-    ctx.lineWidth = 6;
+    for (let sp = 0; sp < 140; sp++) {
+      ctx.fillStyle = sp % 2 === 0 ? 'rgba(255,250,235,0.03)' : 'rgba(0,0,0,0.18)';
+      ctx.fillRect((sp * 53) % 508, (sp * 29) % 92, 4, 2);
+    }
+    ctx.strokeStyle = isFinishGate ? '#b59445' : '#9c7e42';
+    ctx.lineWidth = 5;
     ctx.strokeRect(4, 4, 504, 88);
-    ctx.fillStyle = isFinishGate ? '#ffe066' : '#f0bd53';
-    ctx.font = 'bold 28px Arial';
+    ctx.fillStyle = '#53585c';
+    for (const [bx, by] of [[14, 14], [498, 14], [14, 82], [498, 82]]) {
+      ctx.beginPath();
+      ctx.arc(bx, by, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = isFinishGate ? '#c9aa5c' : '#b89a56';
+    ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(cp.label.toUpperCase(), 256, 58);
-    const signMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.8, 0.52),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cvs), side: THREE.DoubleSide }),
-    );
-    signMesh.position.set(0, towerH, 0);
-    g.add(signMesh);
+    ctx.fillText(cp.label.toUpperCase(), 256, 56);
+    const signTex = new THREE.CanvasTexture(cvs);
+    signTex.colorSpace = THREE.SRGBColorSpace;
+    const signMat = new THREE.MeshBasicMaterial({ map: signTex });
+    for (const faceDir of [1, -1] as const) {
+      const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 0.48), signMat);
+      signMesh.position.set(0, towerH, faceDir * 0.13);
+      if (faceDir < 0) signMesh.rotation.y = Math.PI;
+      g.add(signMesh);
+    }
 
-    const laserColor = i === 0 ? '#f0bd53' : isFinishGate ? '#ffd700' : '#20e3b2';
+    const laserColor = i === 0 ? '#ad8944' : isFinishGate ? '#b59445' : '#398f76';
     const laserGeo = new THREE.CylinderGeometry(0.016, 0.016, beamSpan, 10);
     laserGeo.rotateZ(Math.PI / 2);
-    const bar = new THREE.Mesh(laserGeo, new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.75 }));
+    const bar = new THREE.Mesh(laserGeo, new THREE.MeshBasicMaterial({ color: laserColor, transparent: true, opacity: 0.52 }));
     bar.position.set(0, 0.04, 0);
     g.add(bar);
     laserBeams.push(bar);
@@ -1712,11 +1789,11 @@ export function stepDynamicHurdles(
   for (const arena of runtime.footballArenas) {
     if (arena.flashLeftTimer > 0) {
       arena.flashLeftTimer = Math.max(0, arena.flashLeftTimer - dt);
-      if (arena.flashLeftTimer === 0) arena.goalLeftLedMat.color.set('#f0bd53');
+      if (arena.flashLeftTimer === 0) arena.goalLeftLedMat.color.set('#b08a42');
     }
     if (arena.flashRightTimer > 0) {
       arena.flashRightTimer = Math.max(0, arena.flashRightTimer - dt);
-      if (arena.flashRightTimer === 0) arena.goalRightLedMat.color.set('#f0bd53');
+      if (arena.flashRightTimer === 0) arena.goalRightLedMat.color.set('#b08a42');
     }
 
     // Sub-step balls for crisp bouncing & zero tunneling
@@ -1814,10 +1891,10 @@ export function stepDynamicHurdles(
           b.scoredSide = gSide;
           arena.goalsScored += 1;
           if (gSide === -1) {
-            arena.goalLeftLedMat.color.set('#39e75f');
+            arena.goalLeftLedMat.color.set('#4e9e61');
             arena.flashLeftTimer = 1.25;
           } else {
-            arena.goalRightLedMat.color.set('#39e75f');
+            arena.goalRightLedMat.color.set('#4e9e61');
             arena.flashRightTimer = 1.25;
           }
           onFootballGoal(arena, arena.goalsScored);
