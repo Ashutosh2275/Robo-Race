@@ -4293,108 +4293,71 @@ function renderUI() {
 function showMenu() {
   const o = $<HTMLDivElement>('#overlay');
   const activeTrackId = getActiveTrack().id;
+  const formatCamName = (idx: number) => {
+    const raw = CAMERA_LABELS[idx] || 'CHASE';
+    return raw.charAt(0) + raw.slice(1).toLowerCase();
+  };
+  const tracks = [
+    { id: 'track_b', domId: 'cardTrackB', name: 'Spiral Tower', level: 'Expert', detail: '540° helix, pendulums & hanging bridges' },
+    { id: 'track_a', domId: 'cardTrackA', name: 'Elevation', level: 'Medium', detail: 'Tabletop deck, steel arch bridge & crucible' },
+    { id: 'track_c', domId: 'cardTrackC', name: 'Multi-Level', level: 'Advanced', detail: 'Stepping pads, switchback ramps & crucible' },
+    { id: 'track_d', domId: 'cardTrackD', name: 'Extreme Climb', level: 'Master', detail: '60° incline, boulder scramble & crucible' },
+  ] as const;
+
   o.innerHTML = `
-    <div class="overlay">
-      <div class="game-card">
-        <div class="hud-corner tl"></div>
-        <div class="hud-corner tr"></div>
-        <div class="hud-corner bl"></div>
-        <div class="hud-corner br"></div>
+    <div class="overlay overlay--menu">
+      <div class="menu-card" role="dialog" aria-labelledby="menuTitle">
+        <header class="menu-head">
+          <h1 class="menu-title" id="menuTitle">Robo Race 3D</h1>
+          <p class="menu-lead">Twelve-gate tracked robotics proving grounds.</p>
+        </header>
 
-        <div class="hub-status-ribbon">
-          <div class="hub-live-badge">
-            <span class="hub-live-dot"></span>
-            <span>TELEMETRY ONLINE</span>
+        <section class="menu-section" aria-label="Circuit selection">
+          <div class="menu-section-label">Proving circuit</div>
+          <div class="menu-track-list">
+            ${tracks.map(t => `
+              <button type="button" class="track-card ${activeTrackId === t.id ? 'active' : ''}" data-track="${t.id}" id="${t.domId}">
+                <div class="track-row-main">
+                  <span class="track-row-title">${t.name}</span>
+                  <span class="track-row-desc">${t.detail}</span>
+                </div>
+                <span class="track-row-level">${t.level}</span>
+              </button>
+            `).join('')}
           </div>
-          <div class="hub-sim-badge">UGV SIMULATOR v2.4</div>
-        </div>
+        </section>
 
-        <div class="hub-header">
-          <div class="hub-title-row">
-            <h1 class="hub-title">ROBO RACE</h1>
-            <span class="hub-edition">3D</span>
-          </div>
-          <div class="hub-subtitle">ADVANCED ROBOTIC PROVING GROUNDS</div>
-          <p class="hub-desc">
-            Pilot the high-torque differential tracked rover across 12 rigorous tactical sectors:
-            precision slaloms, elevated rock scramble, 540° spiral helix, kinetic swinging pendulums,
-            dual hanging suspension bridges, and the mandatory fire & water crucible.
-          </p>
-        </div>
-
-        <div class="hub-specs-grid">
-          <div class="hub-spec-pill"><span class="spec-ico">⚡</span> DIFFERENTIAL SKID-STEER</div>
-          <div class="hub-spec-pill"><span class="spec-ico">📐</span> 6-DOF RIGID INERTIA</div>
-          <div class="hub-spec-pill"><span class="spec-ico">🔋</span> THERMAL & BATTERY MODEL</div>
-          <div class="hub-spec-pill"><span class="spec-ico">🏁</span> 12 CHECKPOINT GATES</div>
-        </div>
-
-        <div class="hub-circuits-title">
-          <span>CHOOSE PROVING CIRCUIT:</span>
-          <small>TAP TO SELECT</small>
-        </div>
-        <div class="hub-track-grid">
-          <div class="track-card ${activeTrackId === 'track_b' ? 'active' : ''}" data-track="track_b" id="cardTrackB">
-            <div class="track-card-top">
-              <span class="track-tag-badge">★ SHOWCASE</span>
-              <span class="track-diff">★★★★★ EXPERT</span>
-            </div>
-            <div class="track-card-name">TRACK B: SPIRAL TOWER</div>
-            <div class="track-card-hazards">540° Helical Climb · Pendulums · Hanging Bridges · Fire/Water</div>
-          </div>
-          <div class="track-card ${activeTrackId === 'track_a' ? 'active' : ''}" data-track="track_a" id="cardTrackA">
-            <div class="track-card-top">
-              <span class="track-tag-badge">CIRCUIT</span>
-              <span class="track-diff">★★★ MEDIUM</span>
-            </div>
-            <div class="track-card-name">TRACK A: ELEVATION</div>
-            <div class="track-card-hazards">Tabletop Platform · Steel Arch Bridge · Fire/Water Crucible</div>
-          </div>
-          <div class="track-card ${activeTrackId === 'track_c' ? 'active' : ''}" data-track="track_c" id="cardTrackC">
-            <div class="track-card-top">
-              <span class="track-tag-badge">CIRCUIT</span>
-              <span class="track-diff">★★★★ ADVANCED</span>
-            </div>
-            <div class="track-card-name">TRACK C: MULTI-LEVEL</div>
-            <div class="track-card-hazards">Stepping Platforms · Switchback Ramps · Fire/Water Crucible</div>
-          </div>
-          <div class="track-card ${activeTrackId === 'track_d' ? 'active' : ''}" data-track="track_d" id="cardTrackD">
-            <div class="track-card-top">
-              <span class="track-tag-badge">CHALLENGE</span>
-              <span class="track-diff">★★★★★ MASTER</span>
-            </div>
-            <div class="track-card-name">TRACK D: EXTREME CLIMB</div>
-            <div class="track-card-hazards">60° Steep Incline · Boulder Scramble · Fire/Water Crucible</div>
-          </div>
-        </div>
-
-        <div class="hub-controls-strip">
-          <div class="hub-keycap-row">
-            <div class="hub-keycap-item"><kbd class="hud-k">W</kbd><kbd class="hud-k">S</kbd> DRIVE</div>
-            <div class="hub-keycap-item"><kbd class="hud-k">A</kbd><kbd class="hud-k">D</kbd> TURN</div>
-            <div class="hub-keycap-item"><kbd class="hud-k">SPACE</kbd> BRAKE</div>
-            <div class="hub-keycap-item"><kbd class="hud-k">R</kbd> RECOVER (HOLD: RESET)</div>
-            <div class="hub-keycap-item"><kbd class="hud-k">K</kbd> SKIP GATE</div>
-          </div>
-          <div class="hub-controller-caption">
-            🎮 <b>CONTROLLERS:</b> Xbox, PlayStation, RadioMaster Boxer/TX16S & EdgeTX natively supported
-          </div>
-        </div>
-
-        <button class="hub-hero-cta" id="btnStartRace">
-          <span>▶</span> ENGAGE DRIVETRAIN &bull; START RACE
+        <button class="menu-cta" id="btnStartRace" type="button">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
+          <span>Start race</span>
         </button>
 
-        <div class="hub-footer-actions">
-          <button class="iconbtn" id="btnMenuCam">📹 CAMERA: ${CAMERA_LABELS[cameraMode] || 'CHASE'}</button>
-          <button class="iconbtn" id="btnMenuSettings">⚙ SETTINGS</button>
-          <button class="iconbtn" id="btnMenuCalib">🎮 CALIBRATE</button>
+        <div class="menu-actions">
+          <button class="menu-util-btn" id="btnMenuCam" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            <span class="menu-cam-label">Camera: ${formatCamName(cameraMode)}</span>
+          </button>
+          <button class="menu-util-btn" id="btnMenuSettings" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Settings</span>
+          </button>
+          <button class="menu-util-btn" id="btnMenuCalib" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg>
+            <span>Calibrate</span>
+          </button>
         </div>
+
+        <footer class="menu-keys">
+          <span><kbd>WASD</kbd> Drive</span>
+          <span><kbd>Space</kbd> Brake</span>
+          <span><kbd>R</kbd> Recover</span>
+          <span><kbd>K</kbd> Skip</span>
+        </footer>
       </div>
     </div>
   `;
   $('#btnStartRace', o).addEventListener('click', startRace);
-  const trackCards = o.querySelectorAll<HTMLDivElement>('.track-card');
+  const trackCards = o.querySelectorAll<HTMLElement>('.track-card');
   trackCards.forEach(card => {
     card.addEventListener('click', () => {
       const trackId = card.dataset.track as TrackId;
@@ -4409,7 +4372,8 @@ function showMenu() {
   const btnMenuCam = $('#btnMenuCam', o);
   btnMenuCam.addEventListener('click', () => {
     cycleCamera();
-    btnMenuCam.innerHTML = `📹 CAMERA: ${CAMERA_LABELS[cameraMode] || 'CHASE'}`;
+    const camLbl = btnMenuCam.querySelector('.menu-cam-label');
+    if (camLbl) camLbl.textContent = `Camera: ${formatCamName(cameraMode)}`;
   });
   $('#btnMenuSettings', o).addEventListener('click', () => $('#settings').classList.toggle('hidden'));
   $('#btnMenuCalib', o).addEventListener('click', () => {
