@@ -56,8 +56,11 @@ import {
 } from './scoringRules';
 import {
   UniversalController,
+  type AxisCaptureTarget,
+  type BindableAction,
   type ControllerConfig,
   type ControllerMode,
+  type InputTriggerBinding,
 } from './universalController';
 import {
   MAP_SCALE,
@@ -1334,6 +1337,108 @@ function savePreferences() {
 // -------------------------------------------------------------
 // 9. UI, HUD, and Interaction Panels
 // -------------------------------------------------------------
+function formatTriggerBinding(binding?: InputTriggerBinding): string {
+  if (!binding || binding.kind === 'none') return 'Disabled';
+  if (binding.kind === 'button') return `Btn ${binding.index}`;
+  return `Ch ${binding.index} ${binding.direction === 'high' ? '↑ High' : '↓ Low'}`;
+}
+
+function syncSettingsControlsFromController() {
+  const ctrlConfig = controller.getConfig();
+  config.sensitivity = ctrlConfig.sensitivity;
+  config.deadzone = ctrlConfig.deadzone;
+  config.expo = ctrlConfig.expo;
+  config.controlMode = ctrlConfig.mode;
+  const sensEl = document.querySelector<HTMLInputElement>('#sens');
+  if (sensEl) sensEl.value = String(config.sensitivity);
+  const deadEl = document.querySelector<HTMLInputElement>('#dead');
+  if (deadEl) deadEl.value = String(config.deadzone);
+  const expoEl = document.querySelector<HTMLInputElement>('#expo');
+  if (expoEl) expoEl.value = String(config.expo);
+  const modeEl = document.querySelector<HTMLSelectElement>('#controlMode');
+  if (modeEl) modeEl.value = config.controlMode;
+}
+
+function syncDiagnosticsUI() {
+  const profile = controller.getCurrentProfile();
+  const ctrlConfig = controller.getConfig();
+  const diag = controller.getDiagnostics();
+  const devices = controller.getConnectedDevices();
+
+  const devSelect = $<HTMLSelectElement>('#diagDeviceSelect');
+  if (devSelect) {
+    devSelect.replaceChildren();
+    if (devices.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No USB controller connected (Keyboard active)';
+      devSelect.appendChild(opt);
+    } else {
+      if (diag.activeDeviceIndex === null) {
+        const detachedOpt = document.createElement('option');
+        detachedOpt.value = '';
+        detachedOpt.textContent = '-- Controller Detached · Keyboard Active (Scan USB or select below) --';
+        devSelect.appendChild(detachedOpt);
+      }
+      for (const dev of devices) {
+        const opt = document.createElement('option');
+        opt.value = String(dev.index);
+        const tag = dev.type.startsWith('transmitter') ? 'TX' : 'PAD';
+        opt.textContent = `[#${dev.index} · ${tag}] ${dev.id} (${dev.axesCount}ch/${dev.buttonsCount}btn)`;
+        devSelect.appendChild(opt);
+      }
+      devSelect.value = diag.activeDeviceIndex !== null ? String(diag.activeDeviceIndex) : '';
+    }
+  }
+
+  const matchedPreset = ['default_gamepad', 'radiomaster_boxer', 'flysky_fsi6x', 'jumper_tpro'].find(id =>
+    profile.type === 'transmitter_radiomaster'
+      ? id === 'radiomaster_boxer'
+      : profile.type === 'transmitter_flysky'
+        ? id === 'flysky_fsi6x'
+        : profile.type === 'transmitter_jumper'
+          ? id === 'jumper_tpro'
+          : id === 'default_gamepad'
+  ) ?? 'default_gamepad';
+
+  const profSelect = $<HTMLSelectElement>('#diagProfileSelect');
+  if (profSelect) profSelect.value = matchedPreset;
+  const modeSelect = $<HTMLSelectElement>('#diagModeSelect');
+  if (modeSelect) modeSelect.value = ctrlConfig.mode;
+  const steerSelect = $<HTMLSelectElement>('#diagSteerAxis');
+  if (steerSelect) steerSelect.value = String(profile.steeringAxis);
+  const thrSelect = $<HTMLSelectElement>('#diagThrottleAxis');
+  if (thrSelect) thrSelect.value = String(profile.throttleAxis);
+  const leftSelect = $<HTMLSelectElement>('#diagLeftTrackAxis');
+  if (leftSelect) leftSelect.value = String(profile.leftTrackAxis);
+  const rightSelect = $<HTMLSelectElement>('#diagRightTrackAxis');
+  if (rightSelect) rightSelect.value = String(profile.rightTrackAxis);
+  const invSteer = $<HTMLInputElement>('#diagInvertSteer');
+  if (invSteer) invSteer.checked = profile.invertSteering;
+  const invThr = $<HTMLInputElement>('#diagInvertThrottle');
+  if (invThr) invThr.checked = profile.invertThrottle;
+  const trigEl = $<HTMLInputElement>('#diagTriggerDrive');
+  if (trigEl) trigEl.checked = Boolean(profile.enableTriggerDrive);
+
+  const actions: BindableAction[] = ['brake', 'recover', 'changeCamera', 'techTimeout', 'skipGate', 'togglePause'];
+  for (const act of actions) {
+    const badge = $<HTMLElement>(`#diagBindVal_${act}`);
+    if (badge) badge.textContent = formatTriggerBinding(profile.bindings?.[act]);
+  }
+}
+
+function toggleDiagnosticsModal(show?: boolean) {
+  diagnosticsModalOpen = typeof show === 'boolean' ? show : !diagnosticsModalOpen;
+  $<HTMLElement>('#diagnosticsModal').classList.toggle('hidden', !diagnosticsModalOpen);
+  $('#diagBackdrop')?.classList.toggle('hidden', !diagnosticsModalOpen);
+  if (diagnosticsModalOpen) {
+    controller.neutralize();
+    syncDiagnosticsUI();
+  } else {
+    controller.cancelAutoBind();
+  }
+}
+
 function renderUI() {
   ui.innerHTML = `
     <div class="topbar">
@@ -1360,9 +1465,11 @@ function renderUI() {
       <button class="iconbtn" id="camera">◉ CAMERA</button>
       <button class="iconbtn" id="recover">↻ RECOVER · R</button>
       <button class="iconbtn" id="cutaway">⚙ CUTAWAY</button>
+      <button class="iconbtn" id="hudCalibBtn" title="USB Controller / RC Transmitter Calibration Studio (F2)">🎮 CTRL · F2</button>
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
+      <span id="hudInputBadge" class="input-source-pill">⌨ KEYBOARD</span>
       KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
     </div>
     <div id="floatingSkipContainer" class="floating-skip-container hidden">
@@ -1482,8 +1589,8 @@ function renderUI() {
     <div id="diagnosticsModal" class="diagnostics-modal hidden" role="dialog" aria-labelledby="diagModalTitle">
       <div class="diag-header">
         <div class="diag-title-group">
-          <h2 class="diag-title" id="diagModalTitle">Controller Calibration</h2>
-          <p class="diag-subtitle">Hardware mapping, inversion switches, and live stick signal monitor.</p>
+          <h2 class="diag-title" id="diagModalTitle">Controller &amp; Transmitter Calibration Studio</h2>
+          <p class="diag-subtitle">Auto-detect USB controllers (Xbox/PS, FlySky FS-i6X/iBus, RadioMaster Boxer/TX16S, Jumper/FrSky), sweep endpoints, zero centers &amp; bind switches.</p>
         </div>
         <div class="diag-header-actions">
           <div id="diagBanner" class="diag-banner ok"><span class="diag-dot"></span><span id="diagFailsafeState">Connected</span></div>
@@ -1493,7 +1600,18 @@ function renderUI() {
 
       <div class="diag-device-strip">
         <span id="diagDeviceName">Source: Keyboard / Direct Input</span>
-        <span>Zero-drift deadband calibration ready</span>
+        <span>Priority: Keyboard &gt; Active USB &gt; Touch</span>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">USB Controller / Receiver Manager (Plug &amp; Play)</div>
+        <div class="diag-device-row">
+          <select id="diagDeviceSelect" aria-label="Detected USB Controller">
+            <option value="">No USB controller detected (Keyboard active)</option>
+          </select>
+          <button id="diagRescanBtn" class="diag-btn subtle" type="button">Scan USB</button>
+          <button id="diagRemoveBtn" class="diag-btn danger" type="button">Remove Controller</button>
+        </div>
       </div>
 
       <div class="diag-section">
@@ -1501,63 +1619,101 @@ function renderUI() {
         <div class="diag-grid-2">
           <label class="diag-field">Hardware Profile
             <select id="diagProfileSelect">
-              <option value="default_gamepad">Standard Gamepad (Xbox / PlayStation)</option>
-              <option value="radiomaster_boxer">RadioMaster Boxer / TX16S (EdgeTX)</option>
-              <option value="flysky_fsi6x">FlySky FS-i6X / FS-i6</option>
-              <option value="jumper_tpro">Jumper T-Pro / T-Lite</option>
+              <option value="default_gamepad">Standard Gamepad (Xbox / PlayStation / Generic)</option>
+              <option value="radiomaster_boxer">RadioMaster Boxer / TX16S / Pocket (EdgeTX)</option>
+              <option value="flysky_fsi6x">FlySky FS-i6X / FS-i6 / FS-ST8 (iBus/PPM)</option>
+              <option value="jumper_tpro">Jumper T-Pro / FrSky Taranis (OpenTX)</option>
             </select>
           </label>
           <label class="diag-field">Drive Mode
             <select id="diagModeSelect">
-              <option value="single_stick">Single Stick / Universal</option>
-              <option value="tank_dual_stick">Dual Stick (Tank Mode)</option>
+              <option value="single_stick">Single Stick / Split Stick / Trigger Drive</option>
+              <option value="tank_dual_stick">Dual Stick (Independent Left/Right Tracks)</option>
             </select>
           </label>
         </div>
       </div>
 
       <div class="diag-section">
-        <div class="diag-section-title">Axis Channel Mappings &amp; Inversion</div>
+        <div class="diag-section-title">Axis Channel Mappings (Ch 0..7), Polarity &amp; Asymmetric Calibration</div>
         <div class="diag-grid-4">
-          <label class="diag-field">Steering
+          <label class="diag-field">Steering (Left/Right)
             <select id="diagSteerAxis">
-              <option value="0">Axis 0 (Left X)</option>
-              <option value="1">Axis 1 (Left Y)</option>
-              <option value="2">Axis 2 (Right X)</option>
-              <option value="3">Axis 3 (Right Y)</option>
+              <option value="0">Axis 0 (Ch 1 / LX)</option>
+              <option value="1">Axis 1 (Ch 2 / LY)</option>
+              <option value="2">Axis 2 (Ch 3 / RX)</option>
+              <option value="3">Axis 3 (Ch 4 / RY)</option>
+              <option value="4">Axis 4 (Aux Ch 5)</option>
+              <option value="5">Axis 5 (Aux Ch 6)</option>
+              <option value="6">Axis 6 (Aux Ch 7)</option>
+              <option value="7">Axis 7 (Aux Ch 8)</option>
             </select>
+            <button id="diagCapSteerBtn" class="diag-btn subtle mini" type="button">Capture Left</button>
           </label>
-          <label class="diag-field">Throttle
+          <label class="diag-field">Throttle (Fwd/Rev)
             <select id="diagThrottleAxis">
-              <option value="0">Axis 0 (Left X)</option>
-              <option value="1">Axis 1 (Left Y)</option>
-              <option value="2">Axis 2 (Right X)</option>
-              <option value="3">Axis 3 (Right Y)</option>
+              <option value="0">Axis 0 (Ch 1 / LX)</option>
+              <option value="1">Axis 1 (Ch 2 / LY)</option>
+              <option value="2">Axis 2 (Ch 3 / RX)</option>
+              <option value="3">Axis 3 (Ch 4 / RY)</option>
+              <option value="4">Axis 4 (Aux Ch 5)</option>
+              <option value="5">Axis 5 (Aux Ch 6)</option>
+              <option value="6">Axis 6 (Aux Ch 7)</option>
+              <option value="7">Axis 7 (Aux Ch 8)</option>
             </select>
+            <button id="diagCapThrottleBtn" class="diag-btn subtle mini" type="button">Capture Fwd</button>
           </label>
-          <label class="diag-field">Left Track
+          <label class="diag-field">Left Track (Tank)
             <select id="diagLeftTrackAxis">
-              <option value="0">Axis 0 (Left X)</option>
-              <option value="1">Axis 1 (Left Y)</option>
-              <option value="2">Axis 2 (Right X)</option>
-              <option value="3">Axis 3 (Right Y)</option>
+              <option value="0">Axis 0 (Ch 1 / LX)</option>
+              <option value="1">Axis 1 (Ch 2 / LY)</option>
+              <option value="2">Axis 2 (Ch 3 / RX)</option>
+              <option value="3">Axis 3 (Ch 4 / RY)</option>
+              <option value="4">Axis 4 (Aux Ch 5)</option>
+              <option value="5">Axis 5 (Aux Ch 6)</option>
+              <option value="6">Axis 6 (Aux Ch 7)</option>
+              <option value="7">Axis 7 (Aux Ch 8)</option>
             </select>
+            <button id="diagCapLeftTrackBtn" class="diag-btn subtle mini" type="button">Capture L-Fwd</button>
           </label>
-          <label class="diag-field">Right Track
+          <label class="diag-field">Right Track (Tank)
             <select id="diagRightTrackAxis">
-              <option value="0">Axis 0 (Left X)</option>
-              <option value="1">Axis 1 (Left Y)</option>
-              <option value="2">Axis 2 (Right X)</option>
-              <option value="3">Axis 3 (Right Y)</option>
+              <option value="0">Axis 0 (Ch 1 / LX)</option>
+              <option value="1">Axis 1 (Ch 2 / LY)</option>
+              <option value="2">Axis 2 (Ch 3 / RX)</option>
+              <option value="3">Axis 3 (Ch 4 / RY)</option>
+              <option value="4">Axis 4 (Aux Ch 5)</option>
+              <option value="5">Axis 5 (Aux Ch 6)</option>
+              <option value="6">Axis 6 (Aux Ch 7)</option>
+              <option value="7">Axis 7 (Aux Ch 8)</option>
             </select>
+            <button id="diagCapRightTrackBtn" class="diag-btn subtle mini" type="button">Capture R-Fwd</button>
           </label>
         </div>
         <div class="diag-toggle-row">
           <div class="diag-switches">
-            <label class="diag-switch"><input type="checkbox" id="diagInvertSteer"><span>Invert steering</span></label>
-            <label class="diag-switch"><input type="checkbox" id="diagInvertThrottle"><span>Invert throttle</span></label>
+            <label class="diag-switch"><input type="checkbox" id="diagInvertSteer"><span>Invert Steer</span></label>
+            <label class="diag-switch"><input type="checkbox" id="diagInvertThrottle"><span>Invert Throttle</span></label>
+            <label class="diag-switch"><input type="checkbox" id="diagTriggerDrive"><span>Triggers (RT/LT)</span></label>
           </div>
-          <button id="diagCalibCenterBtn" class="diag-btn" type="button">Calibrate Center</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="diagCalibCenterBtn" class="diag-btn" type="button">Zero Center</button>
+            <button id="diagSweepBtn" class="diag-btn" type="button">Sweep Endpoints</button>
+            <button id="diagResetCalibBtn" class="diag-btn subtle" type="button">Reset Defaults</button>
+          </div>
+        </div>
+        <div id="diagWizardStatus" class="diag-wizard-status hidden"></div>
+      </div>
+
+      <div class="diag-section">
+        <div class="diag-section-title">Button &amp; RC Transmitter Switch Bindings</div>
+        <div id="diagBindingsGrid" class="diag-bind-grid">
+          <div class="diag-bind-row"><span class="diag-bind-label">Brake / Hold</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_brake">Btn 0</span><button class="diag-btn subtle mini" data-bind-action="brake" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="brake" type="button">Off</button></div></div>
+          <div class="diag-bind-row"><span class="diag-bind-label">Recover Bot [R]</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_recover">Btn 1</span><button class="diag-btn subtle mini" data-bind-action="recover" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="recover" type="button">Off</button></div></div>
+          <div class="diag-bind-row"><span class="diag-bind-label">Cycle Camera [C]</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_changeCamera">Btn 2</span><button class="diag-btn subtle mini" data-bind-action="changeCamera" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="changeCamera" type="button">Off</button></div></div>
+          <div class="diag-bind-row"><span class="diag-bind-label">30s Tech Pit [T]</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_techTimeout">Btn 3</span><button class="diag-btn subtle mini" data-bind-action="techTimeout" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="techTimeout" type="button">Off</button></div></div>
+          <div class="diag-bind-row"><span class="diag-bind-label">Skip Gate [K]</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_skipGate">Btn 5</span><button class="diag-btn subtle mini" data-bind-action="skipGate" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="skipGate" type="button">Off</button></div></div>
+          <div class="diag-bind-row"><span class="diag-bind-label">Pause / Resume</span><div style="display:flex;gap:5px;align-items:center;"><span class="diag-bind-val" id="diagBindVal_togglePause">Btn 9</span><button class="diag-btn subtle mini" data-bind-action="togglePause" type="button">Bind</button><button class="diag-btn subtle mini" data-clear-action="togglePause" type="button">Off</button></div></div>
         </div>
       </div>
 
@@ -1608,10 +1764,11 @@ function renderUI() {
       </div>
 
       <div class="diag-section" style="margin-bottom:0;">
-        <div class="diag-section-title">Raw Channel Vector</div>
-        <div id="diagRawAxesList" class="diag-raw-axes">
+        <div class="diag-section-title">Live Calibrated Channels (Raw &rarr; Normalized) &amp; Buttons</div>
+        <div id="diagRawAxesList" class="diag-axis-cards">
           <span class="diag-axis-pill">Keyboard / Virtual input active</span>
         </div>
+        <div id="diagButtonsList" class="diag-btn-leds"></div>
       </div>
     </div>
   `;
@@ -1765,7 +1922,7 @@ function renderUI() {
   canvas.addEventListener('click', () => {
     if (raceState === 'racing' && !isPointerLocked && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
       try {
-        void canvas.requestPointerLock();
+        void Promise.resolve(canvas.requestPointerLock?.()).catch(() => {});
       } catch {}
     }
   });
@@ -1811,44 +1968,42 @@ function renderUI() {
   }, { passive: false });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-  // Diagnostics & Calibration modal logic
-  function syncDiagnosticsUI() {
-    const profile = controller.getCurrentProfile();
-    const ctrlConfig = controller.getConfig();
-    const profSelect = $<HTMLSelectElement>('#diagProfileSelect');
-    if (profSelect) profSelect.value = profile.id;
-    const modeSelect = $<HTMLSelectElement>('#diagModeSelect');
-    if (modeSelect) modeSelect.value = ctrlConfig.mode;
-    const steerSelect = $<HTMLSelectElement>('#diagSteerAxis');
-    if (steerSelect) steerSelect.value = String(profile.steeringAxis);
-    const thrSelect = $<HTMLSelectElement>('#diagThrottleAxis');
-    if (thrSelect) thrSelect.value = String(profile.throttleAxis);
-    const leftSelect = $<HTMLSelectElement>('#diagLeftTrackAxis');
-    if (leftSelect) leftSelect.value = String(profile.leftTrackAxis);
-    const rightSelect = $<HTMLSelectElement>('#diagRightTrackAxis');
-    if (rightSelect) rightSelect.value = String(profile.rightTrackAxis);
-    const invSteer = $<HTMLInputElement>('#diagInvertSteer');
-    if (invSteer) invSteer.checked = profile.invertSteering;
-    const invThr = $<HTMLInputElement>('#diagInvertThrottle');
-    if (invThr) invThr.checked = profile.invertThrottle;
-  }
-
-  function toggleDiagnosticsModal(show?: boolean) {
-    diagnosticsModalOpen = typeof show === 'boolean' ? show : !diagnosticsModalOpen;
-    $<HTMLElement>('#diagnosticsModal').classList.toggle('hidden', !diagnosticsModalOpen);
-    $('#diagBackdrop')?.classList.toggle('hidden', !diagnosticsModalOpen);
-    if (diagnosticsModalOpen) {
-      controller.neutralize();
-      syncDiagnosticsUI();
-    }
-  }
+  // Diagnostics & Calibration modal events
+  controller.onDeviceEvent((event, detail) => {
+    syncSettingsControlsFromController();
+    if (diagnosticsModalOpen) syncDiagnosticsUI();
+    if (event === 'connected') displayToast(`🔌 USB DETECTED: ${detail.slice(0, 38)}`);
+    else if (event === 'switched') displayToast(`🎛 CONTROLLER ACTIVE: ${detail.slice(0, 36)}`);
+    else if (event === 'calibrated') displayToast(`✓ ${detail.slice(0, 44).toUpperCase()}`);
+    else if (event === 'disconnected') displayToast(`⌨ ${detail.slice(0, 44).toUpperCase()}`);
+  });
 
   $('#openCalibBtn').addEventListener('click', () => toggleDiagnosticsModal(true));
+  $('#hudCalibBtn')?.addEventListener('click', () => toggleDiagnosticsModal(true));
   $('#closeCalibBtn').addEventListener('click', () => toggleDiagnosticsModal(false));
   $('#diagBackdrop')?.addEventListener('click', () => toggleDiagnosticsModal(false));
 
+  $('#diagDeviceSelect')?.addEventListener('change', e => {
+    const val = (e.target as HTMLSelectElement).value;
+    if (val !== '') {
+      controller.selectDeviceIndex(Number(val));
+      syncDiagnosticsUI();
+    }
+  });
+  $('#diagRescanBtn')?.addEventListener('click', () => {
+    const found = controller.rescanDevices();
+    syncDiagnosticsUI();
+    displayToast(found.length > 0 ? `🔌 FOUND ${found.length} USB CONTROLLER(S)` : 'NO USB CONTROLLERS FOUND · KEYBOARD READY');
+  });
+  $('#diagRemoveBtn')?.addEventListener('click', () => {
+    const removed = controller.removeActiveDevice();
+    syncDiagnosticsUI();
+    if (!removed) displayToast('KEYBOARD MODE ALREADY ACTIVE');
+  });
+
   $('#diagProfileSelect').addEventListener('change', e => {
     controller.selectProfileById((e.target as HTMLSelectElement).value);
+    syncSettingsControlsFromController();
     syncDiagnosticsUI();
     displayToast('HARDWARE PROFILE SWITCHED');
   });
@@ -1857,6 +2012,7 @@ function renderUI() {
     const mode = (e.target as HTMLSelectElement).value as ControllerMode;
     config.controlMode = mode;
     controller.updateConfig({ mode });
+    syncSettingsControlsFromController();
     savePreferences();
     displayToast(`MODE: ${mode.toUpperCase()}`);
   });
@@ -1874,6 +2030,19 @@ function renderUI() {
     controller.setAxisMapping('rightTrack', Number((e.target as HTMLSelectElement).value));
   });
 
+  const capMap: Array<[string, AxisCaptureTarget]> = [
+    ['#diagCapSteerBtn', 'steering_left'],
+    ['#diagCapThrottleBtn', 'throttle_fwd'],
+    ['#diagCapLeftTrackBtn', 'left_track_fwd'],
+    ['#diagCapRightTrackBtn', 'right_track_fwd'],
+  ];
+  for (const [sel, target] of capMap) {
+    document.querySelector(sel)?.addEventListener('click', () => {
+      controller.startAxisAutoBind(target);
+      displayToast('PUSH CONTROLLER STICK TOWARD TARGET DIRECTION...');
+    });
+  }
+
   $('#diagInvertSteer').addEventListener('change', () => {
     controller.toggleInvert('steering');
     syncDiagnosticsUI();
@@ -1884,9 +2053,45 @@ function renderUI() {
     syncDiagnosticsUI();
     displayToast(`THROTTLE INVERT: ${controller.getCurrentProfile().invertThrottle ? 'ON' : 'OFF'}`);
   });
+  $('#diagTriggerDrive')?.addEventListener('change', e => {
+    controller.setTriggerDrive((e.target as HTMLInputElement).checked);
+    displayToast(`RT/LT TRIGGER DRIVE: ${(e.target as HTMLInputElement).checked ? 'ON' : 'OFF'}`);
+  });
   $('#diagCalibCenterBtn').addEventListener('click', () => {
-    controller.calibrateCenter();
-    displayToast('CENTER ZERO-POINT CALIBRATED');
+    const ok = controller.calibrateCenter();
+    displayToast(ok ? '✓ CENTER ZERO-POINT CALIBRATED' : 'PLUG USB CONTROLLER FIRST TO ZERO CENTER');
+  });
+  $('#diagSweepBtn')?.addEventListener('click', () => {
+    const active = controller.getDiagnostics().calibrationWizard.activeSweep;
+    if (!active) {
+      controller.startEndpointCalibration();
+      displayToast('MOVE ALL STICKS THROUGH FULL MIN & MAX THEN CLICK FINISH');
+    } else {
+      const ok = controller.finishEndpointCalibration();
+      syncDiagnosticsUI();
+      displayToast(ok ? '✓ MIN/MAX ENDPOINTS CALIBRATED & SAVED' : 'NO AXIS SWEEP DETECTED');
+    }
+  });
+  $('#diagResetCalibBtn')?.addEventListener('click', () => {
+    controller.resetActiveCalibration();
+    syncSettingsControlsFromController();
+    syncDiagnosticsUI();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-bind-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.bindAction as BindableAction;
+      controller.startActionAutoBind(act);
+      displayToast(`PRESS CONTROLLER BUTTON OR FLIP TX SWITCH FOR ${act.toUpperCase()}...`);
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-clear-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.clearAction as BindableAction;
+      controller.setActionBinding(act, { kind: 'none' });
+      syncDiagnosticsUI();
+      displayToast(`${act.toUpperCase()} UNBOUND`);
+    });
   });
 
   // Mobile Joysticks
@@ -2055,7 +2260,7 @@ function finishTechnicalTimeout() {
   if (techTimeoutContext === 'mid_race') {
     techTimeoutUsedThisRound = true;
     raceState = 'racing';
-    try { void canvas.requestPointerLock(); } catch {}
+    try { void Promise.resolve(canvas.requestPointerLock?.()).catch(() => {}); } catch {}
     displayToast(hasAnyHardwareFault(subsystems) ? 'RESUMED WITH REMAINING FAULTS' : 'PIT REPAIRS COMPLETE · GO!');
   } else if (cb) {
     cb();
@@ -2229,7 +2434,7 @@ function showPaused() {
   $('#btnResume', o).addEventListener('click', () => {
     raceState = 'racing';
     hideOverlays();
-    try { void canvas.requestPointerLock(); } catch {}
+    try { void Promise.resolve(canvas.requestPointerLock?.()).catch(() => {}); } catch {}
   });
   $('#btnRestart', o).addEventListener('click', restartRace);
   $('#btnMainMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
@@ -2334,7 +2539,7 @@ function togglePause() {
   } else if (raceState === 'paused') {
     raceState = 'racing';
     hideOverlays();
-    try { void canvas.requestPointerLock(); } catch {}
+    try { void Promise.resolve(canvas.requestPointerLock?.()).catch(() => {}); } catch {}
   }
 }
 
@@ -2596,9 +2801,9 @@ window.addEventListener('keydown', e => {
     $('#diagBackdrop')?.classList.toggle('hidden', !diagnosticsModalOpen);
     if (diagnosticsModalOpen) {
       controller.neutralize();
-      const prof = controller.getCurrentProfile();
-      const ps = $<HTMLSelectElement>('#diagProfileSelect');
-      if (ps) ps.value = prof.id;
+      syncDiagnosticsUI();
+    } else {
+      controller.cancelAutoBind();
     }
   }
   if (e.code === 'F3') {
@@ -2753,6 +2958,10 @@ function stepPhysics(dt: number) {
   }
 
   if (raceState !== 'racing') {
+    if (raceState === 'paused') {
+      const pauseInputs = controller.poll();
+      if (pauseInputs.togglePause) togglePause();
+    }
     for (const tt of runtimeCourse.turntables) {
       tt.group.rotation.y += turntableCurrentOmega * dt;
     }
@@ -2767,6 +2976,8 @@ function stepPhysics(dt: number) {
   if (inputs.recover) recoverVehicle();
   if (inputs.changeCamera) cycleCamera();
   if (inputs.togglePause) togglePause();
+  if (inputs.skipGate) skipCurrentCheckpoint();
+  if (inputs.techTimeout) openTechnicalTimeout('mid_race');
 
   // Hardware faults realistically restrict drivetrain output (burnt motors pull sideways, swollen LiPo caps speed, burnt circuit stutters)
   const hwMods = getEffectiveDrivetrainModifiers(subsystems, elapsed);
@@ -3225,6 +3436,10 @@ function stepPhysics(dt: number) {
       });
     },
     getCurrentCheckpoint: () => currentCheckpoint,
+    controller,
+    getControllerDiagnostics: () => controller.getDiagnostics(),
+    getControllerProfile: () => controller.getCurrentProfile(),
+    toggleCalibrationModal: (open?: boolean) => toggleDiagnosticsModal(open),
     lastBarrierCollision,
     turntableOmega: turntableCurrentOmega,
     waterBuoyancy,
@@ -3621,16 +3836,38 @@ function updateHUD(dt: number) {
     }
   }
 
+  // Live active input source pill on bottom bar (never calls poll() during race so edge triggers are preserved)
+  const hudBadge = document.querySelector<HTMLElement>('#hudInputBadge');
+  if (hudBadge) {
+    if (raceState !== 'racing' && !diagnosticsModalOpen) {
+      controller.poll();
+    }
+    const dNow = controller.getDiagnostics();
+    if (dNow.source === 'transmitter') {
+      hudBadge.className = 'input-source-pill tx';
+      hudBadge.textContent = `📡 TX: ${dNow.profileName.slice(0, 22).toUpperCase()}`;
+    } else if (dNow.source === 'gamepad') {
+      hudBadge.className = 'input-source-pill gp';
+      hudBadge.textContent = `🎮 PAD: ${dNow.profileName.slice(0, 20).toUpperCase()}`;
+    } else if (dNow.source === 'touch') {
+      hudBadge.className = 'input-source-pill';
+      hudBadge.textContent = '✋ TOUCH JOYSTICK';
+    } else {
+      hudBadge.className = 'input-source-pill';
+      hudBadge.textContent = dNow.connectedDevices.length > 0 ? '⌨ KEYBOARD (USB STANDBY)' : '⌨ KEYBOARD';
+    }
+  }
+
   // Telemetry details panel
   if (drivingHudVisible) {
     const tel = $<HTMLElement>('#driveTelemetry');
     if (tel) {
-      const inputs = controller.poll();
+      const diagNow = controller.getDiagnostics();
       tel.innerHTML = `
-        SRC: ${inputs.source.toUpperCase()} (${inputs.deviceName})<br>
+        SRC: ${diagNow.source.toUpperCase()} (${diagNow.deviceName})<br>
         SCORE: ${scoreState.score} PTS · OUT-OF-LINE: ${Math.round(scoreState.lastOutFraction * 100)}%<br>
-        THR: ${Math.round(inputs.throttle * 100)}% · STR: ${Math.round(inputs.steering * 100)}%<br>
-        L TRACK: ${inputs.leftTrack.toFixed(2)} · R TRACK: ${inputs.rightTrack.toFixed(2)}<br>
+        THR: ${Math.round(diagNow.semanticThrottle * 100)}% · STR: ${Math.round(diagNow.semanticSteering * 100)}%<br>
+        L TRACK: ${diagNow.leftTrackCommand.toFixed(2)} · R TRACK: ${diagNow.rightTrackCommand.toFixed(2)}<br>
         PITCH: ${(pose.pitch * 57.3).toFixed(1)}° · ROLL: ${(pose.roll * 57.3).toFixed(1)}°<br>
         FLIPPED: ${pose.isFlipped ? 'YES (OVERTURNED)' : 'NO'}<br>
         BATTERY: ${subsystems.battery.voltage.toFixed(1)}V · ${subsystems.battery.currentAmps.toFixed(1)}A<br>
@@ -3644,6 +3881,7 @@ function updateHUD(dt: number) {
   if (diagnosticsModalOpen) {
     if (raceState !== 'racing') controller.poll();
     const diag = controller.getDiagnostics();
+    const prof = controller.getCurrentProfile();
     const banner = $<HTMLElement>('#diagBanner');
     if (banner) {
       banner.className = `diag-banner ${diag.failsafeActive ? 'alert' : 'ok'}`;
@@ -3654,7 +3892,37 @@ function updateHUD(dt: number) {
     }
     const failState = $<HTMLElement>('#diagFailsafeState');
     if (failState) {
-      failState.textContent = diag.failsafeActive ? 'Failsafe Active' : 'Connected';
+      failState.textContent = diag.failsafeActive
+        ? 'Disconnected'
+        : diag.activeDeviceIndex !== null
+          ? 'USB Synced'
+          : diag.connectedDevices.length > 0
+            ? 'Detached · Keyboard'
+            : 'Keyboard Ready';
+    }
+
+    const sweepBtn = $<HTMLElement>('#diagSweepBtn');
+    if (sweepBtn) {
+      const sweeping = diag.calibrationWizard.activeSweep;
+      sweepBtn.classList.toggle('active', sweeping);
+      sweepBtn.textContent = sweeping ? 'Finish Sweep (Save)' : 'Sweep Endpoints';
+    }
+
+    const wizardEl = $<HTMLElement>('#diagWizardStatus');
+    if (wizardEl) {
+      const wiz = diag.calibrationWizard;
+      if (wiz.activeSweep) {
+        wizardEl.classList.remove('hidden');
+        wizardEl.textContent = 'STEP ACTIVE: Move all transmitter gimbals / sticks slowly to full corners, release to center, then click "Finish Sweep (Save)".';
+      } else if (wiz.waitingAxisTarget) {
+        wizardEl.classList.remove('hidden');
+        wizardEl.textContent = `LISTENING FOR STICK AXIS (${wiz.waitingAxisTarget.replace(/_/g, ' ').toUpperCase()})... Push stick toward target direction.`;
+      } else if (wiz.waitingBindingAction) {
+        wizardEl.classList.remove('hidden');
+        wizardEl.textContent = `LISTENING FOR BUTTON / TX SWITCH (${wiz.waitingBindingAction.toUpperCase()})... Press gamepad button or flip 2/3-pos transmitter switch.`;
+      } else {
+        wizardEl.classList.add('hidden');
+      }
     }
 
     const stickDot = $<HTMLElement>('#diagStickDot');
@@ -3718,9 +3986,33 @@ function updateHUD(dt: number) {
     const rawList = $<HTMLElement>('#diagRawAxesList');
     if (rawList) {
       if (diag.rawAxes.length > 0) {
-        rawList.innerHTML = diag.rawAxes.map((ax, idx) => `<span class="diag-axis-pill">Ch ${idx}: ${ax >= 0 ? '+' : ''}${ax.toFixed(2)}</span>`).join('');
+        rawList.innerHTML = diag.rawAxes.slice(0, 8).map((raw, idx) => {
+          const cal = diag.calibratedAxes[idx] ?? raw;
+          const lim = prof.axisCalibrations?.[idx] ?? { min: -1, center: 0, max: 1 };
+          const pct = Math.max(0, Math.min(100, (cal + 1) * 50));
+          return `
+            <div class="diag-axis-card">
+              <div class="diag-axis-card-head"><span>Ch ${idx}</span><strong>${cal >= 0 ? '+' : ''}${cal.toFixed(2)}</strong></div>
+              <div class="diag-bar-track"><div class="diag-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+              <div class="diag-axis-card-sub">r:${raw >= 0 ? '+' : ''}${raw.toFixed(2)} [${lim.min.toFixed(2)}/${lim.center.toFixed(2)}/${lim.max.toFixed(2)}]</div>
+            </div>
+          `;
+        }).join('');
       } else {
-        rawList.innerHTML = `<span class="diag-axis-pill">Source: ${diag.source.toUpperCase()} (Keyboard / Virtual)</span>`;
+        rawList.innerHTML = `<span class="diag-axis-pill">Source: ${diag.source.toUpperCase()} (Plug USB controller or click Scan USB)</span>`;
+      }
+    }
+
+    const btnList = $<HTMLElement>('#diagButtonsList');
+    if (btnList) {
+      if (diag.rawButtons.length > 0) {
+        btnList.innerHTML = diag.rawButtons.slice(0, 16).map((pressed, idx) => {
+          const v = diag.rawButtonValues[idx] ?? (pressed ? 1 : 0);
+          const lit = pressed || v > 0.15;
+          return `<span class="diag-btn-led ${lit ? 'on' : ''}">B${idx}${v > 0.05 && v < 0.99 ? `:${v.toFixed(1)}` : ''}</span>`;
+        }).join('');
+      } else {
+        btnList.innerHTML = '';
       }
     }
   }
