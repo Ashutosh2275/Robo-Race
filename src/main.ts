@@ -2552,7 +2552,13 @@ function stepPhysics(dt: number) {
         tone(540, 0.12, 0.05);
         displayToast(`⚽ GOAL ${goalIndex} SCORED (MAX +2 EXTRA BONUS REACHED)`);
       }
-    }
+    },
+    (relSpeedMps: number) => {
+      const minorHp = Math.min(subsystems.integrity.chassis, Math.min(9, 2.5 + relSpeedMps * 1.4));
+      subsystems.integrity.chassis = Math.max(0, subsystems.integrity.chassis - minorHp);
+      tone(145, 0.18, 0.08);
+      displayToast(`🚧 TRAFFIC GATE BUMP (-${Math.round(minorHp)}% HP)`);
+    },
   );
 
   // Track grounded launch origin prior to stepping 3D gravity/ground following
@@ -2800,9 +2806,9 @@ function stepPhysics(dt: number) {
       displayToast(`ARENA: ${ARENA_METADATA[id].name.toUpperCase()}`);
     },
     reshuffleCourse: (seed?: number) => buildCourseForTrack(getActiveTrack().id, seed),
-    generatedCourse: runtimeCourse.plan,
-    checkpoints: checkpointMeshes,
-    footballArenas: runtimeCourse.footballArenas,
+    get generatedCourse() { return runtimeCourse.plan; },
+    get checkpoints() { return checkpointMeshes; },
+    get footballArenas() { return runtimeCourse.footballArenas; },
     getActiveTrack,
     evaluateCourseHeight: (x: number, z: number, y?: number) => evaluateCourseHeight(x, z, y),
     raceState,

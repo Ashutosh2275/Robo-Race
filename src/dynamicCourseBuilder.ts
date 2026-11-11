@@ -14,6 +14,9 @@ import {
 import {
   DYNAMIC_WATER_BED_Y,
   DYNAMIC_WATER_LEVEL_Y,
+  evaluateCamberBankHeightAt,
+  evaluateMogulHeightAt,
+  evaluateStaircaseHeightAt,
   sampleHangingBridgeRibbon,
   stepHangingBridgeState,
   type GeneratedCourse,
@@ -195,6 +198,19 @@ export type WaterBasinRuntime = {
   wakeCooldown: number;
 };
 
+export type SlidingGateRuntime = {
+  slot: HurdleSlot;
+  u: number;
+  amplitude: number;
+  omega: number;
+  phase: number;
+  halfThickU: number;
+  halfWidthV: number;
+  gateGroup: THREE.Group;
+  beaconMat: THREE.MeshBasicMaterial;
+  hitCooldown: number;
+};
+
 export type CourseRuntimeHandles = {
   plan: GeneratedCourse;
   checkpoints: CheckpointMeshRuntime[];
@@ -203,6 +219,7 @@ export type CourseRuntimeHandles = {
   pendulums: PendulumRuntime[];
   seesaws: SeesawRuntime[];
   hangingBridges: HangingBridgeRuntime[];
+  slidingGates: SlidingGateRuntime[];
   footballArenas: FootballArenaRuntime[];
   waterBasins: WaterBasinRuntime[];
   flames: FlameRuntime[];
@@ -497,6 +514,8 @@ let cachedGoalNetMat: THREE.MeshBasicMaterial | null = null;
 let cachedChicaneDecalMat: THREE.MeshStandardMaterial | null = null;
 let cachedChicaneSignMat: THREE.MeshStandardMaterial | null = null;
 let cachedReflectiveTapeMat: THREE.MeshStandardMaterial | null = null;
+let cachedHazardStripeMat: THREE.MeshStandardMaterial | null = null;
+let cachedChevronBoardMat: THREE.MeshStandardMaterial | null = null;
 let cachedWaterBasinConcreteMats: {
   floorMat: THREE.MeshStandardMaterial;
   wallMat: THREE.MeshStandardMaterial;
@@ -952,6 +971,156 @@ function getChicaneSignMat() {
   return cachedChicaneSignMat;
 }
 
+function getHazardStripeMat() {
+  if (!cachedHazardStripeMat) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 256;
+    cvs.height = 256;
+    const ctx = cvs.getContext('2d')!;
+    ctx.fillStyle = '#bd8d2c';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#181a1c';
+    for (let x = -256; x < 512; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 32, 0);
+      ctx.lineTo(x - 128, 256);
+      ctx.lineTo(x - 160, 256);
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (let i = 0; i < 220; i++) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(20,22,24,0.16)' : 'rgba(220,210,180,0.08)';
+      ctx.fillRect((i * 53) % 252, (i * 97) % 252, 3, 2);
+    }
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedHazardStripeMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.62,
+      metalness: 0.24,
+    });
+  }
+  return cachedHazardStripeMat;
+}
+
+function getChevronBoardMat() {
+  if (!cachedChevronBoardMat) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 256;
+    cvs.height = 192;
+    const ctx = cvs.getContext('2d')!;
+    ctx.fillStyle = '#c4932c';
+    ctx.fillRect(0, 0, 256, 192);
+    ctx.strokeStyle = '#181a1c';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(8, 8, 240, 176);
+    ctx.fillStyle = '#181a1c';
+    ctx.beginPath();
+    ctx.moveTo(46, 28);
+    ctx.lineTo(116, 28);
+    ctx.lineTo(186, 96);
+    ctx.lineTo(116, 164);
+    ctx.lineTo(46, 164);
+    ctx.lineTo(116, 96);
+    ctx.closePath();
+    ctx.fill();
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    cachedChevronBoardMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.50,
+      metalness: 0.22,
+    });
+  }
+  return cachedChevronBoardMat;
+}
+
+/**
+ * Builds a closed solid prism conforming exactly to arbitrary (u, v) terrain breakpoints,
+ * guaranteeing zero height mismatch between visual geometry and vehicle physics probes.
+ */
+function makeSlotTerrainSolid(
+  parent: THREE.Object3D,
+  slot: HurdleSlot,
+  uBreaks: number[],
+  vBreaks: number[],
+  heightAt: (u: number, v: number) => number,
+  mat: THREE.Material,
+  bottomY = ARENA_FLOOR_HEIGHT,
+) {
+  const nu = uBreaks.length;
+  const nv = vBreaks.length;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const toX = (u: number) => slot.centerX + slot.dir * u;
+  const toZ = (v: number) => slot.laneZ + slot.dir * v;
+  const uSpan = Math.max(1e-3, uBreaks[nu - 1] - uBreaks[0]);
+  const vSpan = Math.max(1e-3, vBreaks[nv - 1] - vBreaks[0]);
+
+  // Top surface vertices [0 .. nu*nv-1]
+  for (let iu = 0; iu < nu; iu++) {
+    const u = uBreaks[iu];
+    const tu = (u - uBreaks[0]) / uSpan;
+    for (let iv = 0; iv < nv; iv++) {
+      const v = vBreaks[iv];
+      const tv = (v - vBreaks[0]) / vSpan;
+      positions.push(toX(u), heightAt(u, v), toZ(v));
+      uvs.push(tu * 2.5, tv);
+    }
+  }
+  for (let iu = 0; iu < nu - 1; iu++) {
+    for (let iv = 0; iv < nv - 1; iv++) {
+      const a = iu * nv + iv;
+      const b = a + 1;
+      const c = (iu + 1) * nv + iv;
+      const d = c + 1;
+      indices.push(a, b, d, a, d, c);
+    }
+  }
+
+  // Helper to push a vertical skirt wall quad strip along any outer perimeter polyline
+  const addSkirtWall = (ptsTop: Array<[number, number, number]>, flip: boolean) => {
+    const base = positions.length / 3;
+    for (let i = 0; i < ptsTop.length; i++) {
+      const [px, py, pz] = ptsTop[i];
+      positions.push(px, py, pz, px, bottomY, pz);
+      const t = i / Math.max(1, ptsTop.length - 1);
+      uvs.push(t * 2, 1, t * 2, 0);
+    }
+    for (let i = 0; i < ptsTop.length - 1; i++) {
+      const a = base + i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      if (flip) {
+        indices.push(a, c, d, a, d, b);
+      } else {
+        indices.push(a, b, d, a, d, c);
+      }
+    }
+  };
+
+  addSkirtWall(uBreaks.map(u => [toX(u), heightAt(u, vBreaks[0]), toZ(vBreaks[0])]), true);
+  addSkirtWall(uBreaks.map(u => [toX(u), heightAt(u, vBreaks[nv - 1]), toZ(vBreaks[nv - 1])]), false);
+  addSkirtWall(vBreaks.map(v => [toX(uBreaks[0]), heightAt(uBreaks[0], v), toZ(v)]), false);
+  addSkirtWall(vBreaks.map(v => [toX(uBreaks[nu - 1]), heightAt(uBreaks[nu - 1], v), toZ(v)]), true);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
 const _strutUp = new THREE.Vector3(0, 1, 0);
 const _strutDir = new THREE.Vector3();
 function makeStrutBetween(
@@ -1115,23 +1284,87 @@ export function buildDynamicCourseGroup(
     }
   }
 
-  // 4 Hairpin Ribbons
+  // 4 Hairpin Ribbons + FIA Outer Kerbs + Corner Chevrons + Inner Center Apex Island Bollards
   const hairpins: Array<[number, number, number, number]> = [
     [17.50, 10.125, Math.PI / 2, -Math.PI / 2],
     [-17.50, 3.375, Math.PI / 2, Math.PI * 1.5],
     [17.50, -3.375, Math.PI / 2, -Math.PI / 2],
     [-17.50, -10.125, Math.PI / 2, Math.PI * 1.5],
   ];
-  for (const [cx, cz, a0, a1] of hairpins) {
+  for (const [hx, hz, a0, a1] of hairpins) {
     const pts: { x: number; z: number }[] = [];
     for (let i = 0; i <= 24; i++) {
       const a = a0 + (a1 - a0) * (i / 24);
-      pts.push({ x: cx + 3.375 * Math.cos(a), z: cz + 3.375 * Math.sin(a) });
+      pts.push({ x: hx + 3.375 * Math.cos(a), z: hz + 3.375 * Math.sin(a) });
     }
     makeRouteRibbon(courseGroup, pts, 0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006, 0.12, true);
     makeRouteRibbon(courseGroup, pts, -(DRIVE_ROUTE_WIDTH / 2 - 0.10), 0.08, mats.laneStripeWhite, 0.016);
     makeRouteRibbon(courseGroup, pts, DRIVE_ROUTE_WIDTH / 2 - 0.10, 0.08, mats.laneStripeWhite, 0.016);
     makeRouteRibbon(courseGroup, pts, 0, 0.08, mats.yellow, 0.016);
+
+    // Outer apex alternating red/white FIA rumble kerbs along curved turn rim (flush at r = 5.42m)
+    const kerbCount = 12;
+    for (let ki = 0; ki < kerbCount; ki++) {
+      const s0 = 0.14 + 0.72 * (ki / kerbCount);
+      const s1 = 0.14 + 0.72 * ((ki + 1) / kerbCount);
+      const ka0 = a0 + (a1 - a0) * s0;
+      const ka1 = a0 + (a1 - a0) * s1;
+      const kMid = (ka0 + ka1) * 0.5;
+      const arcLen = 5.44 * Math.abs(ka1 - ka0);
+      const kerb = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.026, arcLen * 0.94),
+        ki % 2 === 0 ? mats.red : mats.concreteCurb,
+      );
+      kerb.position.set(hx + 5.44 * Math.cos(kMid), GROUND_DECK_HEIGHT + 0.013, hz + 5.44 * Math.sin(kMid));
+      kerb.rotation.y = -kMid;
+      kerb.receiveShadow = true;
+      courseGroup.add(kerb);
+    }
+
+    // 3 Reflective turn chevron warning boards mounted outside turn shoulder (r = 6.02m)
+    for (const sFrac of [0.28, 0.50, 0.72]) {
+      const ang = a0 + (a1 - a0) * sFrac;
+      const sx = hx + 6.02 * Math.cos(ang);
+      const sz = hz + 6.02 * Math.sin(ang);
+      makeCyl(courseGroup, mats.metal, new THREE.Vector3(sx, GROUND_DECK_HEIGHT + 0.34, sz), 0.038, 0.68, 'y', 10);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.48, 0.04), getChevronBoardMat());
+      board.position.set(sx, GROUND_DECK_HEIGHT + 0.68, sz);
+      board.lookAt(hx, GROUND_DECK_HEIGHT + 0.68, hz);
+      if (a1 < a0) board.rotateZ(Math.PI);
+      board.castShadow = true;
+      courseGroup.add(board);
+    }
+
+    // Inner hairpin eyelet hub: weathered concrete island + stacked tire buffer + amber marker (inside r <= 0.56m, clear of r >= 1.15m track)
+    makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(hx, GROUND_DECK_HEIGHT + 0.12, hz), 0.56, 0.24, 'y', 18);
+    const hubTire = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.14, 10, 20), mats.rubber);
+    hubTire.rotation.x = Math.PI / 2;
+    hubTire.position.set(hx, GROUND_DECK_HEIGHT + 0.24, hz);
+    hubTire.castShadow = true;
+    hubTire.receiveShadow = true;
+    courseGroup.add(hubTire);
+    makeCyl(courseGroup, mats.yellow, new THREE.Vector3(hx, GROUND_DECK_HEIGHT + 0.44, hz), 0.18, 0.32, 'y', 12);
+    makeCyl(courseGroup, mats.beaconAmber, new THREE.Vector3(hx, GROUND_DECK_HEIGHT + 0.64, hz), 0.10, 0.10, 'y', 12);
+    colliders.push({ id: `hairpin_hub_${Math.round(hx)}_${Math.round(hz)}`, x: hx, z: hz, hx: 0.56, hz: 0.56, y: GROUND_DECK_HEIGHT + 0.35, height: 0.70, rot: 0, walkable: false });
+  }
+
+  // Non-intrusive Infield Median Jersey Barriers between lanes where geometry clearances allow
+  for (const mz of [10.125, 3.375, -3.375, -10.125]) {
+    for (const mx of [-10.0, 0.0, 10.0]) {
+      const blocked = plan.slots.some(s =>
+        Math.abs(mx - s.centerX) <= s.halfLen + 1.8 && Math.abs(s.laneZ - mz) <= s.meta.halfWidth + 1.15
+      );
+      if (blocked) continue;
+      makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(mx, ARENA_FLOOR_HEIGHT + 0.22, mz), new THREE.Vector3(2.1, 0.44, 0.34));
+      makeBox(courseGroup, mats.yellow, new THREE.Vector3(mx, ARENA_FLOOR_HEIGHT + 0.45, mz), new THREE.Vector3(2.1, 0.03, 0.20), 0, false);
+      colliders.push({ id: `median_jersey_${Math.round(mx)}_${Math.round(mz * 10)}`, x: mx, z: mz, hx: 1.05, hz: 0.17, y: ARENA_FLOOR_HEIGHT + 0.22, height: 0.45, rot: 0, walkable: false });
+    }
+  }
+
+  // Finish & West Staging Perimeter Tire Clusters (well outside active lane splines)
+  for (const [px, pz] of [[19.2, -14.8], [21.0, -13.5], [19.2, -12.2], [-21.6, 15.8], [-21.6, 11.2]]) {
+    makeCyl(courseGroup, mats.rubber, new THREE.Vector3(px, ARENA_FLOOR_HEIGHT + 0.18, pz), 0.42, 0.36, 'y', 14);
+    makeCyl(courseGroup, mats.rubber, new THREE.Vector3(px + 0.02, ARENA_FLOOR_HEIGHT + 0.48, pz - 0.02), 0.38, 0.26, 'y', 14);
   }
 
   // Paint Grand Finish Checkered Line at Gate Last (x = 13.50, z = -13.50)
@@ -1152,6 +1385,7 @@ export function buildDynamicCourseGroup(
   const turntables: TurntableRuntime[] = [];
   const seesaws: SeesawRuntime[] = [];
   const hangingBridges: HangingBridgeRuntime[] = [];
+  const slidingGates: SlidingGateRuntime[] = [];
   const footballArenas: FootballArenaRuntime[] = [];
   const waterBasins: WaterBasinRuntime[] = [];
   const flames: FlameRuntime[] = [];
@@ -1935,6 +2169,152 @@ export function buildDynamicCourseGroup(
         ttGroup.add(bar);
       }
       turntables.push({ group: ttGroup, x: cx, z: lz, radius: 2.30, deckY });
+    } else if (slot.type === 'moguls_stagger') {
+      const uBreaks: number[] = [];
+      for (let i = 0; i <= 36; i++) uBreaks.push(-4.2 + (8.4 * i) / 36);
+      const vBreaks = [-2.2, -1.6, -1.0, -0.45, -0.22, 0, 0.22, 0.45, 1.0, 1.6, 2.2];
+      makeSlotTerrainSolid(courseGroup, slot, uBreaks, vBreaks, evaluateMogulHeightAt, mats.concreteCurb, ARENA_FLOOR_HEIGHT);
+
+      // Steel traction cleats & crest warning trim on alternating alternating mounds
+      for (const [mu, side] of [[-2.45, -1], [0.0, 1], [2.45, -1]] as Array<[number, number]>) {
+        const crestH = evaluateMogulHeightAt(mu, side * 1.15);
+        for (const barOff of [-0.26, 0.0, 0.26]) {
+          makeBox(
+            courseGroup,
+            mats.diamondPlate,
+            new THREE.Vector3(toCourseX(slot, mu + barOff), crestH + 0.012, toCourseZ(slot, side * 1.20)),
+            new THREE.Vector3(0.14, 0.02, 1.65),
+            0,
+            false,
+          );
+        }
+        makeBox(
+          courseGroup,
+          mats.yellow,
+          new THREE.Vector3(toCourseX(slot, mu), crestH + 0.015, toCourseZ(slot, side * 2.12)),
+          new THREE.Vector3(1.10, 0.02, 0.10),
+          0,
+          false,
+        );
+      }
+    } else if (slot.type === 'step_staircase') {
+      const uBreaks = [-3.65, -2.85, -2.65, -1.85, -1.65, -0.85, -0.65, 0.65, 0.85, 1.65, 1.85, 2.65, 2.85, 3.65];
+      const vBreaks = [-2.20, 0.0, 2.20];
+      makeSlotTerrainSolid(courseGroup, slot, uBreaks, vBreaks, (u) => evaluateStaircaseHeightAt(u), mats.concretePier, ARENA_FLOOR_HEIGHT);
+
+      // Steel diamond-plate summit platform & yellow anti-slip step nosings
+      const topY = evaluateStaircaseHeightAt(0);
+      makeBox(courseGroup, mats.diamondPlate, new THREE.Vector3(cx, topY + 0.012, lz), new THREE.Vector3(1.26, 0.02, DRIVE_ROUTE_WIDTH - 0.16), 0, false);
+      for (const stepU of [-2.65, -1.65, -0.65, 0.65, 1.65, 2.65]) {
+        const sy = evaluateStaircaseHeightAt(stepU);
+        makeBox(
+          courseGroup,
+          mats.yellow,
+          new THREE.Vector3(toCourseX(slot, stepU), sy + 0.014, lz),
+          new THREE.Vector3(0.08, 0.018, DRIVE_ROUTE_WIDTH - 0.16),
+          0,
+          false,
+        );
+      }
+      // Side precast step parapet curbs
+      for (const side of [-1, 1]) {
+        makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(cx, GROUND_DECK_HEIGHT + 0.16, lz + side * 2.22), new THREE.Vector3(7.4, 0.32, 0.12));
+      }
+    } else if (slot.type === 'camber_bank') {
+      const uBreaks: number[] = [];
+      for (let i = 0; i <= 32; i++) uBreaks.push(-4.5 + (9.0 * i) / 32);
+      const vBreaks: number[] = [];
+      for (let j = 0; j <= 10; j++) vBreaks.push(-2.2 + (4.4 * j) / 10);
+      makeSlotTerrainSolid(courseGroup, slot, uBreaks, vBreaks, evaluateCamberBankHeightAt, mats.asphalt, ARENA_FLOOR_HEIGHT);
+
+      // Faded yellow center stripe & outer red/white apex camber kerbs conforming to twisted S-bank
+      const centerPts: Array<{ u: number; v: number }> = uBreaks.map(u => ({ u, v: 0 }));
+      for (let i = 0; i < centerPts.length - 1; i++) {
+        const uMid = (centerPts[i].u + centerPts[i + 1].u) * 0.5;
+        const ym = evaluateCamberBankHeightAt(uMid, 0);
+        const y0 = evaluateCamberBankHeightAt(centerPts[i].u, 0);
+        const y1 = evaluateCamberBankHeightAt(centerPts[i + 1].u, 0);
+        const pitch = Math.atan2(y1 - y0, centerPts[i + 1].u - centerPts[i].u) * d;
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.012, 0.08), mats.yellow);
+        stripe.position.set(toCourseX(slot, uMid), ym + 0.01, lz);
+        stripe.rotation.z = pitch;
+        courseGroup.add(stripe);
+
+        for (const side of [-1, 1]) {
+          const edgeV = side * 2.08;
+          const ey0 = evaluateCamberBankHeightAt(centerPts[i].u, edgeV);
+          const ey1 = evaluateCamberBankHeightAt(centerPts[i + 1].u, edgeV);
+          const ePitch = Math.atan2(ey1 - ey0, centerPts[i + 1].u - centerPts[i].u) * d;
+          const kerb = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.18), i % 2 === 0 ? mats.red : mats.concreteCurb);
+          kerb.position.set(toCourseX(slot, uMid), (ey0 + ey1) * 0.5 + 0.012, toCourseZ(slot, edgeV));
+          kerb.rotation.z = ePitch;
+          courseGroup.add(kerb);
+        }
+      }
+    } else if (slot.type === 'sliding_gates') {
+      // Three synchronized overhead gantry tracks with laterally oscillating hazard barriers
+      [-2.6, 0.0, 2.6].forEach((gu, gi) => {
+        const gx = toCourseX(slot, gu);
+        const railY = GROUND_DECK_HEIGHT + 2.02;
+
+        // Painted floor sweep warning strip beneath each gate rail
+        makeBox(courseGroup, getHazardStripeMat(), new THREE.Vector3(gx, GROUND_DECK_HEIGHT + 0.014, lz), new THREE.Vector3(0.46, 0.012, DRIVE_ROUTE_WIDTH - 0.24), 0, false);
+
+        // Twin vertical gantry columns + footings + overhead steel I-beam carrier rail
+        for (const side of [-1, 1]) {
+          const pz = toCourseZ(slot, side * 2.34);
+          makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(gx, GROUND_DECK_HEIGHT + 0.10, pz), 0.16, 0.20, 'y', 10);
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(gx, GROUND_DECK_HEIGHT + 1.05, pz), new THREE.Vector3(0.14, 2.10, 0.14));
+        }
+        makeBox(courseGroup, mats.metal, new THREE.Vector3(gx, railY + 0.06, lz), new THREE.Vector3(0.18, 0.16, 4.90));
+        makeBox(courseGroup, mats.chrome, new THREE.Vector3(gx, railY - 0.06, lz), new THREE.Vector3(0.08, 0.06, 4.70));
+
+        // Animated sliding barrier carriage
+        const gateGroup = new THREE.Group();
+        gateGroup.position.set(gx, GROUND_DECK_HEIGHT, lz);
+        courseGroup.add(gateGroup);
+
+        const carriage = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 1.66), mats.black);
+        carriage.position.y = 1.92;
+        carriage.castShadow = true;
+        gateGroup.add(carriage);
+
+        for (const sOff of [-0.55, 0.55]) {
+          const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.92, 10), mats.chrome);
+          hanger.position.set(0, 1.44, sOff);
+          hanger.castShadow = true;
+          gateGroup.add(hanger);
+        }
+
+        const shield = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.88, 1.60), getHazardStripeMat());
+        shield.position.y = 0.56;
+        shield.castShadow = true;
+        shield.receiveShadow = true;
+        gateGroup.add(shield);
+
+        const bumper = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 1.64), mats.rubber);
+        bumper.position.y = 0.18;
+        bumper.castShadow = true;
+        gateGroup.add(bumper);
+
+        const beaconMat = new THREE.MeshBasicMaterial({ color: '#e5a93c' });
+        const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.10, 12), beaconMat);
+        beacon.position.y = 1.06;
+        gateGroup.add(beacon);
+
+        slidingGates.push({
+          slot,
+          u: gu,
+          amplitude: 1.32,
+          omega: 1.45,
+          phase: gi * 2.15,
+          halfThickU: 0.24,
+          halfWidthV: 0.80,
+          gateGroup,
+          beaconMat,
+          hitCooldown: 0,
+        });
+      });
     } else if (slot.type === 'pendulum_bridge') {
       const deckY = 1.35;
       const wCat = 2.64;
@@ -2377,6 +2757,7 @@ export function buildDynamicCourseGroup(
     pendulums,
     seesaws,
     hangingBridges,
+    slidingGates,
     footballArenas,
     waterBasins,
     flames,
@@ -2397,6 +2778,7 @@ export function stepDynamicHurdles(
   dt: number,
   onPendulumImpact: (relSpeedMps: number) => void,
   onFootballGoal: (arena: FootballArenaRuntime, goalIndex: number) => void,
+  onSlidingGateImpact?: (relSpeedMps: number) => void,
 ) {
   // 1. Rotate Turntable platters & apply tangential deck velocity when above matching deck height
   for (const tt of runtime.turntables) {
@@ -2795,6 +3177,46 @@ export function stepDynamicHurdles(
     }
   }
 
-  // Guard unused helper warning if footprint helper wasn't needed
-  void getFootprintAabbHalfExtents;
+  // 6. Animate & depenetrate Synchronized Pneumatic Sliding Traffic Gates
+  if (runtime.slidingGates.length > 0) {
+    const fp = getFootprintAabbHalfExtents(pose.yaw);
+    const botHx = fp.x / MAP_SCALE;
+    const botHz = fp.z / MAP_SCALE;
+    const onGroundBand = Math.abs((pose.y + TRACK_CONTACT_OFFSET) - GROUND_DECK_HEIGHT) <= 0.72;
+    for (const sg of runtime.slidingGates) {
+      sg.hitCooldown = Math.max(0, sg.hitCooldown - dt);
+      const vGate = sg.amplitude * Math.sin(sg.omega * nowSec + sg.phase);
+      const vvGate = sg.slot.dir * sg.amplitude * sg.omega * Math.cos(sg.omega * nowSec + sg.phase);
+      sg.gateGroup.position.z = sg.slot.laneZ + sg.slot.dir * vGate;
+      sg.beaconMat.color.setHex(Math.sin(nowSec * 9.0 + sg.phase) > 0 ? 0xe5a93c : 0x5c3c12);
+
+      if (!onGroundBand) continue;
+      const uBot = sg.slot.dir * (rx - sg.slot.centerX);
+      const vBot = sg.slot.dir * (rz - sg.slot.laneZ);
+      const du = uBot - sg.u;
+      const dv = vBot - vGate;
+      const ovU = (botHx + sg.halfThickU) - Math.abs(du);
+      const ovV = (botHz + sg.halfWidthV) - Math.abs(dv);
+      if (ovU > 0 && ovV > 0) {
+        if (ovU < ovV) {
+          const pushX = sg.slot.dir * (du >= 0 ? 1 : -1) * (ovU + 0.015) * MAP_SCALE;
+          pose.x += pushX;
+          motionState.x = pose.x;
+          pose.vx *= 0.35;
+          motionState.vx = pose.vx;
+        } else {
+          const pushZ = sg.slot.dir * (dv >= 0 ? 1 : -1) * (ovV + 0.015) * MAP_SCALE;
+          pose.z += pushZ;
+          motionState.z = pose.z;
+          pose.vz = vvGate * MAP_SCALE * 0.55;
+          motionState.vz = pose.vz;
+        }
+        const relSpeed = Math.hypot(pose.vx, pose.vz - vvGate * MAP_SCALE);
+        if (sg.hitCooldown <= 0 && relSpeed > 1.35) {
+          sg.hitCooldown = 0.85;
+          onSlidingGateImpact?.(relSpeed);
+        }
+      }
+    }
+  }
 }

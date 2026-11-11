@@ -657,3 +657,87 @@ test('recessed water basin tank sits below ground grade with smooth concrete wad
     setActiveGeneratedCourse(null);
   }
 });
+
+test('courses densely populate lane slots and include new technical hurdles across arenas', () => {
+  const seen = new Set<string>();
+  let totalSlots = 0;
+  let runs = 0;
+
+  for (const tid of TRACK_IDS) {
+    for (let s = 1; s <= 25; s++) {
+      const c = generateRandomizedCourse(tid, s * 11003 + tid.charCodeAt(6) * 19);
+      totalSlots += c.slots.length;
+      runs += 1;
+      for (const sl of c.slots) seen.add(sl.type);
+    }
+  }
+
+  const avgSlots = totalSlots / runs;
+  assert.ok(avgSlots >= 8.0, `Expected dense lane occupancy (>= 8.0 slots avg), got ${avgSlots.toFixed(2)}`);
+  for (const newType of ['moguls_stagger', 'step_staircase', 'camber_bank', 'sliding_gates']) {
+    assert.ok(seen.has(newType), `Expected new obstacle ${newType} to appear across randomized courses`);
+  }
+});
+
+test('robot negotiates moguls_stagger, step_staircase, and camber_bank cleanly without rollover', () => {
+  const driveAcrossSlot = (hurdleType: 'moguls_stagger' | 'step_staircase' | 'camber_bank') => {
+    let targetCourse = null;
+    for (let s = 1; s <= 60; s++) {
+      const c = generateRandomizedCourse('track_b', s * 7717);
+      if (c.slots.some(sl => sl.type === hurdleType)) {
+        targetCourse = c;
+        break;
+      }
+    }
+    assert.ok(targetCourse, `Expected ${hurdleType} within seed sweep`);
+    const slot = targetCourse.slots.find(sl => sl.type === hurdleType)!;
+
+    try {
+      setActiveGeneratedCourse(targetCourse);
+      const startX = (slot.centerX - slot.dir * 5.2) * MAP_SCALE;
+      const startZ = slot.laneZ * MAP_SCALE;
+      const pose: VehiclePose = {
+        x: startX,
+        y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+        z: startZ,
+        vx: slot.dir * 2.8,
+        vy: 0,
+        vz: 0,
+        pitch: 0,
+        yaw: slot.dir > 0 ? Math.PI / 2 : -Math.PI / 2,
+        roll: 0,
+        pitchRate: 0,
+        yawRate: 0,
+        rollRate: 0,
+        isFlipped: false,
+        isGrounded: true,
+        flippedTimer: 0,
+        lastImpactSpeed: 0,
+      };
+      let peakHeight = GROUND_DECK_HEIGHT;
+      let maxAbsRoll = 0;
+      const dt = 1 / 60;
+      const steps = 260;
+      const worldHeight = (wx: number, wz: number, curY?: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, curY);
+      for (let i = 0; i < steps; i++) {
+        pose.vx = slot.dir * 2.8;
+        pose.vz = 0;
+        pose.x += pose.vx * dt;
+        stepVehicle3D(pose, worldHeight, 2.8, 0, dt);
+        assert.equal(pose.isFlipped, false, `Unexpected rollover traversing ${hurdleType} at step ${i} (roll=${pose.roll.toFixed(3)}, pitch=${pose.pitch.toFixed(3)})`);
+        peakHeight = Math.max(peakHeight, pose.y + TRACK_CONTACT_OFFSET);
+        maxAbsRoll = Math.max(maxAbsRoll, Math.abs(pose.roll));
+      }
+      assert.ok(peakHeight > GROUND_DECK_HEIGHT + 0.15, `${hurdleType} did not physically elevate the robot (peak=${peakHeight.toFixed(3)})`);
+      if (hurdleType === 'moguls_stagger' || hurdleType === 'camber_bank') {
+        assert.ok(maxAbsRoll > 0.04, `${hurdleType} should engage realistic lateral roll articulation (maxRoll=${maxAbsRoll.toFixed(3)})`);
+      }
+    } finally {
+      setActiveGeneratedCourse(null);
+    }
+  };
+
+  driveAcrossSlot('moguls_stagger');
+  driveAcrossSlot('step_staircase');
+  driveAcrossSlot('camber_bank');
+});

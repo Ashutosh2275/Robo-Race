@@ -33,6 +33,10 @@ export type HurdleType =
   | 'high_climb'
   | 'oil_chicane'
   | 'turntable_deck'
+  | 'moguls_stagger'
+  | 'step_staircase'
+  | 'camber_bank'
+  | 'sliding_gates'
   | 'pendulum_bridge'
   | 'hanging_bridges'
   | 'spiral_tower';
@@ -61,6 +65,10 @@ export const HURDLE_CATALOG: Record<HurdleType, HurdleMeta> = {
   high_climb: { type: 'high_climb', label: 'High-Incline Zigzag Ramp', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.6 },
   oil_chicane: { type: 'oil_chicane', label: 'Oil Slick & Tire Chicane', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.2 },
   turntable_deck: { type: 'turntable_deck', label: 'Rotating Turntable Deck', tier: 'medium', basePoints: 20, halfLen: 5.4, halfWidth: 2.45 },
+  moguls_stagger: { type: 'moguls_stagger', label: 'Articulated Tank Moguls', tier: 'easy', basePoints: 10, halfLen: 5.0, halfWidth: 2.2 },
+  step_staircase: { type: 'step_staircase', label: 'Industrial Pyramid Steps', tier: 'easy', basePoints: 10, halfLen: 5.0, halfWidth: 2.2 },
+  camber_bank: { type: 'camber_bank', label: 'Twisting Cross-Camber Wall', tier: 'medium', basePoints: 20, halfLen: 5.2, halfWidth: 2.2 },
+  sliding_gates: { type: 'sliding_gates', label: 'Synchronized Traffic Gates', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.2 },
   pendulum_bridge: { type: 'pendulum_bridge', label: 'Swinging Pendulum Bridge', tier: 'hard', basePoints: 30, halfLen: 6.0, halfWidth: 2.20 },
   hanging_bridges: { type: 'hanging_bridges', label: 'Twin Hanging Bridges', tier: 'hard', basePoints: 30, halfLen: 6.2, halfWidth: 2.2 },
   spiral_tower: { type: 'spiral_tower', label: '540° Spiral Tower Climb', tier: 'hard', basePoints: 30, halfLen: 12.2, isFullLane: true, halfWidth: 3.45 },
@@ -416,9 +424,9 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
     picked.push('football_arena');
   }
 
-  // 2. Include 1-2 early Easy (10 pts) hurdles alongside the mandatory Fire/Water easy obstacles
+  // 2. Include 2-3 early Easy (10 pts) hurdles upfront alongside mandatory Fire/Water finale
   const easyPool = shuffleInPlace([...EARLY_EASY_TYPES], rand);
-  const baseEasyCount = trackId === 'track_a' ? 2 : 1;
+  const baseEasyCount = 2;
   for (let i = 0; i < baseEasyCount && i < easyPool.length; i++) {
     if (canAddEarly(easyPool[i])) {
       chosen.add(easyPool[i]);
@@ -426,46 +434,52 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
     }
   }
 
-  // 3. Pick 1-3 Hard (30 pts) hurdles while leaving budget for Medium hurdles + mandatory finale
+  // 3. Pick 1-2 Hard (30 pts) hurdles while leaving enough pts to populate empty lane slots
   const hardPool = shuffleInPlace([...HARD_TYPES], rand);
-  const wantHard = trackId === 'track_d' ? (rand() < 0.55 ? 3 : 2) : trackId === 'track_a' ? (rand() < 0.55 ? 2 : 1) : 2;
+  const wantHard = trackId === 'track_d' ? (rand() < 0.55 ? 2 : 1) : (rand() < 0.35 ? 2 : 1);
   for (let i = 0; i < wantHard && i < hardPool.length; i++) {
     const medCount = picked.filter(t => HURDLE_CATALOG[t].tier === 'medium').length;
-    const minMedReserve = Math.max(0, 2 - medCount) * 20;
-    if (canAddEarly(hardPool[i], minMedReserve)) {
+    const minMedReserve = Math.max(0, 1 - medCount) * 20;
+    // Preserve at least 10 pts per remaining slot toward full-bay occupancy (min 7 early slots)
+    const slotsAfter = Math.max(0, 6 - picked.length);
+    const minSlotReserve = Math.max(minMedReserve, slotsAfter * 10);
+    if (canAddEarly(hardPool[i], minSlotReserve)) {
       chosen.add(hardPool[i]);
       picked.push(hardPool[i]);
     }
   }
 
-  // 4. Pick Medium (20 pts) hurdles up to tier target
+  // 4. Pick Medium (20 pts) hurdles while leaving room to fill all straightaway bays
   const medPool = shuffleInPlace([...MEDIUM_TYPES], rand);
-  const wantMed = trackId === 'track_a' ? 3 : 2 + (rand() < 0.45 ? 1 : 0);
+  const wantMed = trackId === 'track_a' ? 2 : 2 + (rand() < 0.45 ? 1 : 0);
   for (const m of medPool) {
     if (picked.filter(t => HURDLE_CATALOG[t].tier === 'medium').length >= wantMed) break;
-    if (canAddEarly(m)) {
+    const targetSlots = chosen.has('spiral_tower') ? 7 : 8;
+    const slotsLeftAfter = Math.max(0, targetSlots - picked.length - 1);
+    if (canAddEarly(m, slotsLeftAfter * 10)) {
       chosen.add(m);
       picked.push(m);
     }
   }
 
-  // 5. Fill remaining budget up to target points [100..150] (including 20 pts reserved for Fire + Water)
+  // 5. Fill empty straightaway bays across Lanes 1..4 cleanly within [100..150] budget
   const targetEarlyPts = Math.max(
     MIN_EARLY_PTS,
     arena.targetMinPts - RESERVED_END_PTS + Math.floor(rand() * (arena.targetMaxPts - arena.targetMinPts + 1)),
   );
 
   for (const e of easyPool) {
-    if (currentPts() >= targetEarlyPts && currentPts() >= MIN_EARLY_PTS) break;
+    const fullCapacity = chosen.has('spiral_tower') ? 7 : 8;
+    if (picked.length >= fullCapacity && currentPts() >= targetEarlyPts) break;
     if (canAddEarly(e)) {
       chosen.add(e);
       picked.push(e);
     }
   }
 
-  // Top up if under minimum total (100 pts)
+  // Top up points if under target or minimum total (100 pts)
   for (const m of medPool) {
-    if (currentPts() >= MIN_EARLY_PTS) break;
+    if (currentPts() >= Math.max(MIN_EARLY_PTS, targetEarlyPts - 10)) break;
     if (canAddEarly(m)) {
       chosen.add(m);
       picked.push(m);
@@ -682,6 +696,57 @@ export function getActiveGeneratedCourse(): GeneratedCourse | null {
 
 // ---------------------------------------------------------------------------
 // Parameterized Local Evaluators for Any Placed Hurdle Slot
+/** Pure height evaluator shared between physics & 3D mesh for Alternating Tank Moguls. */
+export function evaluateMogulHeightAt(u: number, v: number): number {
+  const mounds: ReadonlyArray<[number, number]> = [
+    [-2.45, -1],
+    [0.0, 1],
+    [2.45, -1],
+  ];
+  let maxLift = 0;
+  for (const [uc, side] of mounds) {
+    const du = Math.abs(u - uc);
+    if (du >= 1.35) continue;
+    const lobe = easeCushionedRamp(1 - du / 1.35, 0.25);
+    const signedV = v * side;
+    const latWeight = signedV <= -0.30 ? 0 : signedV >= 0.30 ? 1 : easeCushionedRamp((signedV + 0.30) / 0.60, 0.20);
+    const lift = 0.46 * lobe * latWeight;
+    if (lift > maxLift) maxLift = lift;
+  }
+  return GROUND_DECK_HEIGHT + maxLift;
+}
+
+/** Pure height evaluator shared between physics & 3D mesh for Industrial Pyramid Steps. */
+export function evaluateStaircaseHeightAt(u: number): number {
+  const d = Math.abs(u);
+  let lift = 0;
+  if (d <= 0.65) {
+    lift = 0.72;
+  } else if (d <= 0.85) {
+    lift = 0.72 - 0.24 * ((d - 0.65) / 0.20);
+  } else if (d <= 1.65) {
+    lift = 0.48;
+  } else if (d <= 1.85) {
+    lift = 0.48 - 0.24 * ((d - 1.65) / 0.20);
+  } else if (d <= 2.65) {
+    lift = 0.24;
+  } else if (d <= 2.85) {
+    lift = 0.24 - 0.24 * ((d - 2.65) / 0.20);
+  }
+  return GROUND_DECK_HEIGHT + Math.max(0, lift);
+}
+
+/** Pure height evaluator shared between physics & 3D mesh for Twisting Cross-Camber Bank. */
+export function evaluateCamberBankHeightAt(u: number, v: number): number {
+  if (u <= -4.5 || u >= 4.5) return GROUND_DECK_HEIGHT;
+  const tNorm = (u + 4.5) / 9.0;
+  const bell = Math.pow(Math.sin(tNorm * Math.PI), 0.85);
+  const twist = Math.sin((u / 4.5) * Math.PI);
+  const vClamped = Math.max(-2.2, Math.min(2.2, v));
+  const crossFrac = 0.5 + 0.5 * (vClamped / 2.2) * twist;
+  return GROUND_DECK_HEIGHT + 0.88 * bell * crossFrac;
+}
+
 // ---------------------------------------------------------------------------
 function evalSlotLocal(
   slot: HurdleSlot,
@@ -700,7 +765,8 @@ function evalSlotLocal(
 
   switch (slot.type) {
     case 'brick_slalom':
-    case 'oil_chicane': {
+    case 'oil_chicane':
+    case 'sliding_gates': {
       if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
       if (slot.type === 'oil_chicane' && Math.abs(u) <= 3.7) {
         return {
@@ -711,6 +777,39 @@ function evalSlotLocal(
         };
       }
       return { matched: true, height: GROUND_DECK_HEIGHT, rockOffset: 0 };
+    }
+
+    case 'moguls_stagger': {
+      if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
+      const h = evaluateMogulHeightAt(u, v);
+      return {
+        matched: true,
+        height: h,
+        rockOffset: Math.max(0, h - GROUND_DECK_HEIGHT) * 0.4,
+        surface: { grip: 0.96, rollingResistance: 0.42, hazard: 'none', lateralGripMultiplier: 1.28 },
+      };
+    }
+
+    case 'step_staircase': {
+      if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
+      const h = evaluateStaircaseHeightAt(u);
+      return {
+        matched: true,
+        height: h,
+        rockOffset: 0,
+        surface: { grip: 1.04, rollingResistance: 0.44, hazard: 'none', lateralGripMultiplier: 1.25 },
+      };
+    }
+
+    case 'camber_bank': {
+      if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
+      const h = evaluateCamberBankHeightAt(u, v);
+      return {
+        matched: true,
+        height: h,
+        rockOffset: 0,
+        surface: { grip: 0.96, rollingResistance: 0.34, hazard: 'none', lateralGripMultiplier: 1.32 },
+      };
     }
 
     case 'rock_scramble': {
