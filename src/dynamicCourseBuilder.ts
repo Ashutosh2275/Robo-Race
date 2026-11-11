@@ -1779,9 +1779,9 @@ export function buildDynamicCourseGroup(
         const mode = idx % 3;
         const vMid = mode === 0 ? -0.75 : mode === 1 ? 0.75 : 0;
         const lenZ = mode === 2 ? 3.20 : 2.25;
-        makeCyl(courseGroup, idx % 2 === 0 ? mats.wood : mats.metal, new THREE.Vector3(lx, GROUND_DECK_HEIGHT + 0.04, toCourseZ(slot, vMid)), 0.22, lenZ, 'z', 14);
-        makeCyl(courseGroup, mats.yellow, new THREE.Vector3(lx, GROUND_DECK_HEIGHT + 0.04, toCourseZ(slot, vMid - lenZ / 2 + 0.08)), 0.23, 0.10, 'z', 14);
-        makeCyl(courseGroup, mats.yellow, new THREE.Vector3(lx, GROUND_DECK_HEIGHT + 0.04, toCourseZ(slot, vMid + lenZ / 2 - 0.08)), 0.23, 0.10, 'z', 14);
+        makeCyl(courseGroup, idx % 2 === 0 ? mats.wood : mats.metal, new THREE.Vector3(lx, GROUND_DECK_HEIGHT, toCourseZ(slot, vMid)), 0.24, lenZ, 'z', 18);
+        makeCyl(courseGroup, mats.yellow, new THREE.Vector3(lx, GROUND_DECK_HEIGHT, toCourseZ(slot, vMid - lenZ / 2 + 0.08)), 0.245, 0.10, 'z', 18);
+        makeCyl(courseGroup, mats.yellow, new THREE.Vector3(lx, GROUND_DECK_HEIGHT, toCourseZ(slot, vMid + lenZ / 2 - 0.08)), 0.245, 0.10, 'z', 18);
       });
     } else if (slot.type === 'rumble_washboard') {
       for (let i = 0; i < 8; i++) {

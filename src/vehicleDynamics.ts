@@ -151,16 +151,78 @@ export function stepVehicle3D(
 ) {
   pose.lastImpactSpeed = 0;
   const patches = getContactPatches(pose.x, pose.z, pose.yaw);
-  const hFL = heightAt(patches.frontLeft.x, patches.frontLeft.z);
-  const hFR = heightAt(patches.frontRight.x, patches.frontRight.z);
-  const hRL = heightAt(patches.rearLeft.x, patches.rearLeft.z);
-  const hRR = heightAt(patches.rearRight.x, patches.rearRight.z);
-  const hML = heightAt((patches.frontLeft.x + patches.rearLeft.x) * 0.5, (patches.frontLeft.z + patches.rearLeft.z) * 0.5);
-  const hMR = heightAt((patches.frontRight.x + patches.rearRight.x) * 0.5, (patches.frontRight.z + patches.rearRight.z) * 0.5);
+  const rawFL = heightAt(patches.frontLeft.x, patches.frontLeft.z);
+  const rawFR = heightAt(patches.frontRight.x, patches.frontRight.z);
+  const rawRL = heightAt(patches.rearLeft.x, patches.rearLeft.z);
+  const rawRR = heightAt(patches.rearRight.x, patches.rearRight.z);
+
+  const rawFrontH = (rawFL + rawFR) * 0.5;
+  const rawRearH = (rawRL + rawRR) * 0.5;
+  const rawLeftH = (rawFL + rawRL) * 0.5;
+  const rawRightH = (rawFR + rawRR) * 0.5;
+  const centerH = heightAt(pose.x, pose.z);
+  const rawRollDiff = Math.abs(rawRightH - rawLeftH);
+  const rawPitchDiff = Math.abs(rawFrontH - rawRearH);
+
+  // 1. True cliff-edge detection (evaluated cleanly on raw corner probes vs center belly):
+  const isCliffStep = Math.abs(centerH - (rawLeftH + rawRightH) * 0.5) > 0.10;
+  const isCliffSideDrop = rawRollDiff >= 0.70 && isCliffStep;
+  const isCliffEndStep = Math.abs(centerH - (rawFrontH + rawRearH) * 0.5) > 0.24;
+  const isCliffEndDrop = rawPitchDiff >= 1.10 && isCliffEndStep;
+
+  // 2. Multi-station continuous rigid track belt contact (7 stations along each track):
+  // Prevents narrow transverse obstacles (logs, pipes, steps, boulders) from falling between
+  // front/rear corner probes or sinking into the lower belt run on single-sided contact.
+  let hFL = rawFL;
+  let hFR = rawFR;
+  let hRL = rawRL;
+  let hRR = rawRR;
+  let beltMidMaxL = (rawFL + rawRL) * 0.5;
+  let beltMidMaxR = (rawFR + rawRR) * 0.5;
+  let beltSamplesL: number[] | null = null;
+  let beltSamplesR: number[] | null = null;
+  if (!isCliffSideDrop && !isCliffEndDrop) {
+    const sampleBelt = (rear: { x: number; z: number }, front: { x: number; z: number }, h0: number, h1: number) => {
+      const arr = [h0];
+      for (let k = 1; k <= 5; k++) {
+        const f = k / 6;
+        arr.push(heightAt(rear.x + (front.x - rear.x) * f, rear.z + (front.z - rear.z) * f));
+      }
+      arr.push(h1);
+      const endMax = Math.max(h0, h1);
+      let effRear = h0;
+      let effFront = h1;
+      // Only activate interior convex obstacle tilt when a bump genuinely protrudes above BOTH belt ends
+      // (so downhill ramp/plateau shoulders never cantilever corners artificially into midair).
+      for (let k = 4; k <= 5; k++) {
+        if (arr[k] > endMax + 0.008) effFront = Math.max(effFront, arr[k]);
+      }
+      for (let k = 1; k <= 2; k++) {
+        if (arr[k] > endMax + 0.008) effRear = Math.max(effRear, arr[k]);
+      }
+      let midRaise = 0;
+      for (let k = 1; k <= 5; k++) {
+        if (arr[k] <= endMax + 0.008) continue;
+        const f = k / 6;
+        const lineY = effRear + (effFront - effRear) * f;
+        if (arr[k] > lineY) midRaise = Math.max(midRaise, arr[k] - lineY);
+      }
+      return { rear: effRear + midRaise, front: effFront + midRaise, midH: arr[3], all: arr };
+    };
+
+    const leftBelt = sampleBelt(patches.rearLeft, patches.frontLeft, rawRL, rawFL);
+    const rightBelt = sampleBelt(patches.rearRight, patches.frontRight, rawRR, rawFR);
+    hRL = leftBelt.rear;
+    hFL = leftBelt.front;
+    hRR = rightBelt.rear;
+    hFR = rightBelt.front;
+    beltMidMaxL = leftBelt.midH;
+    beltMidMaxR = rightBelt.midH;
+    beltSamplesL = leftBelt.all;
+    beltSamplesR = rightBelt.all;
+  }
 
   const avgGroundH = (hFL + hFR + hRL + hRR) / 4;
-
-  // Compute terrain slope pitch and roll under the vehicle
   const frontH = (hFL + hFR) * 0.5;
   const rearH = (hRL + hRR) * 0.5;
   const leftH = (hFL + hRL) * 0.5;
@@ -168,19 +230,8 @@ export function stepVehicle3D(
 
   const groundPitch = -Math.atan2(frontH - rearH, TRACK_LENGTH);
   const rawGroundRoll = Math.atan2(rightH - leftH, TRACK_WIDTH);
-  const centerH = heightAt(pose.x, pose.z);
   const rollDifferential = Math.abs(rightH - leftH);
   const pitchDifferential = Math.abs(frontH - rearH);
-
-  // 1. True cliff-edge detection:
-  // On continuous slopes and ramps, the terrain smoothly supports both tracks,
-  // so the center height matches the midpoint of the tracks: |centerH - avgH| ~ 0.
-  // A true cliff edge drop-off has a sharp discontinuous step: one track hangs
-  // over empty air while the center remains on the deck.
-  const isCliffStep = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.10;
-  const isCliffSideDrop = rollDifferential >= 0.70 && isCliffStep;
-  const isCliffEndStep = Math.abs(centerH - (frontH + rearH) * 0.5) > 0.24;
-  const isCliffEndDrop = pitchDifferential >= 1.10 && isCliffEndStep;
 
   // Solid-deck non-penetration: when both the center belly AND at least one full track
   // rest on the same solid deck surface, prevent average-ground interpolation from sinking
@@ -188,17 +239,27 @@ export function stepVehicle3D(
   const maxTrackH = Math.max(leftH, rightH);
   const hasSolidDeckUnderCenter = Math.abs(maxTrackH - centerH) <= 0.15;
 
-  // Continuous track belt support over convex mound/hump crests:
-  // Prevents the crest of a huge smooth bump from clipping upward through the lower belt run and belly.
-  const midSupportH = (hML + hMR) * 0.5;
+  // Non-coplanar 3-point rigid chassis support: when one diagonal pair (e.g. a single log corner)
+  // rises above the best-fit 4-corner plane, lift center slightly so ZERO belt corner penetrates ground/logs.
+  const cornerMaxPenetration = !isCliffSideDrop && !isCliffEndDrop
+    ? Math.max(
+        0,
+        hFL - (avgGroundH + (frontH - rearH) * 0.5 + (leftH - rightH) * 0.5),
+        hFR - (avgGroundH + (frontH - rearH) * 0.5 + (rightH - leftH) * 0.5),
+        hRL - (avgGroundH + (rearH - frontH) * 0.5 + (leftH - rightH) * 0.5),
+        hRR - (avgGroundH + (rearH - frontH) * 0.5 + (rightH - leftH) * 0.5),
+      )
+    : 0;
+
+  // Continuous track belt support over convex mound/hump crests
+  const midSupportH = (beltMidMaxL + beltMidMaxR) * 0.5;
   const isConvexBeltCrest = !isCliffSideDrop && !isCliffEndDrop
-    && hML > leftH + 0.015
-    && hMR > rightH + 0.015;
-  let effectiveGroundH = isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH;
+    && beltMidMaxL > leftH + 0.015
+    && beltMidMaxR > rightH + 0.015;
+  let effectiveGroundH = (isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH) + cornerMaxPenetration;
   if (hasSolidDeckUnderCenter && centerH > avgGroundH + 0.12 && (pose.y + TRACK_CONTACT_OFFSET >= centerH - 0.16)) {
     effectiveGroundH = Math.max(effectiveGroundH, centerH - 0.10);
   }
-  const targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
 
   const seamWait = rollDifferential >= 1.10 ? 0.08 : 0.14;
   pose.sideDropTime = isCliffSideDrop ? (pose.sideDropTime ?? 0) + dt : 0;
@@ -255,9 +316,9 @@ export function stepVehicle3D(
     pose.rollRate += tipDir * tipAlpha * dt;
     pose.rollRate *= Math.exp(-dt * 0.35);
   } else {
-    // Critically damped terrain following (omega_n = 16 rad/s, zeta = 1.0)
+    // Critically damped rigid track suspension (omega_n = 16.7 rad/s, zeta = 1.0)
     const rollError = groundRoll + turnBank - pose.roll;
-    pose.rollRate += (rollError * 32.0 - pose.rollRate * 12.0) * dt;
+    pose.rollRate += (rollError * 280.0 - pose.rollRate * 33.5) * dt;
   }
 
   if (endDropActive) {
@@ -267,12 +328,54 @@ export function stepVehicle3D(
     pose.pitchRate *= Math.exp(-dt * 0.35);
   } else {
     const pitchError = groundPitch - pose.pitch;
-    pose.pitchRate += (pitchError * 32.0 - pose.pitchRate * 12.0) * dt;
+    pose.pitchRate += (pitchError * 280.0 - pose.pitchRate * 33.5) * dt;
   }
 
   // Integrate pitch and roll
   pose.pitch += pose.pitchRate * dt;
   pose.roll += pose.rollRate * dt;
+
+  // Compute grounded height baseline strictly preserving smooth downhill ramp tracking
+  let targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
+  if (!isCliffSideDrop && !isCliffEndDrop && beltSamplesL && beltSamplesR) {
+    const halfPitchDrop = Math.sin(pose.pitch) * (TRACK_LENGTH * 0.5);
+    const halfRollLift = Math.sin(pose.roll) * (TRACK_WIDTH * 0.5);
+    const endMaxL = Math.max(rawRL, rawFL);
+    const endMaxR = Math.max(rawRR, rawFR);
+    let bumpClearLift = 0;
+    for (let k = 1; k <= 5; k++) {
+      const sU = (k / 6 - 0.5) * 2;
+      if (beltSamplesL[k] > endMaxL + 0.012) {
+        bumpClearLift = Math.max(bumpClearLift, beltSamplesL[k] - (effectiveGroundH - halfPitchDrop * sU - halfRollLift));
+      }
+      if (beltSamplesR[k] > endMaxR + 0.012) {
+        bumpClearLift = Math.max(bumpClearLift, beltSamplesR[k] - (effectiveGroundH - halfPitchDrop * sU + halfRollLift));
+      }
+    }
+    // Non-penetration at belt ends on twisted/raised obstacles rising above the center terrain,
+    // without triggering on smooth downhill slope drop-offs or symmetric Gate-08 ramp-exit touchdowns.
+    const minCornerH = Math.min(hFL, hFR, hRL, hRR);
+    const maxCornerH = Math.max(hFL, hFR, hRL, hRR);
+    const maxFrontCornerH = Math.max(hFL, hFR);
+    const isFrontOrTwistedClimb =
+      (maxFrontCornerH - centerH > 0.02 && minCornerH >= centerH - 0.015) ||
+      (cornerMaxPenetration > 0.018 && maxCornerH - centerH > centerH - minCornerH);
+    if (isFrontOrTwistedClimb) {
+      bumpClearLift = Math.max(
+        bumpClearLift,
+        hFL - (effectiveGroundH - halfPitchDrop - halfRollLift),
+        hFR - (effectiveGroundH - halfPitchDrop + halfRollLift),
+      );
+      if (cornerMaxPenetration > 0.018 || rollDifferential > 0.04) {
+        bumpClearLift = Math.max(
+          bumpClearLift,
+          hRL - (effectiveGroundH + halfPitchDrop - halfRollLift),
+          hRR - (effectiveGroundH + halfPitchDrop + halfRollLift),
+        );
+      }
+    }
+    targetY += bumpClearLift;
+  }
 
   // Obstacle Reaction Yaw Torque ("broad twist" on boulders / asymmetric obstacles)
   // Guard: open voids/chasms below belly (centerH < lowest track) are gaps, never raised boulders.

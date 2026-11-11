@@ -741,3 +741,78 @@ test('robot negotiates moguls_stagger, step_staircase, and camber_bank cleanly w
   driveAcrossSlot('step_staircase');
   driveAcrossSlot('camber_bank');
 });
+
+test('roller_logs tracks stay cleanly above staggered and center logs across all belt stations', () => {
+  let rlCourse = null;
+  for (let s = 1; s <= 60; s++) {
+    const c = generateRandomizedCourse('track_b', s * 3313);
+    if (c.slots.some(sl => sl.type === 'roller_logs')) {
+      rlCourse = c;
+      break;
+    }
+  }
+  assert.ok(rlCourse, 'Expected roller_logs within seed sweep');
+  const slot = rlCourse.slots.find(sl => sl.type === 'roller_logs')!;
+
+  try {
+    setActiveGeneratedCourse(rlCourse);
+    const dt = 1 / 60;
+    const pose: VehiclePose = {
+      x: (slot.centerX - slot.dir * 4.8) * MAP_SCALE,
+      y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+      z: slot.laneZ * MAP_SCALE,
+      vx: slot.dir * 2.6,
+      vy: 0,
+      vz: 0,
+      pitch: 0,
+      yaw: slot.dir > 0 ? Math.PI / 2 : -Math.PI / 2,
+      roll: 0,
+      pitchRate: 0,
+      yawRate: 0,
+      rollRate: 0,
+      isFlipped: false,
+      isGrounded: true,
+      flippedTimer: 0,
+      lastImpactSpeed: 0,
+    };
+    const worldHeight = (wx: number, wz: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y);
+
+    let sawLift = false;
+    let sawRoll = false;
+    for (let step = 0; step < 260; step++) {
+      pose.vx = slot.dir * 2.6;
+      pose.vz = 0;
+      pose.x += pose.vx * dt;
+      stepVehicle3D(pose, worldHeight, 2.6, 0, dt);
+      assert.equal(pose.isFlipped, false, `Unexpected rollover on roller_logs step ${step}`);
+      const trackBottomCenter = pose.y + TRACK_CONTACT_OFFSET;
+      if (trackBottomCenter > GROUND_DECK_HEIGHT + 0.08) sawLift = true;
+      if (Math.abs(pose.roll) > 0.03) sawRoll = true;
+
+      // Verify rigid track corners & belt stations stay flush or above terrain beneath both tracks
+      const fwdX = Math.sin(pose.yaw);
+      const fwdZ = Math.cos(pose.yaw);
+      const rightX = Math.cos(pose.yaw);
+      const rightZ = -Math.sin(pose.yaw);
+      for (const side of [-1, 1]) {
+        for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+          const locFwd = (t - 0.5) * 1.70;
+          const locRight = side * 0.79;
+          const px = pose.x + fwdX * locFwd + rightX * locRight;
+          const pz = pose.z + fwdZ * locFwd + rightZ * locRight;
+          const terrainY = worldHeight(px, pz);
+          // Chassis underside height at local (locFwd, locRight) under current roll/pitch
+          const beltBottomY = trackBottomCenter - Math.sin(pose.pitch) * locFwd + Math.sin(pose.roll) * locRight;
+          assert.ok(
+            beltBottomY >= terrainY - 0.04,
+            `Belt sank into log at step ${step} side=${side} t=${t}: beltY=${beltBottomY.toFixed(3)} < logY=${terrainY.toFixed(3)}`,
+          );
+        }
+      }
+    }
+    assert.ok(sawLift, 'Robot must physically climb over roller logs');
+    assert.ok(sawRoll, 'Staggered half-logs must articulate left/right suspension roll');
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});

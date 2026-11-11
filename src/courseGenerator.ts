@@ -846,13 +846,18 @@ function evalSlotLocal(
       if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
       const logCenters = [-3.6, -2.15, -0.7, 0.75, 2.2, 3.65];
       let logLift = 0;
+      const logRadius = 0.24;
       for (let i = 0; i < logCenters.length; i++) {
-        const spanType = i % 3; // 0: left half, 1: right half, 2: full staggered center
-        const covered = spanType === 0 ? v <= 0.8 : spanType === 1 ? v >= -0.8 : Math.abs(v) <= 1.65;
+        const spanType = i % 3; // 0: left half [-1.875..+0.375], 1: right half [-0.375..+1.875], 2: center [-1.60..+1.60]
+        const covered = spanType === 0
+          ? (v >= -1.89 && v <= 0.39)
+          : spanType === 1
+            ? (v >= -0.39 && v <= 1.89)
+            : Math.abs(v) <= 1.62;
         if (!covered) continue;
         const dist = Math.abs(u - logCenters[i]);
-        if (dist < 0.28) {
-          const lift = Math.sqrt(Math.max(0, 0.28 * 0.28 - dist * dist)) * 0.76;
+        if (dist < logRadius) {
+          const lift = Math.sqrt(Math.max(0, logRadius * logRadius - dist * dist));
           if (lift > logLift) logLift = lift;
         }
       }
@@ -860,7 +865,7 @@ function evalSlotLocal(
         matched: true,
         height: GROUND_DECK_HEIGHT + logLift,
         rockOffset: logLift,
-        surface: { grip: 0.85, rollingResistance: 0.75, hazard: 'none' },
+        surface: { grip: 1.15, rollingResistance: 0.48, hazard: 'none', lateralGripMultiplier: 1.25 },
       };
     }
 
