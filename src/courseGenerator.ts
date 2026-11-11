@@ -16,6 +16,10 @@ import {
 
 export type HurdleTier = 'easy' | 'medium' | 'hard';
 
+/** Recessed industrial proving-tank surface elevation (-0.38m, 5cm below road apron) and submerged bed (-1.08m). */
+export const DYNAMIC_WATER_LEVEL_Y = -0.38;
+export const DYNAMIC_WATER_BED_Y = -1.08;
+
 export type HurdleType =
   | 'brick_slalom'
   | 'rock_scramble'
@@ -551,8 +555,8 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
         xMax: xB,
         zCenter: pos.laneZ,
         width: DRIVE_ROUTE_WIDTH,
-        waterLevelY: 0.16,
-        bedLevelY: -0.30,
+        waterLevelY: DYNAMIC_WATER_LEVEL_Y,
+        bedLevelY: DYNAMIC_WATER_BED_Y,
       });
     } else if (type === 'turntable_deck') {
       turntables.push({
@@ -769,19 +773,22 @@ function evalSlotLocal(
     case 'water_basin': {
       if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
       if (Math.abs(u) <= 4.4) {
-        let y = -0.30;
-        if (u < -3.0) {
-          const t = (u + 4.4) / 1.4;
-          y = GROUND_DECK_HEIGHT + (-0.30 - GROUND_DECK_HEIGHT) * (t * t * (3 - 2 * t));
-        } else if (u > 3.0) {
-          const t = (4.4 - u) / 1.4;
-          y = GROUND_DECK_HEIGHT + (-0.30 - GROUND_DECK_HEIGHT) * (t * t * (3 - 2 * t));
+        let y = DYNAMIC_WATER_BED_Y;
+        if (u < -1.9) {
+          const t = (u + 4.4) / 2.5;
+          y = GROUND_DECK_HEIGHT + (DYNAMIC_WATER_BED_Y - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.12);
+        } else if (u > 1.9) {
+          const t = (4.4 - u) / 2.5;
+          y = GROUND_DECK_HEIGHT + (DYNAMIC_WATER_BED_Y - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.12);
         }
+        const isWetted = y <= DYNAMIC_WATER_LEVEL_Y + 0.025;
         return {
           matched: true,
           height: y,
           rockOffset: 0,
-          surface: { grip: 0.52, rollingResistance: 0.75, hazard: 'water' },
+          surface: isWetted
+            ? { grip: 0.56, rollingResistance: 0.72, hazard: 'water' }
+            : { grip: 0.88, rollingResistance: 0.42, hazard: 'none' },
         };
       }
       return { matched: true, height: GROUND_DECK_HEIGHT, rockOffset: 0 };
@@ -1183,7 +1190,7 @@ export function classifyDynamicFallZone(
     if (slot.type === 'hanging_bridges' && Math.abs(u) <= 4.75 && Math.abs(v) <= 2.15 && localY < GROUND_DECK_HEIGHT - 0.12) {
       return 'sand_pit';
     }
-    if (slot.type === 'water_basin' && Math.abs(u) <= 4.45 && Math.abs(v) <= DRIVE_ROUTE_WIDTH * 0.5 + 0.15 && localY < 0.05) {
+    if (slot.type === 'water_basin' && Math.abs(u) <= 4.45 && Math.abs(v) <= DRIVE_ROUTE_WIDTH * 0.5 + 0.15 && localY < DYNAMIC_WATER_LEVEL_Y - 0.05) {
       return 'water_basin';
     }
   }

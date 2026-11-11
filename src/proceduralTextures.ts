@@ -646,3 +646,170 @@ export function createHighClimbPbrMaps(): PbrMapSet {
     bumpMap: finalizeTexture(bmp, false, 1, 1, true),
   };
 }
+
+/**
+ * Generates weathered submerged proving-tank concrete tile maps with muted grout seams,
+ * fine limestone aggregate, and damp mineral staining.
+ */
+export function createWaterBasinConcretePbrMaps(repeatX = 4, repeatY = 2): PbrMapSet {
+  const size = 512;
+  const col = document.createElement('canvas');
+  const bmp = document.createElement('canvas');
+  col.width = col.height = bmp.width = bmp.height = size;
+  const cx = col.getContext('2d')!;
+  const bx = bmp.getContext('2d')!;
+  const rnd = mulberry32(8123);
+
+  cx.fillStyle = '#525c5d';
+  cx.fillRect(0, 0, size, size);
+  bx.fillStyle = '#828282';
+  bx.fillRect(0, 0, size, size);
+
+  // Subtle tile block tonal variation (industrial precast basin panels)
+  const cols = 4;
+  const rows = 4;
+  const cw = size / cols;
+  const ch = size / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const shade = Math.round((rnd() - 0.5) * 14);
+      cx.fillStyle = `rgb(${80 + shade}, ${91 + shade}, ${92 + shade})`;
+      cx.fillRect(c * cw + 2, r * ch + 2, cw - 4, ch - 4);
+      const bShade = 128 + shade * 2;
+      bx.fillStyle = `rgb(${bShade}, ${bShade}, ${bShade})`;
+      bx.fillRect(c * cw + 2, r * ch + 2, cw - 4, ch - 4);
+    }
+  }
+
+  // Fine mineral silt & patina flecks
+  for (let i = 0; i < 2400; i++) {
+    const x = rnd() * size;
+    const y = rnd() * size;
+    const s = 1 + rnd() * 2.5;
+    cx.fillStyle = rnd() > 0.45 ? 'rgba(34, 46, 44, 0.16)' : 'rgba(138, 146, 142, 0.11)';
+    cx.fillRect(x, y, s, s);
+    bx.fillStyle = rnd() > 0.5 ? 'rgba(65, 65, 65, 0.25)' : 'rgba(170, 170, 170, 0.2)';
+    bx.fillRect(x, y, s, s);
+  }
+
+  // Recessed expansion grout seams & subtle mineral rim darkening
+  cx.strokeStyle = 'rgba(26, 33, 33, 0.72)';
+  cx.lineWidth = 4;
+  bx.strokeStyle = '#383838';
+  bx.lineWidth = 5;
+  for (let g = 0; g <= cols; g++) {
+    const pos = g * cw;
+    cx.beginPath(); cx.moveTo(pos, 0); cx.lineTo(pos, size); cx.stroke();
+    cx.beginPath(); cx.moveTo(0, pos); cx.lineTo(size, pos); cx.stroke();
+    bx.beginPath(); bx.moveTo(pos, 0); bx.lineTo(pos, size); bx.stroke();
+    bx.beginPath(); bx.moveTo(0, pos); bx.lineTo(size, pos); bx.stroke();
+  }
+
+  // Faint waterline algae / lime patches along seams
+  for (let i = 0; i < 14; i++) {
+    const gx = rnd() * size;
+    const gy = rnd() * size;
+    const rad = 28 + rnd() * 54;
+    const grad = cx.createRadialGradient(gx, gy, 2, gx, gy, rad);
+    grad.addColorStop(0, 'rgba(38, 55, 48, 0.22)');
+    grad.addColorStop(1, 'rgba(38, 55, 48, 0)');
+    cx.fillStyle = grad;
+    cx.beginPath();
+    cx.arc(gx, gy, rad, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  return {
+    map: finalizeTexture(col, true, repeatX, repeatY),
+    bumpMap: finalizeTexture(bmp, false, repeatX, repeatY),
+  };
+}
+
+/**
+ * Generates seamless animated water surface ripple bump map, muted mineral water albedo,
+ * and subtle floor caustic lattice texture.
+ */
+export function createWaterSurfaceMaps(): PbrMapSet & { causticMap: THREE.CanvasTexture; wakeFoamMap: THREE.CanvasTexture } {
+  const size = 256;
+  const col = document.createElement('canvas');
+  const bmp = document.createElement('canvas');
+  const cst = document.createElement('canvas');
+  col.width = col.height = bmp.width = bmp.height = cst.width = cst.height = size;
+  const cx = col.getContext('2d')!;
+  const bx = bmp.getContext('2d')!;
+  const kx = cst.getContext('2d')!;
+
+  const bImg = bx.createImageData(size, size);
+  const cImg = cx.createImageData(size, size);
+  const kImg = kx.createImageData(size, size);
+  const tau = Math.PI * 2;
+
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const w1 = Math.sin(tau * (u * 3 + v * 2)) * 0.45;
+      const w2 = Math.cos(tau * (u * 5 - v * 4 + 0.3)) * 0.30;
+      const w3 = Math.sin(tau * (u * 8 + v * 7 + 0.6)) * 0.16;
+      const w4 = Math.cos(tau * (u * 13 - v * 11)) * 0.09;
+      const h = w1 + w2 + w3 + w4; // [-1..+1]
+
+      const idx = (y * size + x) * 4;
+      const bmpVal = Math.max(0, Math.min(255, Math.round(128 + h * 112)));
+      bImg.data[idx] = bmpVal;
+      bImg.data[idx + 1] = bmpVal;
+      bImg.data[idx + 2] = bmpVal;
+      bImg.data[idx + 3] = 255;
+
+      // Muted vintage industrial mineral slate-teal water tone
+      const tone = h * 10;
+      cImg.data[idx] = Math.max(12, Math.min(80, Math.round(25 + tone * 0.8)));
+      cImg.data[idx + 1] = Math.max(32, Math.min(110, Math.round(62 + tone * 1.1)));
+      cImg.data[idx + 2] = Math.max(36, Math.min(120, Math.round(69 + tone * 1.1)));
+      cImg.data[idx + 3] = 255;
+
+      // Caustic filament intensity concentrated along wave focus ridges
+      const focus = Math.pow(Math.max(0, 1 - Math.abs(w1 + w2) * 2.8), 2.4);
+      const kv = Math.max(0, Math.min(255, Math.round(focus * 195)));
+      kImg.data[idx] = Math.round(kv * 0.58);
+      kImg.data[idx + 1] = Math.round(kv * 0.88);
+      kImg.data[idx + 2] = kv;
+      kImg.data[idx + 3] = Math.round(focus * 180);
+    }
+  }
+
+  bx.putImageData(bImg, 0, 0);
+  cx.putImageData(cImg, 0, 0);
+  kx.putImageData(kImg, 0, 0);
+
+  // Feathered organic frothy wake bubble texture for moving tracks in water
+  const wakeCvs = document.createElement('canvas');
+  wakeCvs.width = wakeCvs.height = 128;
+  const wx = wakeCvs.getContext('2d')!;
+  const wImg = wx.createImageData(128, 128);
+  const wRnd = mulberry32(4421);
+  for (let y = 0; y < 128; y++) {
+    for (let x = 0; x < 128; x++) {
+      const nx = (x - 64) / 64;
+      const ny = (y - 64) / 64;
+      const r = Math.hypot(nx, ny);
+      const ang = Math.atan2(ny, nx);
+      const ringProfile = Math.exp(-Math.pow((r - 0.64) / 0.18, 2));
+      const breakup = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(ang * 7 + r * 9) * (0.5 + wRnd() * 0.5));
+      const alpha = r > 0.96 ? 0 : Math.max(0, Math.min(1, ringProfile * breakup));
+      const wi = (y * 128 + x) * 4;
+      wImg.data[wi] = 198;
+      wImg.data[wi + 1] = 222;
+      wImg.data[wi + 2] = 226;
+      wImg.data[wi + 3] = Math.round(alpha * 255);
+    }
+  }
+  wx.putImageData(wImg, 0, 0);
+
+  return {
+    map: finalizeTexture(col, true, 5, 3),
+    bumpMap: finalizeTexture(bmp, false, 5, 3),
+    causticMap: finalizeTexture(cst, true, 4, 2),
+    wakeFoamMap: finalizeTexture(wakeCvs, true, 1, 1, true),
+  };
+}

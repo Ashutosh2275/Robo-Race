@@ -986,7 +986,7 @@ for (let i = 0; i < 20; i++) {
 // Small pooled droplets are emitted only while the robot is actually moving
 // or turning through the shallow fire-to-water cooling section.
 const splashGeo = new THREE.SphereGeometry(0.045, 6, 5);
-const splashMat = new THREE.MeshBasicMaterial({ color: '#8edce8', transparent: true, opacity: 0.72, depthWrite: false });
+const splashMat = new THREE.MeshBasicMaterial({ color: '#a5bec2', transparent: true, opacity: 0.64, depthWrite: false });
 const splashParticles: Array<{ mesh: THREE.Mesh; life: number; vx: number; vy: number; vz: number }> = [];
 for (let i = 0; i < 24; i++) {
   const m = new THREE.Mesh(splashGeo, splashMat);
@@ -2581,8 +2581,14 @@ function stepPhysics(dt: number) {
     const dropHeightM = Math.max(0, peakAirborneY - trackBottomNow);
     const landX = pose.x / MAP_SCALE;
     const landZ = pose.z / MAP_SCALE;
-    const landingPlace = classifyFallZone(landX, landZ, trackBottomNow);
+    const rawLandingPlace = classifyFallZone(landX, landZ, trackBottomNow);
     const originZone = classifyFallOrigin(fallStartOrigin.x, fallStartOrigin.z, peakAirborneY);
+    // Driving down the official concrete basin wade ramp into buoyancy is an on-track water entry, not a crash fall.
+    const landingPlace = (
+      rawLandingPlace === 'water_basin'
+      && originZone === 'track_edge'
+      && peakAirborneY <= GROUND_DECK_HEIGHT + 0.25
+    ) ? 'lower_track' : rawLandingPlace;
     const horizontalSpeedMps = Math.hypot(pose.vx, pose.vz);
     const landSlope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y), pose.x, pose.z, 0.12);
     const spiralSlot = runtimeCourse.plan.slots.find(s => s.type === 'spiral_tower');
@@ -2835,16 +2841,19 @@ function stepPhysics(dt: number) {
   }
 
   const waterMotion = Math.hypot(pose.vx, pose.vz);
-  const splashRate = surf.hazard === 'water' ? dt * (3 + waterMotion * 1.5 + Math.abs(motionState.angular) * 14) : 0;
+  const inWaterZone = waterBuoyancy.inWater || surf.hazard === 'water';
+  const splashRate = inWaterZone ? dt * (4 + waterMotion * 2.1 + Math.abs(motionState.angular) * 16) : 0;
   if (splashRate > 0 && Math.random() < splashRate) {
     const p = splashParticles.find(drop => drop.life <= 0);
     if (p) {
-  const side = Math.random() < 0.5 ? -1 : 1;
+      const side = Math.random() < 0.5 ? -1 : 1;
       const rightX = Math.cos(pose.yaw);
       const rightZ = -Math.sin(pose.yaw);
+      const poolSurfaceY = runtimeCourse.waterPools[0]?.waterLevelY ?? -0.38;
+      const spawnY = Math.max(pose.y + 0.16, poolSurfaceY - 0.02);
       p.life = 0.42 + Math.random() * 0.22;
       p.mesh.visible = true;
-      p.mesh.position.set(pose.x + rightX * side * 0.78, Math.max(pose.y + 0.24, 0.09), pose.z + rightZ * side * 0.78);
+      p.mesh.position.set(pose.x + rightX * side * 0.78, spawnY, pose.z + rightZ * side * 0.78);
       p.vx = pose.vx * 0.18 + rightX * side * (0.45 + Math.random() * 0.65);
       p.vy = 0.75 + Math.random() * 1.1;
       p.vz = pose.vz * 0.18 + rightZ * side * (0.45 + Math.random() * 0.65);

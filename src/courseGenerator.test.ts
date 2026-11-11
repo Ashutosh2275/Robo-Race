@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ARENA_METADATA,
+  DYNAMIC_WATER_BED_Y,
+  DYNAMIC_WATER_LEVEL_Y,
   HURDLE_CATALOG,
   generateRandomizedCourse,
   sampleHangingBridgeRibbon,
@@ -30,6 +32,7 @@ import {
 } from './robotSubsystems.ts';
 import {
   TRACK_CONTACT_OFFSET,
+  evaluateWaterBuoyancy,
   stepVehicle3D,
   type VehiclePose,
 } from './vehicleDynamics.ts';
@@ -574,4 +577,57 @@ test('overhanging an elevated +1.35m bridge deck keeps upright and inverted chas
     inverted.y >= 1.35,
     `Inverted chassis phased down through solid +1.35m deck slab: y=${inverted.y}`,
   );
+});
+
+test('recessed water basin tank sits below ground grade with smooth concrete wade ramps and Archimedes flotation', () => {
+  const wbCourse = generateRandomizedCourse('track_a', 17321);
+  const wb = wbCourse.slots.find(s => s.type === 'water_basin');
+  assert.ok(wb, 'Expected mandatory water_basin slot in generated course');
+  const pool = wbCourse.waterPools[0];
+  assert.ok(pool, 'Expected matching WaterPoolConfig');
+  assert.equal(pool.waterLevelY, DYNAMIC_WATER_LEVEL_Y);
+  assert.equal(pool.bedLevelY, DYNAMIC_WATER_BED_Y);
+  assert.ok(pool.waterLevelY < GROUND_DECK_HEIGHT, 'Water surface must sit recessed below road grade inside tank');
+  assert.ok(pool.bedLevelY <= GROUND_DECK_HEIGHT - 0.70, 'Tank floor must be excavated >= 0.70m below road grade');
+
+  try {
+    setActiveGeneratedCourse(wbCourse);
+    const entryApronH = evaluateCourseHeight(wb.centerX + wb.dir * (-4.5), wb.laneZ, GROUND_DECK_HEIGHT);
+    const midSlopeH = evaluateCourseHeight(wb.centerX + wb.dir * (-3.15), wb.laneZ, GROUND_DECK_HEIGHT);
+    const deepBedH = evaluateCourseHeight(wb.centerX, wb.laneZ, DYNAMIC_WATER_BED_Y);
+    const exitSlopeH = evaluateCourseHeight(wb.centerX + wb.dir * 3.15, wb.laneZ, GROUND_DECK_HEIGHT);
+    const exitApronH = evaluateCourseHeight(wb.centerX + wb.dir * 4.5, wb.laneZ, GROUND_DECK_HEIGHT);
+
+    assert.equal(entryApronH, GROUND_DECK_HEIGHT);
+    assert.ok(midSlopeH < GROUND_DECK_HEIGHT - 0.15 && midSlopeH > DYNAMIC_WATER_BED_Y + 0.15, `Wade entry ramp should slope smoothly, got ${midSlopeH}`);
+    assert.equal(deepBedH, DYNAMIC_WATER_BED_Y);
+    assert.ok(exitSlopeH < GROUND_DECK_HEIGHT - 0.15 && exitSlopeH > DYNAMIC_WATER_BED_Y + 0.15, `Wade exit ramp should climb smoothly, got ${exitSlopeH}`);
+    assert.equal(exitApronH, GROUND_DECK_HEIGHT);
+
+    // Dry entry lip vs submerged tank center buoyancy
+    const drySurf = evaluateCourseSurface(wb.centerX + wb.dir * (-4.32), wb.laneZ, GROUND_DECK_HEIGHT);
+    const wetSurf = evaluateCourseSurface(wb.centerX, wb.laneZ, DYNAMIC_WATER_BED_Y);
+    assert.equal(drySurf.hazard, 'none');
+    assert.equal(wetSurf.hazard, 'water');
+
+    const submergedPoseY = DYNAMIC_WATER_LEVEL_Y - 0.35 - TRACK_CONTACT_OFFSET;
+    const buoy = evaluateWaterBuoyancy(
+      wb.centerX * MAP_SCALE,
+      wb.laneZ * MAP_SCALE,
+      submergedPoseY,
+      wb.dir > 0 ? Math.PI / 2 : -Math.PI / 2,
+      wb.dir * 1.5,
+      0,
+      2.0,
+      2.0,
+      0.56,
+      MAP_SCALE,
+      wbCourse.waterPools,
+    );
+    assert.equal(buoy.inWater, true);
+    assert.equal(buoy.isFloating, true);
+    assert.ok(buoy.buoyantWaterlineY + TRACK_CONTACT_OFFSET > DYNAMIC_WATER_BED_Y + 0.25, 'Floating rover must clear deep submerged concrete floor');
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
 });

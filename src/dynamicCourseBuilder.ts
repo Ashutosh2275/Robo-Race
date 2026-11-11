@@ -12,6 +12,8 @@ import {
   type CheckpointGate,
 } from './courseLayout.ts';
 import {
+  DYNAMIC_WATER_BED_Y,
+  DYNAMIC_WATER_LEVEL_Y,
   sampleHangingBridgeRibbon,
   stepHangingBridgeState,
   type GeneratedCourse,
@@ -19,7 +21,11 @@ import {
   type HurdleSlot,
   type HurdleTier,
 } from './courseGenerator.ts';
-import { createBrickMasonryPbrMaps } from './proceduralTextures.ts';
+import {
+  createBrickMasonryPbrMaps,
+  createWaterBasinConcretePbrMaps,
+  createWaterSurfaceMaps,
+} from './proceduralTextures.ts';
 import {
   TRACK_CONTACT_OFFSET,
   TRACK_WIDTH,
@@ -171,6 +177,23 @@ export type HangingBridgeRuntime = {
   ribbons: [HangingBridgeRibbonVisual, HangingBridgeRibbonVisual];
 };
 
+export type WaterWakeRing = {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  life: number;
+  maxLife: number;
+};
+
+export type WaterBasinRuntime = {
+  slot: HurdleSlot;
+  waterMesh: THREE.Mesh;
+  waterGeo: THREE.PlaneGeometry;
+  basePositions: Float32Array;
+  waterY: number;
+  wakeRings: WaterWakeRing[];
+  wakeCooldown: number;
+};
+
 export type CourseRuntimeHandles = {
   plan: GeneratedCourse;
   checkpoints: CheckpointMeshRuntime[];
@@ -180,6 +203,7 @@ export type CourseRuntimeHandles = {
   seesaws: SeesawRuntime[];
   hangingBridges: HangingBridgeRuntime[];
   footballArenas: FootballArenaRuntime[];
+  waterBasins: WaterBasinRuntime[];
   flames: FlameRuntime[];
   laserBeams: THREE.Mesh[];
   beacons: THREE.Mesh[];
@@ -495,6 +519,138 @@ let cachedTennisMat: THREE.MeshStandardMaterial | null = null;
 let cachedTurfMat: THREE.MeshStandardMaterial | null = null;
 let cachedWreckingBallMat: THREE.MeshStandardMaterial | null = null;
 let cachedBrickMat: THREE.MeshStandardMaterial | null = null;
+let cachedWaterBasinConcreteMats: {
+  floorMat: THREE.MeshStandardMaterial;
+  wallMat: THREE.MeshStandardMaterial;
+  wetBandMat: THREE.MeshStandardMaterial;
+  depthGaugeMat: THREE.MeshStandardMaterial;
+} | null = null;
+let cachedWaterSurfaceBundle: {
+  surfaceMat: THREE.MeshStandardMaterial;
+  causticMat: THREE.MeshBasicMaterial;
+  shoreFoamMat: THREE.MeshBasicMaterial;
+  waterMap: THREE.CanvasTexture;
+  waterBump: THREE.CanvasTexture;
+  causticMap: THREE.CanvasTexture;
+  wakeFoamMap: THREE.CanvasTexture;
+} | null = null;
+
+function getWaterBasinConcreteMats() {
+  if (!cachedWaterBasinConcreteMats) {
+    const floorMaps = createWaterBasinConcretePbrMaps(4, 2);
+    const wallMaps = createWaterBasinConcretePbrMaps(6, 1);
+
+    // Painted industrial concrete wall depth gauge plaque (0.2M / 0.5M / 0.7M markers)
+    const gCvs = document.createElement('canvas');
+    gCvs.width = 256;
+    gCvs.height = 128;
+    const gx = gCvs.getContext('2d')!;
+    gx.fillStyle = '#384142';
+    gx.fillRect(0, 0, 256, 128);
+    gx.strokeStyle = '#6c736d';
+    gx.lineWidth = 4;
+    gx.strokeRect(4, 4, 248, 120);
+    // Hazard diagonal stripe along top edge
+    gx.fillStyle = '#a6873b';
+    for (let sx = 0; sx < 256; sx += 28) {
+      gx.beginPath();
+      gx.moveTo(sx, 6);
+      gx.lineTo(sx + 14, 6);
+      gx.lineTo(sx + 6, 22);
+      gx.lineTo(sx - 8, 22);
+      gx.closePath();
+      gx.fill();
+    }
+    gx.fillStyle = '#cfd4cd';
+    gx.font = 'bold 20px monospace';
+    gx.fillText('DEPTH 0.70M', 18, 48);
+    gx.fillStyle = '#9aa8a4';
+    gx.font = 'bold 14px monospace';
+    gx.fillText('WADE TANK // BUOYANCY ZONE', 18, 74);
+    gx.fillStyle = '#a6873b';
+    gx.fillRect(18, 88, 220, 4);
+    for (let t = 0; t <= 4; t++) {
+      gx.fillRect(18 + t * 54, 92, 3, 14);
+    }
+    gx.fillStyle = '#b4bbb3';
+    gx.font = '12px monospace';
+    gx.fillText('0.2M    0.4M    0.6M    0.7M', 18, 118);
+    const gTex = new THREE.CanvasTexture(gCvs);
+    gTex.colorSpace = THREE.SRGBColorSpace;
+
+    cachedWaterBasinConcreteMats = {
+      floorMat: new THREE.MeshStandardMaterial({
+        map: floorMaps.map,
+        bumpMap: floorMaps.bumpMap,
+        bumpScale: 0.032,
+        roughness: 0.40,
+        metalness: 0.06,
+      }),
+      wallMat: new THREE.MeshStandardMaterial({
+        map: wallMaps.map,
+        bumpMap: wallMaps.bumpMap,
+        bumpScale: 0.026,
+        color: '#8f9694',
+        roughness: 0.86,
+        metalness: 0.04,
+      }),
+      wetBandMat: new THREE.MeshStandardMaterial({
+        color: '#233031',
+        roughness: 0.20,
+        metalness: 0.12,
+      }),
+      depthGaugeMat: new THREE.MeshStandardMaterial({
+        map: gTex,
+        roughness: 0.72,
+        metalness: 0.14,
+      }),
+    };
+  }
+  return cachedWaterBasinConcreteMats;
+}
+
+function getWaterSurfaceBundle() {
+  if (!cachedWaterSurfaceBundle) {
+    const maps = createWaterSurfaceMaps();
+    const waterMap = maps.map as THREE.CanvasTexture;
+    const waterBump = maps.bumpMap as THREE.CanvasTexture;
+    const causticMap = maps.causticMap;
+    const wakeFoamMap = maps.wakeFoamMap;
+    cachedWaterSurfaceBundle = {
+      waterMap,
+      waterBump,
+      causticMap,
+      wakeFoamMap,
+      surfaceMat: new THREE.MeshStandardMaterial({
+        map: waterMap,
+        bumpMap: waterBump,
+        bumpScale: 0.068,
+        color: '#21545f',
+        emissive: '#071b20',
+        roughness: 0.14,
+        metalness: 0.16,
+        transparent: true,
+        opacity: 0.76,
+        depthWrite: false,
+      }),
+      causticMat: new THREE.MeshBasicMaterial({
+        map: causticMap,
+        transparent: true,
+        opacity: 0.20,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      shoreFoamMat: new THREE.MeshBasicMaterial({
+        color: '#a3babd',
+        transparent: true,
+        opacity: 0.34,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    };
+  }
+  return cachedWaterSurfaceBundle;
+}
 
 function getWreckingBallMat() {
   if (!cachedWreckingBallMat) {
@@ -654,7 +810,7 @@ export function buildDynamicCourseGroup(
     if (s.type === 'hanging_bridges') {
       floorCutouts.push({ xMin: s.centerX - 4.75, xMax: s.centerX + 4.75, zMin: s.laneZ - 2.15, zMax: s.laneZ + 2.15 });
     } else if (s.type === 'water_basin') {
-      floorCutouts.push({ xMin: s.centerX - 4.45, xMax: s.centerX + 4.45, zMin: s.laneZ - 2.25, zMax: s.laneZ + 2.25 });
+      floorCutouts.push({ xMin: s.centerX - 4.46, xMax: s.centerX + 4.46, zMin: s.laneZ - 2.38, zMax: s.laneZ + 2.38 });
     }
   }
   const xSplits = Array.from(new Set([-25, 25, ...floorCutouts.flatMap(c => [c.xMin, c.xMax])])).sort((a, b) => a - b);
@@ -791,6 +947,7 @@ export function buildDynamicCourseGroup(
   const seesaws: SeesawRuntime[] = [];
   const hangingBridges: HangingBridgeRuntime[] = [];
   const footballArenas: FootballArenaRuntime[] = [];
+  const waterBasins: WaterBasinRuntime[] = [];
   const flames: FlameRuntime[] = [];
   const cameraOccluders: THREE.Object3D[] = [];
   const stoneMats = [mats.granite, mats.basalt, mats.riverStone, mats.limestone];
@@ -880,16 +1037,177 @@ export function buildDynamicCourseGroup(
         flames.push({ mesh: fm, baseScaleY: 1.0, baseScaleXZ: 1.0, freqLick: 7 + (f % 5), swaySpeed: 3.1, phase1: f * 0.9, phase2: f * 1.4 });
       }
     } else if (slot.type === 'water_basin') {
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -4.4), toCourseX(slot, -3.0), lz, DRIVE_ROUTE_WIDTH, GROUND_DECK_HEIGHT, -0.30, 0.14, mats.concreteCurb, easeCushionedRamp, 12);
-      makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(cx, -0.33, lz), new THREE.Vector3(6.2, 0.06, DRIVE_ROUTE_WIDTH));
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 3.0), toCourseX(slot, 4.4), lz, DRIVE_ROUTE_WIDTH, -0.30, GROUND_DECK_HEIGHT, 0.14, mats.concreteCurb, easeCushionedRamp, 12);
-      const wPlane = new THREE.Mesh(new THREE.PlaneGeometry(8.6, DRIVE_ROUTE_WIDTH - 0.1), mats.water);
-      wPlane.rotation.x = -Math.PI / 2;
-      wPlane.position.set(cx, 0.16, lz);
-      courseGroup.add(wPlane);
-      for (const side of [-1, 1]) {
-        makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, 0.17, lz + side * (DRIVE_ROUTE_WIDTH / 2 - 0.10)), new THREE.Vector3(8.8, 0.012, 0.09), 0, false);
+      const basinConcrete = getWaterBasinConcreteMats();
+      const waterBundle = getWaterSurfaceBundle();
+      const bedY = DYNAMIC_WATER_BED_Y;
+      const waterY = DYNAMIC_WATER_LEVEL_Y;
+      const roadY = GROUND_DECK_HEIGHT;
+      const halfV = DRIVE_ROUTE_WIDTH * 0.5; // 2.20
+      const wallTopY = -0.24;
+
+      // 1. Bridge entry/exit cutout transitions [-4.80..-4.40] and [+4.40..+4.80] at road elevation (-0.33m) + runoff trench grates
+      for (const endSign of [-1, 1] as const) {
+        const apronMidU = endSign * 4.60;
+        const apronX = toCourseX(slot, apronMidU);
+        makeBox(courseGroup, mats.asphalt, new THREE.Vector3(apronX, roadY - 0.054, lz), new THREE.Vector3(0.42, 0.12, DRIVE_ROUTE_WIDTH), 0, true);
+        makeBox(courseGroup, mats.yellow, new THREE.Vector3(apronX, roadY + 0.014, lz), new THREE.Vector3(0.42, 0.012, 0.08), 0, false);
+        for (const side of [-1, 1]) {
+          makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(apronX, roadY + 0.014, lz + side * (halfV - 0.10)), new THREE.Vector3(0.42, 0.012, 0.08), 0, false);
+        }
+        // Concrete threshold curb & transverse slotted runoff grate at tank lip (u = ±4.44)
+        const grateX = toCourseX(slot, endSign * 4.44);
+        makeBox(courseGroup, basinConcrete.wallMat, new THREE.Vector3(grateX, roadY - 0.06, lz), new THREE.Vector3(0.14, 0.13, DRIVE_ROUTE_WIDTH + 0.16), 0, true);
+        makeBox(courseGroup, mats.black, new THREE.Vector3(grateX, roadY + 0.002, lz), new THREE.Vector3(0.08, 0.012, DRIVE_ROUTE_WIDTH - 0.36), 0, false);
+        for (let gi = -4; gi <= 4; gi++) {
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(grateX, roadY + 0.007, lz + gi * 0.44), new THREE.Vector3(0.09, 0.012, 0.035), 0, false);
+        }
+        // Solid concrete end bulkhead sealing cutout wall below road apron down to tank foundation
+        makeBox(courseGroup, basinConcrete.wallMat, new THREE.Vector3(toCourseX(slot, endSign * 4.44), (roadY + bedY - 0.16) * 0.5, lz), new THREE.Vector3(0.16, roadY - (bedY - 0.16), 4.78), 0, false);
       }
+
+      // 2. Submerged concrete tank foundation & tiled bed slab (-1.08m)
+      makeBox(courseGroup, basinConcrete.floorMat, new THREE.Vector3(cx, bedY - 0.12, lz), new THREE.Vector3(8.96, 0.24, 4.76), 0, true);
+
+      // Central submerged floor sump recess & bolted cast-iron drain grate
+      makeBox(courseGroup, mats.metal, new THREE.Vector3(cx, bedY + 0.004, lz), new THREE.Vector3(0.92, 0.018, 0.92), 0, false);
+      makeBox(courseGroup, mats.black, new THREE.Vector3(cx, bedY + 0.008, lz), new THREE.Vector3(0.74, 0.014, 0.74), 0, false);
+      for (let bi = -3; bi <= 3; bi++) {
+        makeBox(courseGroup, mats.metal, new THREE.Vector3(cx + bi * 0.105, bedY + 0.013, lz), new THREE.Vector3(0.032, 0.012, 0.76), 0, false);
+      }
+
+      // 3. Curved Concrete Entry & Exit Wade Ramps [-4.40..-1.90] & [+1.90..+4.40] + Submerged Traction Cleats
+      const rampEase = (t: number) => easeCushionedRamp(t, 0.12);
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -4.40), toCourseX(slot, -1.90), lz, DRIVE_ROUTE_WIDTH, roadY, bedY, 0.18, basinConcrete.floorMat, rampEase, 18);
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 1.90), toCourseX(slot, 4.40), lz, DRIVE_ROUTE_WIDTH, bedY, roadY, 0.18, basinConcrete.floorMat, rampEase, 18);
+
+      for (const side of [-1, 1]) {
+        // Submerged white edge guide stripes across deep floor [-1.95..+1.95]
+        makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, bedY + 0.008, lz + side * (halfV - 0.10)), new THREE.Vector3(3.92, 0.01, 0.075), 0, false);
+      }
+      // Anti-slip concrete cleats & ramp-following edge stripes along both wade ramps
+      for (const endSign of [-1, 1] as const) {
+        const segN = 10;
+        for (let k = 1; k < segN; k++) {
+          const t = k / segN;
+          const tPrev = (k - 0.5) / segN;
+          const tNext = (k + 0.5) / segN;
+          const uPos = endSign < 0 ? (-4.40 + 2.50 * t) : (1.90 + 2.50 * t);
+          const e0 = endSign < 0 ? rampEase(tPrev) : (1 - rampEase(tPrev));
+          const e1 = endSign < 0 ? rampEase(tNext) : (1 - rampEase(tNext));
+          const y0 = roadY + (bedY - roadY) * e0;
+          const y1 = roadY + (bedY - roadY) * e1;
+          const eMid = endSign < 0 ? rampEase(t) : (1 - rampEase(t));
+          const yMid = roadY + (bedY - roadY) * eMid;
+          const du = (2.50 / segN) * slot.dir;
+          const slopeAng = Math.atan2(y1 - y0, du);
+          if (k >= 2 && k <= 8) {
+            const cleat = makeBox(courseGroup, basinConcrete.wallMat, new THREE.Vector3(toCourseX(slot, uPos), yMid + 0.008, lz), new THREE.Vector3(0.055, 0.016, DRIVE_ROUTE_WIDTH - 0.44), 0, false);
+            cleat.rotation.z = slopeAng;
+          }
+          for (const side of [-1, 1]) {
+            const stripe = makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(toCourseX(slot, uPos), yMid + 0.007, lz + side * (halfV - 0.10)), new THREE.Vector3(0.28, 0.01, 0.075), 0, false);
+            stripe.rotation.z = slopeAng;
+          }
+        }
+      }
+
+      // 4. Cast Concrete Retaining Sidewalls, Capstone Coping, Wet Tide Band, Depth Gauges & Corner Bollards
+      const wallHeight = wallTopY - (bedY - 0.16);
+      const wallCenterY = (wallTopY + (bedY - 0.16)) * 0.5;
+      const wetTopY = waterY + 0.045;
+      const wetHeight = wetTopY - bedY;
+      const wetCenterY = (wetTopY + bedY) * 0.5;
+
+      for (const side of [-1, 1] as const) {
+        const wallZ = lz + side * (halfV + 0.14); // ±2.34, cleanly covering cutout [±2.38] without narrowing lane
+        // Structural retaining sidewall
+        makeBox(courseGroup, basinConcrete.wallMat, new THREE.Vector3(cx, wallCenterY, wallZ), new THREE.Vector3(8.98, wallHeight, 0.28), 0, true);
+        // Beveled upper coping curb lip + faded safety stripe
+        makeBox(courseGroup, basinConcrete.wallMat, new THREE.Vector3(cx, wallTopY + 0.015, wallZ), new THREE.Vector3(9.02, 0.045, 0.32), 0, false);
+        makeBox(courseGroup, mats.yellow, new THREE.Vector3(cx, wallTopY + 0.04, lz + side * (halfV + 0.06)), new THREE.Vector3(8.86, 0.012, 0.07), 0, false);
+        // Inner dark wet tide-line staining from bed to waterline +4.5cm
+        makeBox(courseGroup, basinConcrete.wetBandMat, new THREE.Vector3(cx, wetCenterY, lz + side * (halfV - 0.002)), new THREE.Vector3(8.78, wetHeight, 0.014), 0, false);
+        // Painted depth gauge signs mounted flush on inner wall at mid-tank and entry wade slope
+        for (const gaugeU of [-2.4, 0.0]) {
+          makeBox(
+            courseGroup,
+            basinConcrete.depthGaugeMat,
+            new THREE.Vector3(toCourseX(slot, gaugeU), waterY + 0.03, lz + side * (halfV - 0.013)),
+            new THREE.Vector3(0.76, 0.34, 0.008),
+            0,
+            false,
+          );
+        }
+        // Subtle shoreline meniscus foam ribbon right against inner concrete wall
+        makeBox(courseGroup, waterBundle.shoreFoamMat, new THREE.Vector3(cx, waterY + 0.005, lz + side * (halfV - 0.035)), new THREE.Vector3(8.70, 0.008, 0.055), 0, false);
+        // Retaining wall collider strictly outside navigable ±2.20m lane
+        colliders.push({
+          id: `water_wall_${slot.index}_${side}`,
+          x: cx,
+          z: wallZ,
+          hx: 4.48,
+          hz: 0.14,
+          y: -0.46,
+          height: 0.72,
+          rot: 0,
+          walkable: false,
+        });
+        // Corner galvanized perimeter marker stanchions outside corner coping
+        for (const cornerU of [-4.40, 4.40]) {
+          const postX = toCourseX(slot, cornerU);
+          makeCyl(courseGroup, mats.chrome, new THREE.Vector3(postX, wallTopY + 0.19, wallZ), 0.042, 0.36, 'y', 10);
+          makeCyl(courseGroup, mats.yellow, new THREE.Vector3(postX, wallTopY + 0.37, wallZ), 0.048, 0.05, 'y', 10);
+        }
+      }
+
+      // Ramp-to-waterline foam lines across entry & exit wade shores (where ramp intersects waterY = -0.38)
+      for (const endSign of [-1, 1] as const) {
+        const shoreU = endSign * 3.98;
+        makeBox(courseGroup, waterBundle.shoreFoamMat, new THREE.Vector3(toCourseX(slot, shoreU), waterY + 0.005, lz), new THREE.Vector3(0.08, 0.008, DRIVE_ROUTE_WIDTH - 0.08), 0, false);
+      }
+
+      // 5. Underwater Drifting Caustic Projection Layer
+      const causticPlane = new THREE.Mesh(new THREE.PlaneGeometry(8.56, DRIVE_ROUTE_WIDTH - 0.14), waterBundle.causticMat);
+      causticPlane.rotation.x = -Math.PI / 2;
+      causticPlane.position.set(cx, bedY + 0.016, lz);
+      courseGroup.add(causticPlane);
+
+      // 6. Subdivided Interactive Animated Water Surface (44 x 20 grid for gentle waves + rover wake)
+      const waterGeo = new THREE.PlaneGeometry(8.78, DRIVE_ROUTE_WIDTH - 0.04, 44, 20);
+      const waterMesh = new THREE.Mesh(waterGeo, waterBundle.surfaceMat);
+      waterMesh.rotation.x = -Math.PI / 2;
+      waterMesh.position.set(cx, waterY, lz);
+      courseGroup.add(waterMesh);
+      const basePositions = new Float32Array(waterGeo.attributes.position.array);
+
+      // Pooled surface wake rings radiating behind submerged moving rover
+      const wakeRings: WaterWakeRing[] = [];
+      for (let wi = 0; wi < 8; wi++) {
+        const wMat = new THREE.MeshBasicMaterial({
+          map: waterBundle.wakeFoamMap,
+          color: '#c2d8dc',
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const wRing = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.95), wMat);
+        wRing.rotation.x = -Math.PI / 2;
+        wRing.position.set(cx, waterY + 0.008, lz);
+        wRing.visible = false;
+        courseGroup.add(wRing);
+        wakeRings.push({ mesh: wRing, mat: wMat, life: 0, maxLife: 1.0 });
+      }
+
+      waterBasins.push({
+        slot,
+        waterMesh,
+        waterGeo,
+        basePositions,
+        waterY,
+        wakeRings,
+        wakeCooldown: 0,
+      });
     } else if (slot.type === 'football_arena') {
       const ballCount = slot.footballBallCount ?? 5;
       const turfTopY = GROUND_DECK_HEIGHT + 0.016;
@@ -1645,6 +1963,7 @@ export function buildDynamicCourseGroup(
     seesaws,
     hangingBridges,
     footballArenas,
+    waterBasins,
     flames,
     laserBeams,
     beacons,
@@ -1914,6 +2233,85 @@ export function stepDynamicHurdles(
       b.holder.position.set(b.x, pitchFloorY + b.radius * MAP_SCALE, b.z);
       b.mesh.rotation.z -= (b.vx / Math.max(0.05, b.radius)) * dt;
       b.mesh.rotation.x += (b.vz / Math.max(0.05, b.radius)) * dt;
+    }
+  }
+
+  // 5. Animate Water Basin Surface Waves, Caustics & Live Rover Bow/Track Wake
+  if (runtime.waterBasins.length > 0) {
+    const waterBundle = getWaterSurfaceBundle();
+    waterBundle.waterMap.offset.x = (waterBundle.waterMap.offset.x + dt * 0.028) % 1;
+    waterBundle.waterMap.offset.y = (waterBundle.waterMap.offset.y - dt * 0.019) % 1;
+    waterBundle.waterBump.offset.x = (waterBundle.waterBump.offset.x - dt * 0.042) % 1;
+    waterBundle.waterBump.offset.y = (waterBundle.waterBump.offset.y + dt * 0.031) % 1;
+    waterBundle.causticMap.offset.x = (waterBundle.causticMap.offset.x + dt * 0.036) % 1;
+    waterBundle.causticMap.offset.y = (waterBundle.causticMap.offset.y + dt * 0.024) % 1;
+
+    const roverSpeed = Math.hypot(pose.vx, pose.vz);
+    for (const wb of runtime.waterBasins) {
+      const uRel = (rx - wb.slot.centerX) * wb.slot.dir;
+      const vRel = (rz - wb.slot.laneZ) * wb.slot.dir;
+      const roverOverPool = Math.abs(uRel) <= 4.35 && Math.abs(vRel) <= 2.15 && (pose.y + TRACK_CONTACT_OFFSET) <= wb.waterY + 0.14;
+      const localRoverX = rx - wb.slot.centerX;
+      const localRoverZ = rz - wb.slot.laneZ;
+
+      const posAttr = wb.waterGeo.attributes.position as THREE.BufferAttribute;
+      const arr = posAttr.array as Float32Array;
+      const base = wb.basePositions;
+      const halfSpanX = 4.39;
+      const halfSpanZ = (DRIVE_ROUTE_WIDTH - 0.04) * 0.5;
+      const wakeStrength = roverOverPool ? Math.min(1.0, 0.25 + roverSpeed / 4.2) : 0;
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const ix = i * 3;
+        const bx = base[ix];
+        const by = base[ix + 1]; // maps to -Z relative to slot center
+        const bz = base[ix + 2];
+        const wallFadeX = Math.max(0, Math.min(1, (halfSpanX - Math.abs(bx)) / 0.45));
+        const wallFadeZ = Math.max(0, Math.min(1, (halfSpanZ - Math.abs(by)) / 0.35));
+        const edgeFade = wallFadeX * wallFadeZ;
+
+        // Ambient multi-octave proving tank ripple
+        let wave = (Math.sin(bx * 1.45 + nowSec * 1.85) * 0.008
+          + Math.cos(by * 2.10 - nowSec * 1.40) * 0.006
+          + Math.sin((bx + by) * 2.4 - nowSec * 2.2) * 0.005) * edgeFade;
+
+        // Interactive radial bow/track wake displaced right around the rover inside tank
+        if (wakeStrength > 0.01) {
+          const wz = -by;
+          const distR = Math.hypot(bx - localRoverX, wz - localRoverZ);
+          if (distR < 2.2) {
+            const damp = (1 - distR / 2.2);
+            wave += Math.sin(distR * 7.5 - nowSec * 9.5) * 0.024 * wakeStrength * damp * damp * edgeFade;
+          }
+        }
+        arr[ix + 2] = bz + wave;
+      }
+      posAttr.needsUpdate = true;
+      wb.waterGeo.computeVertexNormals();
+
+      // Update & spawn surface foam wake rings behind moving tracks
+      wb.wakeCooldown = Math.max(0, wb.wakeCooldown - dt);
+      if (roverOverPool && (roverSpeed > 0.35 || Math.abs(pose.yawRate) > 0.25) && wb.wakeCooldown <= 0) {
+        const ring = wb.wakeRings.find(r => r.life <= 0);
+        if (ring) {
+          wb.wakeCooldown = 0.18;
+          ring.life = ring.maxLife = 0.78;
+          ring.mesh.visible = true;
+          ring.mesh.position.set(rx, wb.waterY + 0.01, rz);
+          ring.mesh.rotation.z = Math.random() * Math.PI * 2;
+          ring.mesh.scale.set(0.75, 0.75, 1);
+          ring.mat.opacity = 0.34;
+        }
+      }
+      for (const ring of wb.wakeRings) {
+        if (ring.life <= 0) continue;
+        ring.life -= dt;
+        const progress = 1 - Math.max(0, ring.life / ring.maxLife);
+        const s = 0.75 + progress * 2.1;
+        ring.mesh.scale.set(s, s, 1);
+        ring.mat.opacity = Math.max(0, (1 - progress) * 0.34);
+        if (ring.life <= 0) ring.mesh.visible = false;
+      }
     }
   }
 
