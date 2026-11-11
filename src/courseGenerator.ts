@@ -138,6 +138,176 @@ export type HurdleSlot = {
   footballBallCount?: number;
 };
 
+export type HangingBridgeSideState = {
+  sag: number;      // dynamic extra downward vertical stretch (m)
+  sagVel: number;
+  sway: number;     // dynamic lateral displacement in local v (m)
+  swayVel: number;
+};
+
+export type HangingBridgeState = {
+  slotIndex: number;
+  onBridge: boolean;
+  smoothBotS: number; // normalized [0..1] along [-4.5..+4.5] span
+  loadMix: number;    // smooth [0..1] load transition weight
+  phaseTime: number;
+  left: HangingBridgeSideState;   // v < 0 (-trackSpacingHalf)
+  right: HangingBridgeSideState;  // v > 0 (+trackSpacingHalf)
+};
+
+export function createInitialHangingBridgeState(slotIndex: number): HangingBridgeState {
+  return {
+    slotIndex,
+    onBridge: false,
+    smoothBotS: 0.5,
+    loadMix: 0,
+    phaseTime: 0,
+    left: { sag: 0, sagVel: 0, sway: 0, swayVel: 0 },
+    right: { sag: 0, sagVel: 0, sway: 0, swayVel: 0 },
+  };
+}
+
+/**
+ * Samples live vertical deck elevation and lateral sway displacement for one
+ * independent narrow hanging bridge ribbon (`side` 0 = -v / Left, 1 = +v / Right)
+ * at normalized span coordinate `s in [0, 1]`. Both tower anchors (`s=0, s=1`) stay pinned.
+ */
+export function sampleHangingBridgeRibbon(
+  state: HangingBridgeState,
+  side: 0 | 1,
+  s: number,
+): { y: number; swayV: number } {
+  const bridgeY = 0.88;
+  const clampedS = Math.max(0, Math.min(1, s));
+  const pin = Math.sin(Math.PI * clampedS);
+  const restSag = 0.14 * 4 * clampedS * (1 - clampedS);
+  const st = side === 0 ? state.left : state.right;
+  const distS = clampedS - state.smoothBotS;
+  const pocket = Math.exp(-(distS * distS) / (0.28 * 0.28));
+  const dynShape = pin * (0.42 + 0.58 * (state.loadMix * pocket + (1 - state.loadMix) * pin));
+  const clampedSag = Math.max(-0.08, Math.min(0.60, st.sag));
+  return {
+    y: bridgeY - restSag - clampedSag * dynShape,
+    swayV: st.sway * pin,
+  };
+}
+
+/**
+ * Advances real coupled spring-mass-pendulum physics for a twin chain bridge span.
+ * When the rover crosses between anchor towers (`u in [-4.55, 4.55]`), gravity load
+ * stretches the active cables downward into a localized traveling sag hollow while
+ * asymmetric compliance and weight transfer drive independent left-right swinging and
+ * opposing vertical bounce.
+ */
+export function stepHangingBridgeState(
+  state: HangingBridgeState,
+  slot: HurdleSlot,
+  roverLocalX: number | null,
+  roverLocalZ: number | null,
+  roverY: number,
+  roverRoll: number,
+  roverYawRate: number,
+  roverSpeed: number,
+  dt: number,
+): { deltaMeanSwayV: number; twistTorque: number } {
+  const clampedDt = Math.min(0.05, Math.max(0.001, dt));
+  state.phaseTime += clampedDt;
+
+  const u = roverLocalX !== null ? slot.dir * (roverLocalX - slot.centerX) : 999;
+  const v = roverLocalZ !== null ? slot.dir * (roverLocalZ - slot.laneZ) : 999;
+  const supported = Math.abs(u) <= 4.55 && Math.abs(v) <= 1.45 && roverY >= GROUND_DECK_HEIGHT - 0.15;
+  state.onBridge = supported;
+
+  state.loadMix += ((supported ? 1 : 0) - state.loadMix) * (1 - Math.exp(-clampedDt * 7.5));
+  if (supported) {
+    const rawS = Math.max(0, Math.min(1, (u + 4.5) / 9.0));
+    state.smoothBotS += (rawS - state.smoothBotS) * (1 - Math.exp(-clampedDt * 12.0));
+  }
+
+  const prevSwayMean = (state.left.sway + state.right.sway) * 0.5;
+  const subSteps = 2;
+  const hDt = clampedDt / subSteps;
+
+  for (let step = 0; step < subSteps; step++) {
+    const { left, right } = state;
+    if (supported) {
+      const spanWeight = Math.sin(Math.PI * state.smoothBotS);
+      const moveFactor = Math.min(1.0, 0.38 + Math.abs(roverSpeed) * 0.16);
+      const swayMid = (left.sway + right.sway) * 0.5;
+      const latOffset = Math.max(-0.85, Math.min(0.85, (v - swayMid) / 0.61));
+      const rollTransfer = Math.max(-0.55, Math.min(0.55, roverRoll * 0.85 - roverYawRate * 0.10));
+
+      // Alternating asynchronous differential sag & stretch ("one goes deeper down, one rebounds")
+      const heaveDiff = 0.115 * spanWeight * moveFactor * Math.sin(state.phaseTime * 2.85);
+      const loadBase = 0.44 * spanWeight;
+      const bias = -latOffset * 0.46 + rollTransfer * 0.35;
+      const targetSagL = Math.max(0.05, Math.min(0.56, loadBase * (1 + bias) + heaveDiff));
+      const targetSagR = Math.max(0.05, Math.min(0.56, loadBase * (1 - bias) - heaveDiff));
+
+      // Coupled left-right pendulum oscillation (shared sway + out-of-phase alternating mode)
+      const swayAmp = 0.21 * spanWeight * moveFactor + 0.045 * spanWeight;
+      const steerKick = (roverYawRate * 0.32 + Math.sin(roverRoll) * 0.80) * spanWeight;
+      const targetSwayL = swayAmp * Math.sin(state.phaseTime * 2.95) - steerKick * 0.45;
+      const targetSwayR = swayAmp * Math.sin(state.phaseTime * 2.95 + 2.15) - steerKick * 0.35;
+
+      // Slightly asymmetric natural cable frequencies make Left and Right behave authentically independently
+      const aSagL = 32.0 * (targetSagL - left.sag) - 4.0 * left.sagVel + 3.5 * (right.sag - left.sag);
+      const aSagR = 26.5 * (targetSagR - right.sag) - 3.6 * right.sagVel + 3.5 * (left.sag - right.sag);
+      const aSwayL = 16.0 * (targetSwayL - left.sway) - 1.85 * left.swayVel;
+      const aSwayR = 14.2 * (targetSwayR - right.sway) - 1.75 * right.swayVel;
+
+      left.sagVel += aSagL * hDt;
+      right.sagVel += aSagR * hDt;
+      left.sag += left.sagVel * hDt;
+      right.sag += right.sagVel * hDt;
+
+      left.swayVel += aSwayL * hDt;
+      right.swayVel += aSwayR * hDt;
+      left.sway += left.swayVel * hDt;
+      right.sway += right.swayVel * hDt;
+    } else {
+      const breezeL = 0.022 * Math.sin(state.phaseTime * 1.85);
+      const breezeR = 0.022 * Math.sin(state.phaseTime * 1.85 + 1.6);
+      const aSagL = -24.0 * left.sag - 3.8 * left.sagVel;
+      const aSagR = -21.0 * right.sag - 3.5 * right.sagVel;
+      const aSwayL = 12.0 * (breezeL - left.sway) - 2.1 * left.swayVel;
+      const aSwayR = 11.0 * (breezeR - right.sway) - 2.0 * right.swayVel;
+
+      left.sagVel += aSagL * hDt;
+      right.sagVel += aSagR * hDt;
+      left.sag += left.sagVel * hDt;
+      right.sag += right.sagVel * hDt;
+
+      left.swayVel += aSwayL * hDt;
+      right.swayVel += aSwayR * hDt;
+      left.sway += left.swayVel * hDt;
+      right.sway += right.swayVel * hDt;
+    }
+
+    for (const sideSt of [left, right]) {
+      if (sideSt.sway > 0.22) { sideSt.sway = 0.22; if (sideSt.swayVel > 0) sideSt.swayVel = 0; }
+      if (sideSt.sway < -0.22) { sideSt.sway = -0.22; if (sideSt.swayVel < 0) sideSt.swayVel = 0; }
+      if (sideSt.sag < -0.08) { sideSt.sag = -0.08; if (sideSt.sagVel < 0) sideSt.sagVel = 0; }
+      if (sideSt.sag > 0.58) { sideSt.sag = 0.58; if (sideSt.sagVel > 0) sideSt.sagVel = 0; }
+    }
+
+    // Keep inner bridge gap clear of self-collision even at maximum counter-swing
+    const diff = left.sway - right.sway;
+    if (Math.abs(diff) > 0.24) {
+      const mid = (left.sway + right.sway) * 0.5;
+      const halfMax = 0.12 * Math.sign(diff);
+      left.sway = mid + halfMax;
+      right.sway = mid - halfMax;
+    }
+  }
+
+  const newSwayMean = (state.left.sway + state.right.sway) * 0.5;
+  const pinAtBot = Math.sin(Math.PI * state.smoothBotS);
+  const deltaMeanSwayV = supported ? (newSwayMean - prevSwayMean) * pinAtBot : 0;
+  const twistTorque = supported ? (state.left.swayVel - state.right.swayVel) * pinAtBot * 0.22 : 0;
+  return { deltaMeanSwayV, twistTorque };
+}
+
 export type GeneratedCourse = {
   trackId: TrackId;
   seed: number;
@@ -151,6 +321,7 @@ export type GeneratedCourse = {
   waterPools: WaterPoolConfig[];
   turntables: { x: number; z: number; radius: number; deckY: number }[];
   seesawStates: Record<number, number>; // slotIndex -> tiltAngle rad (-0.11..+0.11)
+  hangingBridgeStates: Record<number, HangingBridgeState>;
 };
 
 type LaneCandidateSlot = {
@@ -316,6 +487,7 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
   const waterPools: WaterPoolConfig[] = [];
   const turntables: { x: number; z: number; radius: number; deckY: number }[] = [];
   const seesawStates: Record<number, number> = {};
+  const hangingBridgeStates: Record<number, HangingBridgeState> = {};
 
   // Pair Spiral onto full-lane slot and standard hurdles onto ordered standard slots
   const standardPicked = picked.filter(t => t !== 'spiral_tower');
@@ -398,6 +570,8 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
       });
     } else if (type === 'seesaw_bridge') {
       seesawStates[slotIndex] = 0.11; // Entry end tilted smoothly down toward approaching robot
+    } else if (type === 'hanging_bridges') {
+      hangingBridgeStates[slotIndex] = createInitialHangingBridgeState(slotIndex);
     }
   });
 
@@ -445,6 +619,7 @@ export function generateRandomizedCourse(trackId: TrackId, seed: number): Genera
     waterPools,
     turntables,
     seesawStates,
+    hangingBridgeStates,
   };
 }
 
@@ -770,7 +945,7 @@ function evalSlotLocal(
       const pitHalfZ = 2.05;
       const inPit = Math.abs(u) <= 4.7 && Math.abs(v) <= pitHalfZ;
       const trackSpacingHalf = (TRACK_WIDTH / MAP_SCALE) * 0.5;
-      const plankHalfW = 0.32;
+      const plankHalfW = 0.34;
       if (u >= -6.1 && u < -4.5 && Math.abs(v) <= 1.25) {
         if (poseY < GROUND_DECK_HEIGHT - 0.15 && inPit) return { matched: true, height: HANGING_SAND_PIT_Y, rockOffset: 0, surface: { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' } };
         const t = Math.min(1, (u + 6.1) / 1.6);
@@ -782,10 +957,23 @@ function evalSlotLocal(
         return { matched: true, height: GROUND_DECK_HEIGHT + (bridgeY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0 };
       }
       if (u >= -4.5 && u <= 4.5) {
-        if (poseY >= GROUND_DECK_HEIGHT - 0.15 && (Math.abs(v - trackSpacingHalf) <= plankHalfW || Math.abs(v + trackSpacingHalf) <= plankHalfW)) {
-          const spanU = (u + 4.5) / 9.0;
-          const sag = 0.14 * 4 * spanU * (1 - spanU);
-          return { matched: true, height: bridgeY - sag, rockOffset: 0, surface: { grip: 0.96, rollingResistance: 0.34, hazard: 'none' } };
+        const spanU = (u + 4.5) / 9.0;
+        const hbState = activeGeneratedCourse?.hangingBridgeStates[slot.index];
+        const leftSample = hbState
+          ? sampleHangingBridgeRibbon(hbState, 0, spanU)
+          : { y: bridgeY - 0.14 * 4 * spanU * (1 - spanU), swayV: 0 };
+        const rightSample = hbState
+          ? sampleHangingBridgeRibbon(hbState, 1, spanU)
+          : { y: bridgeY - 0.14 * 4 * spanU * (1 - spanU), swayV: 0 };
+        const vL = -trackSpacingHalf + leftSample.swayV;
+        const vR = trackSpacingHalf + rightSample.swayV;
+        if (poseY >= GROUND_DECK_HEIGHT - 0.15) {
+          if (Math.abs(v - vL) <= plankHalfW) {
+            return { matched: true, height: leftSample.y, rockOffset: 0, surface: { grip: 0.94, rollingResistance: 0.36, hazard: 'none' } };
+          }
+          if (Math.abs(v - vR) <= plankHalfW) {
+            return { matched: true, height: rightSample.y, rockOffset: 0, surface: { grip: 0.94, rollingResistance: 0.36, hazard: 'none' } };
+          }
         }
         return {
           matched: true,
@@ -914,7 +1102,14 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
       }
       if (slot.type === 'hanging_bridges') {
         if (poseY < GROUND_DECK_HEIGHT - 0.18 && Math.abs(u) <= 4.7) return false;
-        if (Math.abs(u) <= 4.5) return Math.abs(v) <= (TRACK_WIDTH / MAP_SCALE) * 0.5 + 0.36;
+        if (Math.abs(u) <= 4.5) {
+          const hbState = activeGeneratedCourse.hangingBridgeStates[slot.index];
+          const s = (u + 4.5) / 9.0;
+          const swayL = hbState ? sampleHangingBridgeRibbon(hbState, 0, s).swayV : 0;
+          const swayR = hbState ? sampleHangingBridgeRibbon(hbState, 1, s).swayV : 0;
+          const swayAvg = (swayL + swayR) * 0.5;
+          return Math.abs(v - swayAvg) <= (TRACK_WIDTH / MAP_SCALE) * 0.5 + 0.36;
+        }
         return Math.abs(v) <= 1.30;
       }
       if (slot.type === 'football_arena') {

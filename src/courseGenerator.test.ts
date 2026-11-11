@@ -4,7 +4,9 @@ import {
   ARENA_METADATA,
   HURDLE_CATALOG,
   generateRandomizedCourse,
+  sampleHangingBridgeRibbon,
   setActiveGeneratedCourse,
+  stepHangingBridgeState,
 } from './courseGenerator.ts';
 import {
   evaluateCourseHeight,
@@ -308,4 +310,115 @@ test('pendulum wrecking ball collision and moderate bridge drop apply calibrated
   const subsFall = createInitialSubsystems();
   const bridgeDropLoss = applyFallImpactDamage(subsFall, 6.2, 'none');
   assert.ok(bridgeDropLoss < 60, `Moderate bridge drop damage should stay below 60%, got ${bridgeDropLoss.toFixed(1)}%`);
+});
+
+test('hanging chain bridges stretch down under weight, sway left-right asymmetrically, and keep tracks supported', () => {
+  let hbCourse = null;
+  for (let s = 1; s <= 50; s++) {
+    const c = generateRandomizedCourse('track_b', s * 7919);
+    if (c.slots.some(sl => sl.type === 'hanging_bridges')) {
+      hbCourse = c;
+      break;
+    }
+  }
+  assert.ok(hbCourse, 'Expected hanging_bridges in seed sweep');
+  const hb = hbCourse!.slots.find(sl => sl.type === 'hanging_bridges')!;
+  const state = hbCourse!.hangingBridgeStates[hb.index];
+  assert.ok(state, 'Expected initialized HangingBridgeState on generated course');
+
+  try {
+    setActiveGeneratedCourse(hbCourse);
+    const startX = hb.centerX + hb.dir * (-4.4);
+    const startH = evaluateCourseHeight(startX, hb.laneZ - 0.60, 0.88);
+    const pose: VehiclePose = {
+      x: startX * MAP_SCALE,
+      y: startH - TRACK_CONTACT_OFFSET,
+      z: hb.laneZ * MAP_SCALE,
+      vx: hb.dir * 2.6,
+      vy: 0,
+      vz: 0,
+      yaw: hb.dir > 0 ? Math.PI / 2 : -Math.PI / 2,
+      yawRate: 0,
+      roll: 0,
+      pitch: 0,
+      rollRate: 0,
+      pitchRate: 0,
+      isGrounded: true,
+      isFlipped: false,
+      flippedTimer: 0,
+      lastImpactSpeed: 0,
+    };
+
+    const dt = 1 / 60;
+    const worldHeight = (wx: number, wz: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y);
+    let minMidY = 99;
+    let maxAbsSwayL = 0;
+    let maxAbsSwayR = 0;
+    let seenPosSway = false;
+    let seenNegSway = false;
+    let maxRoll = 0;
+    let maxSwayDiff = 0;
+    let maxAsymVert = 0;
+    let dropFailures = 0;
+
+    // Cross full 9m local span (~11.7m world at 2.6 m/s => ~4.4s)
+    for (let i = 0; i < 240; i++) {
+      const rx = pose.x / MAP_SCALE;
+      const rz = pose.z / MAP_SCALE;
+      const stepRes = stepHangingBridgeState(
+        state,
+        hb,
+        rx,
+        rz,
+        pose.y + TRACK_CONTACT_OFFSET,
+        pose.roll,
+        pose.yawRate,
+        2.6,
+        dt,
+      );
+      if (state.onBridge) {
+        pose.z += hb.dir * stepRes.deltaMeanSwayV * MAP_SCALE;
+      }
+      pose.x += hb.dir * 2.6 * dt;
+      stepVehicle3D(pose, worldHeight, 2.6, 0, dt);
+
+      // Anchor towers at s=0 and s=1 must stay strictly pinned at 0.88m with 0 sway
+      const anchor0L = sampleHangingBridgeRibbon(state, 0, 0);
+      const anchor1R = sampleHangingBridgeRibbon(state, 1, 1);
+      assert.ok(Math.abs(anchor0L.y - 0.88) < 1e-6 && Math.abs(anchor0L.swayV) < 1e-6);
+      assert.ok(Math.abs(anchor1R.y - 0.88) < 1e-6 && Math.abs(anchor1R.swayV) < 1e-6);
+
+      if (state.onBridge) {
+        const sBot = state.smoothBotS;
+        const rL = sampleHangingBridgeRibbon(state, 0, sBot);
+        const rR = sampleHangingBridgeRibbon(state, 1, sBot);
+        minMidY = Math.min(minMidY, rL.y, rR.y);
+        maxAbsSwayL = Math.max(maxAbsSwayL, Math.abs(rL.swayV));
+        maxAbsSwayR = Math.max(maxAbsSwayR, Math.abs(rR.swayV));
+        if (rL.swayV > 0.05) seenPosSway = true;
+        if (rL.swayV < -0.05) seenNegSway = true;
+        maxSwayDiff = Math.max(maxSwayDiff, Math.abs(state.left.sway - state.right.sway));
+        maxAsymVert = Math.max(maxAsymVert, Math.abs(rL.y - rR.y));
+        maxRoll = Math.max(maxRoll, Math.abs(pose.roll));
+        if (pose.y + TRACK_CONTACT_OFFSET < 0.0) dropFailures += 1;
+      }
+    }
+
+    assert.equal(dropFailures, 0, `Rover dropped off moving planks unexpectedly ${dropFailures} times`);
+    assert.ok(minMidY < 0.48, `Expected loaded chain bridge to stretch noticeably low (< 0.48m), got minMidY=${minMidY.toFixed(3)}m`);
+    assert.ok(maxAbsSwayL >= 0.09 && maxAbsSwayR >= 0.09, `Expected active left-right sway, got L=${maxAbsSwayL.toFixed(3)}, R=${maxAbsSwayR.toFixed(3)}`);
+    assert.ok(seenPosSway && seenNegSway, 'Expected alternating left-right motion across both positive and negative directions');
+    assert.ok(maxAsymVert >= 0.04, `Expected asymmetric left vs right vertical deflection, got ${maxAsymVert.toFixed(3)}m`);
+    assert.ok(maxRoll >= 0.02, `Expected physical roll response across independent planks, got ${maxRoll.toFixed(3)} rad`);
+    assert.ok(maxSwayDiff <= 0.241, `Inner bridge collision safety violated: diff=${maxSwayDiff.toFixed(3)}m`);
+
+    // After unloading, chains smoothly spring back toward resting catenary (0.74m at midspan)
+    for (let i = 0; i < 180; i++) {
+      stepHangingBridgeState(state, hb, null, null, 0, 0, 0, 0, dt);
+    }
+    const unloadedMid = sampleHangingBridgeRibbon(state, 0, 0.5);
+    assert.ok(Math.abs(unloadedMid.y - 0.74) < 0.04, `Unloaded chain should rebound smoothly to resting sag (0.74m), got ${unloadedMid.y.toFixed(3)}m`);
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
 });

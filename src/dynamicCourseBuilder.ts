@@ -12,7 +12,10 @@ import {
   type CheckpointGate,
 } from './courseLayout.ts';
 import {
+  sampleHangingBridgeRibbon,
+  stepHangingBridgeState,
   type GeneratedCourse,
+  type HangingBridgeState,
   type HurdleSlot,
   type HurdleTier,
 } from './courseGenerator.ts';
@@ -149,6 +152,24 @@ export type FlameRuntime = {
   phase2: number;
 };
 
+export type HangingBridgeRibbonVisual = {
+  side: 0 | 1;
+  vNominal: number;
+  sideSign: -1 | 1;
+  planks: THREE.Mesh[];      // 18 slats preserving exact (0.54, 0.08, 0.62) size
+  hangers: THREE.Mesh[];     // 18 suspender rods connecting main cable to outer slat edge
+  mainCables: THREE.Mesh[];  // 18 overhead main suspension cable segments
+  edgeChainsL: THREE.Mesh[]; // 17 carrier chain segments along inner/left slat edge
+  edgeChainsR: THREE.Mesh[]; // 17 carrier chain segments along outer/right slat edge
+};
+
+export type HangingBridgeRuntime = {
+  slotIndex: number;
+  slot: HurdleSlot;
+  trackSpacingHalf: number;
+  ribbons: [HangingBridgeRibbonVisual, HangingBridgeRibbonVisual];
+};
+
 export type CourseRuntimeHandles = {
   plan: GeneratedCourse;
   checkpoints: CheckpointMeshRuntime[];
@@ -156,6 +177,7 @@ export type CourseRuntimeHandles = {
   turntables: TurntableRuntime[];
   pendulums: PendulumRuntime[];
   seesaws: SeesawRuntime[];
+  hangingBridges: HangingBridgeRuntime[];
   footballArenas: FootballArenaRuntime[];
   flames: FlameRuntime[];
   laserBeams: THREE.Mesh[];
@@ -163,6 +185,116 @@ export type CourseRuntimeHandles = {
   waterPools: WaterPoolConfig[];
   cameraOccluders: THREE.Object3D[];
 };
+
+const _hbUp = new THREE.Vector3(0, 1, 0);
+const _hbDir = new THREE.Vector3();
+
+function alignBridgeSegment(
+  mesh: THREE.Mesh,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dz = z1 - z0;
+  const len = Math.hypot(dx, dy, dz) || 1e-4;
+  mesh.position.set((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
+  mesh.scale.set(1, len, 1);
+  _hbDir.set(dx / len, dy / len, dz / len);
+  mesh.quaternion.setFromUnitVectors(_hbUp, _hbDir);
+}
+
+function updateHangingBridgeVisuals(hb: HangingBridgeRuntime, state: HangingBridgeState) {
+  const { slot } = hb;
+  const segCount = 18;
+  const stepU = 9.0 / segCount;
+  const yTowerCable = 2.48;
+  const cableRestSag = 0.86;
+  const toCX = (u: number) => slot.centerX + slot.dir * u;
+  const toCZ = (v: number) => slot.laneZ + slot.dir * v;
+
+  for (const rib of hb.ribbons) {
+    const bridgeRestSagAt = (s: number) => 0.14 * 4 * s * (1 - s);
+    const sampleMainCable = (s: number) => {
+      const sClamped = Math.max(0, Math.min(1, s));
+      const ribS = sampleHangingBridgeRibbon(state, rib.side, sClamped);
+      const restDeckY = 0.88 - bridgeRestSagAt(sClamped);
+      const extraDip = Math.max(-0.08, restDeckY - ribS.y);
+      const yMain = yTowerCable - cableRestSag * 4 * sClamped * (1 - sClamped) - extraDip * 0.56;
+      const vMain = rib.sideSign * 1.10 + ribS.swayV * 0.65;
+      return {
+        x: toCX(-4.5 + sClamped * 9.0),
+        y: yMain,
+        z: toCZ(vMain),
+        plank: ribS,
+      };
+    };
+
+    // 1. Overhead main suspension cable (18 articulated links from tower post to tower post)
+    let prevC = sampleMainCable(0);
+    for (let k = 0; k < segCount; k++) {
+      const nextC = sampleMainCable((k + 1) / segCount);
+      alignBridgeSegment(rib.mainCables[k], prevC.x, prevC.y, prevC.z, nextC.x, nextC.y, nextC.z);
+      prevC = nextC;
+    }
+
+    // 2. Planks & suspender hangers + longitudinal carrier chains
+    let prevX = 0;
+    let prevY = 0;
+    let prevZLeft = 0;
+    let prevZRight = 0;
+
+    for (let pi = 0; pi < segCount; pi++) {
+      const s0 = pi / segCount;
+      const s1 = (pi + 1) / segCount;
+      const sMid = (pi + 0.5) / segCount;
+      const midCable = sampleMainCable(sMid);
+      const r0 = sampleHangingBridgeRibbon(state, rib.side, s0);
+      const r1 = sampleHangingBridgeRibbon(state, rib.side, s1);
+      const rM = midCable.plank;
+
+      const xM = midCable.x;
+      const yM = rM.y;
+      const vM = rib.vNominal + rM.swayV;
+      const zM = toCZ(vM);
+
+      const plankMesh = rib.planks[pi];
+      plankMesh.position.set(xM, yM - 0.04, zM);
+      // Pitch plank cleanly along the deformed catenary tangent slope
+      plankMesh.rotation.z = Math.atan2(r1.y - r0.y, slot.dir * stepU);
+      // Subtle cradle roll angle as cables swing laterally
+      plankMesh.rotation.x = rM.swayV * 0.24 * slot.dir;
+
+      // Vertical suspender cable from overhead main chain down to outer plank edge
+      const vOuterEdge = rib.vNominal + rib.sideSign * 0.28 + rM.swayV;
+      alignBridgeSegment(
+        rib.hangers[pi],
+        xM,
+        yM - 0.01,
+        toCZ(vOuterEdge),
+        midCable.x,
+        midCable.y,
+        midCable.z,
+      );
+
+      const zEdgeL = toCZ(vM - 0.23);
+      const zEdgeR = toCZ(vM + 0.23);
+      const yChain = yM - 0.075;
+      if (pi > 0) {
+        alignBridgeSegment(rib.edgeChainsL[pi - 1], prevX, prevY, prevZLeft, xM, yChain, zEdgeL);
+        alignBridgeSegment(rib.edgeChainsR[pi - 1], prevX, prevY, prevZRight, xM, yChain, zEdgeR);
+      }
+      prevX = xM;
+      prevY = yChain;
+      prevZLeft = zEdgeL;
+      prevZRight = zEdgeR;
+    }
+  }
+}
 
 // Children added to `courseGroup` inherit `course.scale = (MAP_SCALE, 1, MAP_SCALE)`,
 // so geometries/positions inside `courseGroup` stay strictly 1:1 local course (X, Z) and 1:1 meter Y.
@@ -593,6 +725,7 @@ export function buildDynamicCourseGroup(
   const pendulums: PendulumRuntime[] = [];
   const turntables: TurntableRuntime[] = [];
   const seesaws: SeesawRuntime[] = [];
+  const hangingBridges: HangingBridgeRuntime[] = [];
   const footballArenas: FootballArenaRuntime[] = [];
   const flames: FlameRuntime[] = [];
   const cameraOccluders: THREE.Object3D[] = [];
@@ -1082,18 +1215,65 @@ export function buildDynamicCourseGroup(
         }
         makeBox(courseGroup, mats.orange, new THREE.Vector3(tx, 2.55, lz), new THREE.Vector3(0.16, 0.14, 2.50));
       }
-      // Twin Narrow Wood Plank Trackways (exact spacing = TRACK_WIDTH / MAP_SCALE)
+
+      // Articulated Twin Hanging Chain Bridge Ribbons (exact spacing = TRACK_WIDTH / MAP_SCALE, exact 0.54 x 0.08 x 0.62 slats)
       const trackSpacingHalf = (TRACK_WIDTH / MAP_SCALE) * 0.5;
-      for (const pzOff of [-trackSpacingHalf, trackSpacingHalf]) {
-        for (let pi = 0; pi < 18; pi++) {
-          const uA = -4.5 + (pi / 18) * 9.0;
-          const uB = -4.5 + ((pi + 1) / 18) * 9.0;
-          const sA = (uA + 4.5) / 9.0;
-          const sB = (uB + 4.5) / 9.0;
-          const yA = bridgeY - 0.14 * 4 * sA * (1 - sA);
-          const yB = bridgeY - 0.14 * 4 * sB * (1 - sB);
-          makeBox(courseGroup, mats.wood, new THREE.Vector3(toCourseX(slot, (uA + uB) / 2), (yA + yB) / 2 - 0.04, lz + pzOff), new THREE.Vector3(0.54, 0.08, 0.62));
+      const segCount = 18;
+      const mainCableGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 8);
+      const hangerGeo = new THREE.CylinderGeometry(0.013, 0.013, 1, 7);
+      const edgeChainGeo = new THREE.CylinderGeometry(0.018, 0.018, 1, 7);
+      const plankGeo = new THREE.BoxGeometry(0.54, 0.08, 0.62);
+
+      const ribbons: HangingBridgeRibbonVisual[] = ([0, 1] as const).map(side => {
+        const sideSign: -1 | 1 = side === 0 ? -1 : 1;
+        const vNominal = sideSign * trackSpacingHalf;
+        const planks: THREE.Mesh[] = [];
+        const hangers: THREE.Mesh[] = [];
+        const mainCables: THREE.Mesh[] = [];
+        const edgeChainsL: THREE.Mesh[] = [];
+        const edgeChainsR: THREE.Mesh[] = [];
+
+        for (let i = 0; i < segCount; i++) {
+          const plank = new THREE.Mesh(plankGeo, mats.wood);
+          plank.castShadow = true;
+          plank.receiveShadow = true;
+          courseGroup.add(plank);
+          planks.push(plank);
+
+          const hMesh = new THREE.Mesh(hangerGeo, mats.chrome);
+          hMesh.castShadow = true;
+          courseGroup.add(hMesh);
+          hangers.push(hMesh);
+
+          const cMesh = new THREE.Mesh(mainCableGeo, mats.black);
+          cMesh.castShadow = true;
+          courseGroup.add(cMesh);
+          mainCables.push(cMesh);
+
+          if (i < segCount - 1) {
+            const cL = new THREE.Mesh(edgeChainGeo, mats.chrome);
+            const cR = new THREE.Mesh(edgeChainGeo, mats.chrome);
+            cL.castShadow = true;
+            cR.castShadow = true;
+            courseGroup.add(cL);
+            courseGroup.add(cR);
+            edgeChainsL.push(cL);
+            edgeChainsR.push(cR);
+          }
         }
+        return { side, vNominal, sideSign, planks, hangers, mainCables, edgeChainsL, edgeChainsR };
+      });
+
+      const hbRuntime: HangingBridgeRuntime = {
+        slotIndex: slot.index,
+        slot,
+        trackSpacingHalf,
+        ribbons: [ribbons[0], ribbons[1]],
+      };
+      hangingBridges.push(hbRuntime);
+      const hbInitState = plan.hangingBridgeStates[slot.index];
+      if (hbInitState) {
+        updateHangingBridgeVisuals(hbRuntime, hbInitState);
       }
     } else if (slot.type === 'spiral_tower') {
       const spU = -4.20;
@@ -1385,6 +1565,7 @@ export function buildDynamicCourseGroup(
     turntables,
     pendulums,
     seesaws,
+    hangingBridges,
     footballArenas,
     flames,
     laserBeams,
@@ -1492,6 +1673,37 @@ export function stepDynamicHurdles(
     ss.tilt += (targetTilt - ss.tilt) * Math.min(1, dt * 4.2);
     runtime.plan.seesawStates[ss.slotIndex] = ss.tilt;
     ss.pivotGroup.rotation.z = ss.slot.dir * ss.tilt;
+  }
+
+  // 3B. Dynamic Twin Chain Hanging Bridges (load stretch, asymmetric bounce, left-right sway + deck traction coupling)
+  const roverSpeed = Math.hypot(pose.vx, pose.vz);
+  const roverYLocal = pose.y + TRACK_CONTACT_OFFSET;
+  for (const hb of runtime.hangingBridges) {
+    const hbState = runtime.plan.hangingBridgeStates[hb.slotIndex];
+    if (!hbState) continue;
+    const hbRes = stepHangingBridgeState(
+      hbState,
+      hb.slot,
+      rx,
+      rz,
+      roverYLocal,
+      pose.roll,
+      pose.yawRate,
+      roverSpeed,
+      dt,
+    );
+    updateHangingBridgeVisuals(hb, hbState);
+    if (!pose.isFlipped && pose.isGrounded && hbState.onBridge) {
+      if (Math.abs(hbRes.deltaMeanSwayV) > 1e-6) {
+        pose.z += hb.slot.dir * hbRes.deltaMeanSwayV * MAP_SCALE;
+        motionState.z = pose.z;
+      }
+      if (Math.abs(hbRes.twistTorque) > 1e-4) {
+        const dYaw = hbRes.twistTorque * dt * 0.42;
+        pose.yaw += dYaw;
+        motionState.yaw = pose.yaw;
+      }
+    }
   }
 
   // 4. Dynamic Horizontal Dual-Goal Football Arenas (4-5 Tennis Balls + Both-End Full Goalposts)
