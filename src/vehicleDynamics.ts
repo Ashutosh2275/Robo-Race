@@ -670,7 +670,8 @@ export function evaluateWaterBuoyancy(
   rightTrackSpeed: number,
   baseGrip: number,
   mapScale = 1.3,
-  pools: WaterPoolConfig[] = WATER_POOLS
+  pools: WaterPoolConfig[] = WATER_POOLS,
+  hullMode: 'sealed' | 'open_rover' = 'sealed'
 ): WaterBuoyancyResult {
   const courseX = worldX / mapScale;
   const courseZ = worldZ / mapScale;
@@ -725,31 +726,39 @@ export function evaluateWaterBuoyancy(
   const robotMass = 420; // kg
   const g = 9.81;
   const totalWeight = robotMass * g; // ~4120 N
-  const sealedHullVolume = 0.58; // m^3 (watertight buoyancy enclosure)
+  const isOpenRover = hullMode === 'open_rover';
+  // Open-chassis rover only displaces sealed housings (~0.21 m^3) so it stays submerged inside the basin
+  // rather than floating dry above the water surface; sealed hulls float at ~0.32m immersion.
+  const sealedHullVolume = isOpenRover ? 0.21 : 0.58; // m^3
 
   // Displaced volume according to Archimedes principle: V = sealedVolume * (immersion / hullHeight)^1.15
-  const immersionRatio = Math.min(1.0, immersionDepth / 0.44);
+  const immersionRatio = Math.min(1.0, immersionDepth / (isOpenRover ? 0.64 : 0.44));
   const displacedVolume = sealedHullVolume * Math.pow(immersionRatio, 1.15);
 
   // Buoyant upward force F_b = rho * V_disp * g (rho_water = 1000 kg/m^3)
   const buoyantForce = 1000 * displacedVolume * g;
 
-  // Floating equilibrium condition: when buoyant force balances vehicle gravity
-  // Equilibrium immersion depth is ~0.32m (submerged 32cm, leaving 14cm freeboard to chassis top)
-  const isFloating = buoyantForce >= totalWeight * 0.92;
-  const buoyantWaterlineY = matchedPool.waterLevelY - 0.32 - TRACK_CONTACT_OFFSET;
+  // Open rover stays negatively buoyant inside the tank and swims along the submerged floor & wade cleats
+  const isFloating = !isOpenRover && buoyantForce >= totalWeight * 0.92;
+  const buoyantWaterlineY = isFloating
+    ? matchedPool.waterLevelY - 0.32 - TRACK_CONTACT_OFFSET
+    : -999;
 
   // Normal force on bottom: F_N = max(0, totalWeight - buoyantForce)
   const effectiveNormal = Math.max(0, totalWeight - buoyantForce);
-  const normalForceRatio = Math.max(0.06, effectiveNormal / totalWeight);
+  const normalForceRatio = isOpenRover
+    ? Math.max(0.50, effectiveNormal / totalWeight)
+    : Math.max(0.06, effectiveNormal / totalWeight);
 
   // Submerged tracks experience reduced ground traction as weight is borne by water buoyancy
-  const effectiveGrip = baseGrip * normalForceRatio;
+  const effectiveGrip = isOpenRover
+    ? Math.max(0.46, baseGrip * (0.72 + 0.28 * normalForceRatio))
+    : baseGrip * normalForceRatio;
 
   // Hydrodynamic viscous drag opposing horizontal velocity
   const speed = Math.hypot(vx, vz);
-  const frontalArea = 1.58 * Math.min(0.44, immersionDepth);
-  const cd = 0.85;
+  const frontalArea = (isOpenRover ? 1.42 : 1.58) * Math.min(isOpenRover ? 0.68 : 0.44, immersionDepth);
+  const cd = isOpenRover ? 0.96 : 0.85;
   const dragMagnitude = 0.5 * 1000 * cd * frontalArea * speed * speed + 1000 * 0.08 * speed;
   const waterDragX = speed > 0.01 ? -(vx / speed) * (dragMagnitude / robotMass) : 0;
   const waterDragZ = speed > 0.01 ? -(vz / speed) * (dragMagnitude / robotMass) : 0;
@@ -759,8 +768,9 @@ export function evaluateWaterBuoyancy(
   // Heading vector: in vehicle dynamics coordinates, forward is (sin(yaw), cos(yaw))
   const headingX = Math.sin(yaw);
   const headingZ = Math.cos(yaw);
-  // Paddle thrust acceleration
-  const paddleThrustMag = Math.sign(avgTrackSpeed) * Math.pow(Math.abs(avgTrackSpeed), 1.4) * 1.85 * Math.min(1.0, immersionDepth / 0.25);
+  // Paddle thrust acceleration (submerged open-hull rover churns strong swimming thrust to climb out!)
+  const paddleScale = isOpenRover ? 2.45 : 1.85;
+  const paddleThrustMag = Math.sign(avgTrackSpeed) * Math.pow(Math.abs(avgTrackSpeed), 1.4) * paddleScale * Math.min(1.0, immersionDepth / 0.22);
   const paddleThrustX = headingX * paddleThrustMag;
   const paddleThrustZ = headingZ * paddleThrustMag;
 

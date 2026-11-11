@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialSubsystems, stepSubsystems, applyFallImpactDamage, AMBIENT_TEMP, isRobotDestroyed } from './robotSubsystems.ts';
+import {
+  createInitialSubsystems,
+  stepSubsystems,
+  applyFallImpactDamage,
+  AMBIENT_TEMP,
+  isRobotDestroyed,
+  TECHNICAL_TIMEOUT_SECONDS,
+  FAULT_REPAIR_META,
+  hasAnyHardwareFault,
+  getEffectiveDrivetrainModifiers,
+  createCarryoverSnapshot,
+  applyCarryoverSnapshot,
+  repairComponentFault,
+  repairEnclosureSeal,
+} from './robotSubsystems.ts';
 
 test('idle current draw is low and full throttle draws significant current', () => {
   const sIdle = createInitialSubsystems();
@@ -86,4 +100,50 @@ test('kinetic fall impact makes health a major survival constraint on bridge dro
   applyFallImpactDamage(s, 5.69, 'sand');
   applyFallImpactDamage(s, 5.69, 'sand');
   assert.equal(isRobotDestroyed(s), true, 'three high-bridge plunges into pit must destroy robot chassis integrity');
+});
+
+test('extreme fire/thermal stress triggers swollen battery, burnt motors, and shorted circuit carrying into next round and repairable within 30s timeout', () => {
+  const round1 = createInitialSubsystems();
+  // Lingering stationary at high slip over intense fire triggers thermal burnout & LiPo cell swelling
+  for (let i = 0; i < 65; i++) {
+    stepSubsystems(round1, 1.0, 1.0, 0.9, 'fire', 0, 0.1);
+  }
+  assert.equal(round1.faults.leftMotorBurnt, true, 'sustained over-temp should burn left motor');
+  assert.equal(round1.faults.rightMotorBurnt, true, 'sustained over-temp should burn right motor');
+  assert.equal(round1.faults.circuitBurnt, true, 'sustained over-temp should burn ESC circuit');
+  assert.equal(round1.faults.batterySwollen, true, 'sustained heat should swell LiPo cells');
+  assert.equal(hasAnyHardwareFault(round1), true);
+
+  // Compromised drivetrain noticeably degrades torque & speed
+  const mods = getEffectiveDrivetrainModifiers(round1, 0.4);
+  assert.ok(mods.leftMotorMultiplier < 0.5);
+  assert.ok(mods.rightMotorMultiplier < 0.5);
+  assert.ok(mods.maxSpeedMultiplier < 0.75);
+  assert.ok(mods.accelerationMultiplier < 0.5);
+
+  // Faults carry forward cleanly into Round 2 until repaired during the 30s Technical Timeout
+  const carrySnap = createCarryoverSnapshot(round1, 2);
+  const round2 = createInitialSubsystems();
+  applyCarryoverSnapshot(round2, carrySnap);
+  assert.equal(hasAnyHardwareFault(round2), true);
+  assert.equal(round2.faults.batterySwollen, true);
+  assert.equal(round2.faults.circuitBurnt, true);
+
+  // Repair all four faulty components within the 30s technical timeout pit budget
+  let timeoutBudget = TECHNICAL_TIMEOUT_SECONDS;
+  for (const fid of ['battery_swollen', 'circuit_burnt', 'left_motor_burnt', 'right_motor_burnt'] as const) {
+    timeoutBudget -= FAULT_REPAIR_META[fid].pitSec;
+    repairComponentFault(round2, fid);
+  }
+  repairEnclosureSeal(round2);
+  assert.ok(timeoutBudget >= 0, `total component swap time should fit within 30s timeout, remaining=${timeoutBudget}`);
+  assert.equal(hasAnyHardwareFault(round2), false);
+});
+
+test('cracked electronics enclosure shorts ESC circuit when entering deep water hazard', () => {
+  const s = createInitialSubsystems();
+  s.integrity.electronicsEnclosure = 55;
+  const triggered = stepSubsystems(s, 0.5, 0.5, 0, 'water', 0, 0.1);
+  assert.equal(s.faults.circuitBurnt, true);
+  assert.ok(triggered.includes('circuit_burnt'));
 });

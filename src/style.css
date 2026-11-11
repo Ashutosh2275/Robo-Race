@@ -775,3 +775,156 @@
   .menu-actions { grid-template-columns: 1fr; }
 }
 
+/* ==========================================================================
+   30-Second Competition Technical Timeout & Hardware Pit Diagnostics
+   ========================================================================== */
+#pillPit {
+  pointer-events: auto;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+#pillPit:hover {
+  border-color: #f0b84e;
+  background: rgba(34, 44, 36, 0.95);
+}
+.menu-fault-alert {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 119, 112, 0.42);
+  background: rgba(96, 28, 24, 0.28);
+  color: #f5d6d2;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.menu-fault-alert b { color: #ff8e88; letter-spacing: 0.04em; }
+.menu-round-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: rgba(240, 189, 83, 0.14);
+  border: 1px solid rgba(240, 189, 83, 0.35);
+  color: #f0bd53;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.pit-overlay {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 86px 24px 28px;
+  background: rgba(8, 12, 10, 0.38);
+  backdrop-filter: blur(2px);
+}
+.pit-card {
+  width: min(500px, calc(100vw - 32px));
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  border-radius: 14px;
+  padding: 18px 20px;
+  background: linear-gradient(155deg, rgba(22, 28, 24, 0.96), rgba(12, 16, 14, 0.97));
+  border: 1px solid rgba(240, 189, 83, 0.32);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.72);
+}
+.pit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.pit-clock-box {
+  text-align: right;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: rgba(240, 189, 83, 0.12);
+  border: 1px solid rgba(240, 189, 83, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+.pit-clock-box.urgent {
+  background: rgba(220, 56, 48, 0.22);
+  border-color: rgba(255, 105, 97, 0.6);
+  color: #ff9e98;
+}
+.pit-clock-box small {
+  display: block;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  color: #b7c2b6;
+}
+.pit-clock-box strong {
+  font-size: 21px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #f0bd53;
+}
+.pit-clock-box.urgent strong { color: #ff8078; }
+.pit-timer-bar {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.pit-timer-fill {
+  height: 100%;
+  background: #e5ad42;
+  transition: width 0.1s linear;
+}
+.pit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.pit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.pit-row.faulty {
+  background: rgba(168, 42, 32, 0.18);
+  border-color: rgba(255, 114, 102, 0.42);
+}
+.pit-row-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pit-row-title { font-size: 12px; font-weight: 700; color: #eff3ea; }
+.pit-row-desc { font-size: 10.5px; color: #a7b1a6; }
+.pit-row.faulty .pit-row-desc { color: #ffb3ac; }
+.pit-fix-btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(240, 189, 83, 0.45);
+  background: rgba(240, 189, 83, 0.18);
+  color: #f6cf78;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font: 700 10.5px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pit-fix-btn:hover:not(:disabled) {
+  background: #e2ab3d;
+  color: #161812;
+}
+.pit-fix-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.pit-ok-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #6ee787;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(66, 184, 102, 0.12);
+}
+
+

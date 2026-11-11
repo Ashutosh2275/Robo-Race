@@ -415,3 +415,19 @@ test('stepVehicle3D captures exact kinetic vertical landing speed for health imp
   assert.ok(peakImpact >= 5.2 && peakImpact <= 6.2, `expected free-fall impact velocity ~5.69 m/s, got ${peakImpact.toFixed(2)}`);
   assert.equal(p.lastImpactSpeed, 0, 'settled grounded frame should reset transient landing impact speed to 0');
 });
+
+test('open_rover water mode enters deep pool floor submerged rather than floating over the water surface', () => {
+  const scale = 1.3;
+  const poolWorldX = 5.0 * scale;
+  const poolWorldZ = -13.50 * scale;
+  // Resting inside submerged -0.54m floor below water surface +0.16m (immersion depth = 0.70m)
+  const bedPoseY = 0.16 - 0.70 - TRACK_CONTACT_OFFSET;
+  const sub = evaluateWaterBuoyancy(poolWorldX, poolWorldZ, bedPoseY, Math.PI / 2, 1.2, 0, 2.5, 2.5, 0.56, scale, undefined, 'open_rover');
+  assert.equal(sub.inWater, true);
+  assert.equal(sub.isFloating, false, 'open-chassis rover must sink inside the water basin rather than hovering above it');
+  assert.ok(sub.immersionDepth >= 0.65, `expected deep immersion inside pool, got ${sub.immersionDepth}`);
+  assert.ok(sub.normalForceRatio >= 0.50, 'submerged rover must keep sufficient floor weight to climb out of the basin');
+  assert.ok(sub.effectiveGrip >= 0.44);
+  assert.ok(sub.waterDragX < 0);
+  assert.ok(sub.paddleThrustX > 1.0, `forward spinning tracks should swim forward (+X) inside water, got ${sub.paddleThrustX}`);
+});

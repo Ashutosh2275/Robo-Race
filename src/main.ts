@@ -26,6 +26,17 @@ import {
   applyPendulumImpactDamage,
   applyBatteryShock,
   isRobotDestroyed,
+  TECHNICAL_TIMEOUT_SECONDS,
+  FAULT_REPAIR_META,
+  hasAnyHardwareFault,
+  getActiveFaultList,
+  getEffectiveDrivetrainModifiers,
+  createCarryoverSnapshot,
+  applyCarryoverSnapshot,
+  repairComponentFault,
+  repairEnclosureSeal,
+  type HardwareFaultId,
+  type HardwareCarryoverSnapshot,
   type SubsystemsState,
   type HazardType,
 } from './robotSubsystems';
@@ -807,29 +818,47 @@ for (const z of [-0.70, 0.70]) {
   box(chassis, mats.metal, V(0, 0.58, z), V(1.22, 0.22, 0.065));
 }
 
-// Field-worn Mechatronics inside the open bay:
+// Field-worn Mechatronics inside the open bay (mutated visibly on hardware burn/swell/short):
 // 1. 4S LiPo Battery pack (muted slate wrap, nylon retaining straps & faded caution placard)
-const batteryMesh = box(chassis, new THREE.MeshStandardMaterial({ color: '#273b50', roughness: 0.72, metalness: 0.08 }), V(-0.24, 0.52, -0.05), V(0.48, 0.16, 0.72));
-box(chassis, mats.yellow, V(-0.24, 0.605, -0.05), V(0.24, 0.014, 0.36));
+const batteryWrapMat = new THREE.MeshStandardMaterial({ color: '#273b50', roughness: 0.72, metalness: 0.08 });
+const batteryLabelMat = new THREE.MeshStandardMaterial({ map: yellowPaintMaps.map, bumpMap: yellowPaintMaps.bumpMap, bumpScale: 0.015, roughness: 0.82, metalness: 0.14 });
+const batteryMesh = box(chassis, batteryWrapMat, V(-0.24, 0.52, -0.05), V(0.48, 0.16, 0.72));
+const batteryLabelMesh = box(chassis, batteryLabelMat, V(-0.24, 0.605, -0.05), V(0.24, 0.014, 0.36));
+const batteryStrapMeshes: THREE.Mesh[] = [];
 for (const strapZ of [-0.24, 0.14]) {
-  box(chassis, mats.black, V(-0.24, 0.53, strapZ), V(0.50, 0.175, 0.05));
+  batteryStrapMeshes.push(box(chassis, mats.black, V(-0.24, 0.53, strapZ), V(0.50, 0.175, 0.05)));
 }
 
 // 2. Dual Brushless Motors (cast housings & oxidized copper stator coils)
+const motorStatorMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial] = [
+  new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
+  new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
+];
 for (const side of [-1, 1]) {
   const mx = side * 0.46;
+  const stMat = motorStatorMats[side < 0 ? 0 : 1];
   cyl(chassis, mats.metal, V(mx, 0.44, -0.48), 0.13, 0.30, 'z');
-  cyl(chassis, new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }), V(mx, 0.44, -0.48), 0.11, 0.22, 'z');
+  cyl(chassis, stMat, V(mx, 0.44, -0.48), 0.11, 0.22, 'z');
   cyl(chassis, mats.black, V(mx, 0.44, -0.63), 0.10, 0.03, 'z');
 }
 
-// 3. Dual ESCs with tarnished burgundy-oxide extruded heat sinks
-for (const x of [-0.18, 0.18]) {
-  box(chassis, new THREE.MeshStandardMaterial({ color: '#5b2424', roughness: 0.48, metalness: 0.68 }), V(x, 0.51, 0.42), V(0.26, 0.08, 0.24));
+// 3. Dual ESCs with tarnished burgundy-oxide extruded heat sinks & diagnostic PCB fault beacon
+const escHeatSinkMats = [
+  new THREE.MeshStandardMaterial({ color: '#5b2424', roughness: 0.48, metalness: 0.68 }),
+  new THREE.MeshStandardMaterial({ color: '#5b2424', roughness: 0.48, metalness: 0.68 }),
+];
+for (let ei = 0; ei < 2; ei++) {
+  const x = ei === 0 ? -0.18 : 0.18;
+  box(chassis, escHeatSinkMats[ei], V(x, 0.51, 0.42), V(0.26, 0.08, 0.24));
   for (let f = -0.10; f <= 0.10; f += 0.035) {
     box(chassis, mats.metal, V(x + f, 0.56, 0.42), V(0.015, 0.04, 0.22));
   }
 }
+const faultStatusLedMat = new THREE.MeshBasicMaterial({ color: '#42b866' });
+cyl(chassis, faultStatusLedMat, V(0.28, 0.548, -0.02), 0.022, 0.02, 'y', 10);
+const circuitSparkLight = new THREE.PointLight(0x7cc4ff, 0, 2.2, 2.0);
+circuitSparkLight.position.set(0, 0.62, 0.36);
+chassis.add(circuitSparkLight);
 
 // 4. Rugged Roll Hoop & Optical Telemetry Pod + Dual Spring-Base Whip Antennas
 box(chassis, mats.black, V(0.28, 0.50, -0.08), V(0.26, 0.08, 0.24));
@@ -1053,6 +1082,17 @@ for (let i = 0; i < 24; i++) {
   splashParticles.push({ mesh: m, life: 0, vx: 0, vy: 0, vz: 0 });
 }
 
+// Hardware Fault Smoke & Venting Vapor Particle Pool (for swollen LiPo, burnt motors, shorted ESC)
+const faultSmokeGeo = new THREE.SphereGeometry(0.065, 6, 5);
+const faultSmokeParticles: Array<{ mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; vx: number; vy: number; vz: number }> = [];
+for (let i = 0; i < 20; i++) {
+  const mat = new THREE.MeshBasicMaterial({ color: '#2b2826', transparent: true, opacity: 0, depthWrite: false });
+  const m = new THREE.Mesh(faultSmokeGeo, mat);
+  m.visible = false;
+  scene.add(m);
+  faultSmokeParticles.push({ mesh: m, mat, life: 0, vx: 0, vy: 0, vz: 0 });
+}
+
 // -------------------------------------------------------------
 // 8. Vehicle Physics & Subsystems Simulation Setup
 // -------------------------------------------------------------
@@ -1136,11 +1176,89 @@ const motionState: DriveState = {
 };
 let previousRacePosition = { x: pose.x, z: pose.z };
 
+const HARDWARE_CARRYOVER_KEY = 'robo-race-hardware-v1';
+
+function loadCarriedHardware(): HardwareCarryoverSnapshot | null {
+  try {
+    const raw = localStorage.getItem(HARDWARE_CARRYOVER_KEY);
+    return raw ? (JSON.parse(raw) as HardwareCarryoverSnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCarriedHardware(snap: HardwareCarryoverSnapshot | null) {
+  try {
+    if (!snap) {
+      localStorage.removeItem(HARDWARE_CARRYOVER_KEY);
+    } else {
+      localStorage.setItem(HARDWARE_CARRYOVER_KEY, JSON.stringify(snap));
+    }
+  } catch {}
+}
+
+let carriedHardware: HardwareCarryoverSnapshot | null = loadCarriedHardware();
+let roundNumber = carriedHardware?.roundNumber ?? 1;
 let subsystems: SubsystemsState = createInitialSubsystems();
-let raceState: 'menu' | 'countdown' | 'racing' | 'paused' | 'finished' | 'failed' = 'menu';
+applyCarryoverSnapshot(subsystems, carriedHardware);
+
+let raceState: 'menu' | 'tech_timeout' | 'countdown' | 'racing' | 'paused' | 'finished' | 'failed' = 'menu';
+let techTimeoutRemaining = TECHNICAL_TIMEOUT_SECONDS;
+let techTimeoutUsedThisRound = false;
+let techTimeoutContext: 'pre_round' | 'mid_race' = 'pre_round';
+let techTimeoutOnDone: (() => void) | null = null;
 let elapsed = 0;
 let penaltyTime = 0;
 let countdown = 0;
+
+function syncRobotVisualHardwareState(timeSec: number) {
+  const f = subsystems.faults;
+  // 1. LiPo battery physical swelling & strained straps
+  if (f.batterySwollen) {
+    batteryMesh.scale.set(1.14, 1.72, 1.06);
+    batteryMesh.position.y = 0.56;
+    batteryLabelMesh.position.y = 0.69;
+    batteryLabelMesh.scale.set(1.06, 1.0, 1.02);
+    batteryWrapMat.color.set('#3f3b32');
+    batteryWrapMat.roughness = 0.88;
+    batteryStrapMeshes.forEach(s => s.scale.set(1.12, 1.55, 1.02));
+  } else {
+    batteryMesh.scale.set(1, 1, 1);
+    batteryMesh.position.y = 0.52;
+    batteryLabelMesh.position.y = 0.605;
+    batteryLabelMesh.scale.set(1, 1, 1);
+    batteryWrapMat.color.set('#273b50');
+    batteryWrapMat.roughness = 0.72;
+    batteryStrapMeshes.forEach(s => s.scale.set(1, 1, 1));
+  }
+
+  // 2. Motor stator charring (-1 side index 0 = left, +1 side index 1 = right)
+  motorStatorMats[0].color.set(f.leftMotorBurnt ? '#1c1816' : '#915538');
+  motorStatorMats[0].metalness = f.leftMotorBurnt ? 0.18 : 0.72;
+  motorStatorMats[0].roughness = f.leftMotorBurnt ? 0.94 : 0.44;
+  motorStatorMats[1].color.set(f.rightMotorBurnt ? '#1c1816' : '#915538');
+  motorStatorMats[1].metalness = f.rightMotorBurnt ? 0.18 : 0.72;
+  motorStatorMats[1].roughness = f.rightMotorBurnt ? 0.94 : 0.44;
+
+  // 3. ESC scorching, status LED & electric arc sparking
+  escHeatSinkMats.forEach(m => {
+    m.color.set(f.circuitBurnt ? '#201a19' : '#5b2424');
+    m.roughness = f.circuitBurnt ? 0.88 : 0.48;
+    m.metalness = f.circuitBurnt ? 0.22 : 0.68;
+  });
+  const faultAny = hasAnyHardwareFault(subsystems);
+  if (f.circuitBurnt) {
+    const arcPulse = Math.sin(timeSec * 29.0) * Math.cos(timeSec * 41.0);
+    faultStatusLedMat.color.set(arcPulse > 0 ? '#ff3b30' : '#4a1412');
+    circuitSparkLight.intensity = arcPulse > 0.62 ? 2.4 : 0;
+  } else if (faultAny) {
+    faultStatusLedMat.color.set(Math.sin(timeSec * 8.0) > 0 ? '#f0b84e' : '#523c15');
+    circuitSparkLight.intensity = 0;
+  } else {
+    faultStatusLedMat.color.set('#42b866');
+    circuitSparkLight.intensity = 0;
+  }
+}
 let turntableCurrentOmega = 0.48; // rad/s mechanical turntable rotation speed
 let currentCheckpoint = 0;
 let cameraMode = 0; // Selected home view; free-look is available in every view.
@@ -1221,12 +1339,14 @@ function renderUI() {
     <div class="topbar">
       <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span></div>
       <div class="hud">
+        <div class="pill" id="pillRound"><small>ROUND</small><strong id="roundNum">01</strong></div>
         <div class="pill"><small>SCORE</small><strong id="score">0</strong></div>
         <div class="pill" id="pillLifelines"><small>LINE BUFFERS</small><strong id="lifelines">🛡️ 3 / 3</strong></div>
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
         <div class="pill"><small>GATES</small><strong id="gates">00 / 12</strong></div>
         <div class="pill"><small>SPEED</small><strong id="speed">0.0 <span style="font-size:9px">m/s</span></strong></div>
         <div class="pill" id="pillHandPoints" role="button" tabindex="0" title="Click or press [R] to recover at latest checkpoint using 1 Hand Point"><small>HAND POINTS</small><strong id="handPoints">🖐️ 5 / 5</strong></div>
+        <div class="pill" id="pillPit" role="button" tabindex="0" title="30-Second Competition Technical Timeout [T]"><small>TECH PIT</small><strong id="pitTimerHud">30.0s</strong></div>
         <div class="pill" id="pillBat"><small>BATTERY</small><strong id="bat">100%</strong></div>
         <div class="pill" id="pillMot"><small>MOTOR</small><strong id="mot">28°C</strong></div>
         <div class="pill" id="pillHlt"><small>HEALTH</small><strong id="hlt">100%</strong><div class="hlt-track"><div id="hltBar" class="hlt-fill" style="width:100%"></div></div></div>
@@ -1236,13 +1356,14 @@ function renderUI() {
     <div id="rolloverAlert" class="rollover-banner hidden">⚠️ ROBOT OVERTURNED · PRESS [R] TO RECOVER</div>
     <div class="toolbar">
       <button class="iconbtn" id="pause">Ⅱ PAUSE</button>
+      <button class="iconbtn" id="pitTimeoutBtn" title="Call 30s Technical Timeout (Hotkey: T)">🔧 PIT · T</button>
       <button class="iconbtn" id="camera">◉ CAMERA</button>
       <button class="iconbtn" id="recover">↻ RECOVER · R</button>
       <button class="iconbtn" id="cutaway">⚙ CUTAWAY</button>
       <button class="iconbtn" id="settingsBtn">⚙ SETTINGS</button>
     </div>
     <div class="controls">
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK (CLICK CANVAS)
+      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
     </div>
     <div id="floatingSkipContainer" class="floating-skip-container hidden">
       <button id="btnSkipCheckpoint" class="floating-skip-btn" title="Skip to next checkpoint gate (Hotkey: K)">
@@ -1497,6 +1618,8 @@ function renderUI() {
 
   // Attach button events
   $('#pause').addEventListener('click', togglePause);
+  $('#pitTimeoutBtn')?.addEventListener('click', () => openTechnicalTimeout('mid_race'));
+  $('#pillPit')?.addEventListener('click', () => openTechnicalTimeout('mid_race'));
   $('#camera').addEventListener('click', cycleCamera);
   $('#recover').addEventListener('click', recoverVehicle);
   const handPointsPill = $('#pillHandPoints');
@@ -1819,14 +1942,27 @@ function showMenu() {
   ] as const;
 
   const hurdlePreview = plan.slots.map(s => s.meta.label).join(' → ');
+  const activeFaults = getActiveFaultList(subsystems);
+  const sealCracked = subsystems.integrity.electronicsEnclosure < 65;
+  const faultBannerHtml = (activeFaults.length > 0 || sealCracked)
+    ? `<div class="menu-fault-alert" id="menuFaultAlert">
+        <b>⚠ PREVIOUS ROUND HARDWARE FAULT${activeFaults.length > 1 ? 'S' : ''} CARRIED OVER</b><br>
+        ${activeFaults.map(id => `• ${FAULT_REPAIR_META[id].label} (${subsystems.faults.faultReasons[id] || FAULT_REPAIR_META[id].symptom})`).join('<br>')}
+        ${sealCracked ? `<br>• Electronics Enclosure Seal Cracked (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress short risk` : ''}
+        <br><span style="color:#f0bd53;">Starting Round ${String(roundNumber).padStart(2, '0')} opens a mandatory <b>30s Technical Timeout Pit Stop</b> for diagnostics &amp; swaps.</span>
+      </div>`
+    : '';
 
   o.innerHTML = `
     <div class="overlay overlay--menu">
       <div class="menu-card" role="dialog" aria-labelledby="menuTitle">
         <header class="menu-head">
+          <div class="menu-round-chip">Round ${String(roundNumber).padStart(2, '0')} · 30s Technical Timeout Rule</div>
           <h1 class="menu-title" id="menuTitle">Robo Race 3D</h1>
           <p class="menu-lead">Dynamic ${runtimeCourse.checkpoints.length}-gate randomized robotics proving ground.</p>
         </header>
+
+        ${faultBannerHtml}
 
         <section class="menu-section" aria-label="Circuit selection">
           <div class="menu-section-head">
@@ -1855,7 +1991,7 @@ function showMenu() {
 
         <button class="menu-cta" id="btnStartRace" type="button">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
-          <span>Start race</span>
+          <span>${hasAnyHardwareFault(subsystems) ? `Inspect & Start Round ${String(roundNumber).padStart(2, '0')}` : `Start Round ${String(roundNumber).padStart(2, '0')}`}</span>
         </button>
 
         <div class="menu-actions">
@@ -1875,7 +2011,7 @@ function showMenu() {
 
         <footer class="menu-keys">
           <span><kbd>WASD</kbd> Drive</span>
-          <span><kbd>Space</kbd> Brake</span>
+          <span><kbd>T</kbd> 30s Tech Pit</span>
           <span><kbd>R</kbd> Recover</span>
           <span><kbd>K</kbd> Skip</span>
         </footer>
@@ -1912,17 +2048,179 @@ function showMenu() {
   });
 }
 
+function finishTechnicalTimeout() {
+  const cb = techTimeoutOnDone;
+  techTimeoutOnDone = null;
+  hideOverlays();
+  if (techTimeoutContext === 'mid_race') {
+    techTimeoutUsedThisRound = true;
+    raceState = 'racing';
+    try { void canvas.requestPointerLock(); } catch {}
+    displayToast(hasAnyHardwareFault(subsystems) ? 'RESUMED WITH REMAINING FAULTS' : 'PIT REPAIRS COMPLETE · GO!');
+  } else if (cb) {
+    cb();
+  } else {
+    raceState = 'countdown';
+    countdown = 3.0;
+    displayToast('READY');
+  }
+}
+
+function renderTechnicalTimeoutOverlay() {
+  const o = $<HTMLDivElement>('#overlay');
+  if (!o) return;
+  const f = subsystems.faults;
+  const sealCracked = subsystems.integrity.electronicsEnclosure < 65;
+  const rows: Array<{
+    key: HardwareFaultId | 'enclosure_seal';
+    title: string;
+    desc: string;
+    faulty: boolean;
+    costSec: number;
+  }> = [
+    {
+      key: 'battery_swollen',
+      title: '4S LiPo Battery Pack',
+      desc: f.batterySwollen ? (f.faultReasons.battery_swollen || FAULT_REPAIR_META.battery_swollen.symptom) : `Nominal ${subsystems.battery.voltage.toFixed(1)}V · ${Math.round(subsystems.battery.temperature)}°C`,
+      faulty: f.batterySwollen,
+      costSec: FAULT_REPAIR_META.battery_swollen.pitSec,
+    },
+    {
+      key: 'circuit_burnt',
+      title: 'Main ESC & Power Circuit',
+      desc: f.circuitBurnt ? (f.faultReasons.circuit_burnt || FAULT_REPAIR_META.circuit_burnt.symptom) : `Bus clean · ${Math.round(subsystems.esc.temperature)}°C · 100% delivery`,
+      faulty: f.circuitBurnt,
+      costSec: FAULT_REPAIR_META.circuit_burnt.pitSec,
+    },
+    {
+      key: 'left_motor_burnt',
+      title: 'Left 600 RPM Drive Motor',
+      desc: f.leftMotorBurnt ? (f.faultReasons.left_motor_burnt || FAULT_REPAIR_META.left_motor_burnt.symptom) : `Windings intact · ${Math.round(subsystems.motors.leftTemp)}°C`,
+      faulty: f.leftMotorBurnt,
+      costSec: FAULT_REPAIR_META.left_motor_burnt.pitSec,
+    },
+    {
+      key: 'right_motor_burnt',
+      title: 'Right 600 RPM Drive Motor',
+      desc: f.rightMotorBurnt ? (f.faultReasons.right_motor_burnt || FAULT_REPAIR_META.right_motor_burnt.symptom) : `Windings intact · ${Math.round(subsystems.motors.rightTemp)}°C`,
+      faulty: f.rightMotorBurnt,
+      costSec: FAULT_REPAIR_META.right_motor_burnt.pitSec,
+    },
+    {
+      key: 'enclosure_seal',
+      title: 'Waterproof Seal & Track Tension',
+      desc: sealCracked ? `Cracked housing (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress risk!` : `IP67 Sealed (${Math.round(subsystems.integrity.electronicsEnclosure)}%) · Tracks ${Math.round(Math.min(subsystems.integrity.leftTrack, subsystems.integrity.rightTrack))}%`,
+      faulty: sealCracked,
+      costSec: 5,
+    },
+  ];
+
+  const rem = Math.max(0, techTimeoutRemaining);
+  const urgent = rem <= 10;
+  const pct = Math.max(0, Math.min(100, (rem / TECHNICAL_TIMEOUT_SECONDS) * 100));
+  const anyRemaining = rows.some(r => r.faulty);
+
+  o.innerHTML = `
+    <div class="overlay pit-overlay">
+      <div class="pit-card" role="dialog" aria-labelledby="pitTitle">
+        <div class="pit-head">
+          <div>
+            <div class="eyebrow">ROUND ${String(roundNumber).padStart(2, '0')} · ${techTimeoutContext === 'pre_round' ? 'PRE-HEAT HARDWARE INSPECTION' : 'MID-RACE TECHNICAL TIMEOUT'}</div>
+            <h2 id="pitTitle" style="margin:4px 0 2px;font-size:20px;color:#eff3ea;">Pit Bench Service</h2>
+            <p style="margin:0;font-size:11.5px;color:#9ea99c;">Swap burnt/swollen hardware before the 30s timeout clock expires.</p>
+          </div>
+          <div class="pit-clock-box ${urgent ? 'urgent' : ''}" id="pitClockBox">
+            <small>TIMEOUT LEFT</small>
+            <strong id="pitClockText">${rem.toFixed(1)}s</strong>
+          </div>
+        </div>
+        <div class="pit-timer-bar"><div class="pit-timer-fill" id="pitTimerFill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="pit-list">
+          ${rows.map(r => `
+            <div class="pit-row ${r.faulty ? 'faulty' : ''}">
+              <div class="pit-row-info">
+                <span class="pit-row-title">${r.title}</span>
+                <span class="pit-row-desc">${r.desc}</span>
+              </div>
+              ${r.faulty
+                ? `<button type="button" class="pit-fix-btn" data-repair="${r.key}" ${rem < r.costSec - 0.05 ? 'disabled title="Not enough timeout seconds left"' : ''}>SWAP / FIX · -${r.costSec}s</button>`
+                : `<span class="pit-ok-tag">NOMINAL</span>`
+              }
+            </div>
+          `).join('')}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;">
+          <button type="button" class="action" id="btnPitDeploy" style="flex:1;min-width:170px;">
+            ${anyRemaining ? 'DEPLOY WITH FAULTS' : techTimeoutContext === 'mid_race' ? 'RESUME RACE NOW' : 'DEPLOY TO START LINE'}
+          </button>
+          <button type="button" class="iconbtn" id="btnPitMenu">EXIT TO MENU</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  o.querySelectorAll<HTMLButtonElement>('[data-repair]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.repair as HardwareFaultId | 'enclosure_seal';
+      const cost = key === 'enclosure_seal' ? 5 : FAULT_REPAIR_META[key].pitSec;
+      if (techTimeoutRemaining < cost - 0.05) {
+        tone(180, 0.16, 0.06);
+        displayToast('INSUFFICIENT TECHNICAL TIMEOUT SECONDS');
+        return;
+      }
+      techTimeoutRemaining = Math.max(0, techTimeoutRemaining - cost);
+      if (key === 'enclosure_seal') {
+        repairEnclosureSeal(subsystems);
+      } else {
+        repairComponentFault(subsystems, key);
+      }
+      saveCarriedHardware(hasAnyHardwareFault(subsystems) ? createCarryoverSnapshot(subsystems, roundNumber) : {
+        ...createCarryoverSnapshot(subsystems, roundNumber),
+        faults: subsystems.faults,
+      });
+      syncRobotVisualHardwareState(performance.now() * 0.001);
+      tone(740, 0.14, 0.05);
+      displayToast(`REPAIRED IN PIT (-${cost}s TIMEOUT)`);
+      renderTechnicalTimeoutOverlay();
+    });
+  });
+
+  $('#btnPitDeploy', o)?.addEventListener('click', finishTechnicalTimeout);
+  $('#btnPitMenu', o)?.addEventListener('click', () => {
+    techTimeoutOnDone = null;
+    raceState = 'menu';
+    showMenu();
+  });
+}
+
+function openTechnicalTimeout(context: 'pre_round' | 'mid_race', onDone?: () => void) {
+  if (context === 'mid_race') {
+    if (raceState !== 'racing') return;
+    if (techTimeoutUsedThisRound || techTimeoutRemaining <= 0.5) {
+      tone(190, 0.18, 0.07);
+      displayToast('TECHNICAL TIMEOUT ALREADY EXHAUSTED THIS ROUND');
+      return;
+    }
+  }
+  if (document.pointerLockElement) document.exitPointerLock();
+  controller.neutralize();
+  techTimeoutContext = context;
+  techTimeoutOnDone = onDone ?? null;
+  raceState = 'tech_timeout';
+  renderTechnicalTimeoutOverlay();
+}
+
 function showPaused() {
   const o = $<HTMLDivElement>('#overlay');
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow">RACE PAUSED</div>
+        <div class="eyebrow">RACE PAUSED · ROUND ${String(roundNumber).padStart(2, '0')}</div>
         <h1>Take a breath.</h1>
         <p>Timer and vehicle state are safely paused. Resume your run or reset.</p>
         <button class="action" id="btnResume">RESUME RACE</button>
         <div class="subactions">
-          <button class="iconbtn" id="btnRestart">RESTART RACE</button>
+          <button class="iconbtn" id="btnRestart">NEXT ROUND (CARRY HARDWARE)</button>
           <button class="iconbtn" id="btnMainMenu">MAIN MENU</button>
         </div>
       </div>
@@ -1937,17 +2235,32 @@ function showPaused() {
   $('#btnMainMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
 }
 
+function commitEndOfRoundCarryover() {
+  const nextSnap = createCarryoverSnapshot(subsystems, roundNumber + 1);
+  carriedHardware = nextSnap;
+  saveCarriedHardware(nextSnap);
+}
+
 function showResults() {
   const totalAdj = elapsed + penaltyTime;
   if (!bestTime || totalAdj < bestTime) {
     bestTime = totalAdj;
     localStorage.setItem('robo-race-best-v2', String(bestTime));
   }
+  commitEndOfRoundCarryover();
+  const activeFaults = getActiveFaultList(subsystems);
+  const dmgNotice = (activeFaults.length > 0 || subsystems.integrity.electronicsEnclosure < 65)
+    ? `<p style="padding:8px 10px;border-radius:8px;background:rgba(168,42,32,0.22);border:1px solid rgba(255,119,112,0.38);color:#ffc4be;font-size:11.5px;">
+        <b>Hardware Carried to Round ${String(roundNumber + 1).padStart(2, '0')}:</b>
+        ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ') || 'Enclosure Seal Weakened'}<br>
+        Use the 30s Technical Timeout in the next round to swap burnt/swollen parts.
+       </p>`
+    : '';
   const o = $<HTMLDivElement>('#overlay');
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow">COURSE COMPLETE · SCORE ${scoreState.score} PTS · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
+        <div class="eyebrow">ROUND ${String(roundNumber).padStart(2, '0')} COMPLETE · SCORE ${scoreState.score} PTS · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
         <h1>Race Finished!</h1>
         <p class="result-time">${formatTime(elapsed)} <span style="font-size:14px;color:#aeb8a9">+ ${penaltyTime.toFixed(1)}s assist</span></p>
         <p>Competition Score: <b style="color:${scoreState.score >= 0 ? '#6ee787' : '#ff7770'}">${scoreState.score} PTS</b>
@@ -1956,7 +2269,8 @@ function showResults() {
            Adjusted Total: <b style="color:#f0bd53">${formatTime(totalAdj)}</b> · Record: <b style="color:#f0bd53">${formatTime(bestTime)}</b><br>
            Battery Remaining: ${subsystems.battery.percentage.toFixed(0)}% · Chassis Integrity: ${subsystems.integrity.chassis.toFixed(0)}%
         </p>
-        <button class="action" id="btnAgain">RACE AGAIN (NEW MIX)</button>
+        ${dmgNotice}
+        <button class="action" id="btnAgain">START ROUND ${String(roundNumber + 1).padStart(2, '0')}</button>
         <div class="subactions">
           <button class="iconbtn" id="btnMenu">MAIN MENU</button>
         </div>
@@ -1964,26 +2278,40 @@ function showResults() {
     </div>
   `;
   $('#btnAgain', o).addEventListener('click', restartRace);
-  $('#btnMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
+  $('#btnMenu', o).addEventListener('click', () => {
+    roundNumber += 1;
+    applyCarryoverSnapshot(subsystems, carriedHardware);
+    syncRobotVisualHardwareState(performance.now() * 0.001);
+    raceState = 'menu';
+    showMenu();
+  });
 }
 
 function showFailure(reason: string) {
+  commitEndOfRoundCarryover();
+  const activeFaults = getActiveFaultList(subsystems);
   const o = $<HTMLDivElement>('#overlay');
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow" style="color:#ff7770">RACE FAILED · ROBOT DISABLED</div>
+        <div class="eyebrow" style="color:#ff7770">ROUND ${String(roundNumber).padStart(2, '0')} FAILED · ROBOT DISABLED</div>
         <h1>Run ended.</h1>
-        <p>${reason}. This attempt cannot continue without a restart.</p>
+        <p>${reason}. ${activeFaults.length > 0 ? `Detected: ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(', ')}. ` : ''}Damaged hardware carries into Round ${String(roundNumber + 1).padStart(2, '0')} for 30s Technical Timeout service.</p>
         <p>Competition Score: <b>${scoreState.score} PTS</b> · Height Falls: <b>${scoreState.fallCount}</b><br>
            Time: <b>${formatTime(elapsed)}</b> · Battery: ${subsystems.battery.percentage.toFixed(0)}% · Health: ${subsystems.integrity.chassis.toFixed(0)}%</p>
-        <button class="action" id="btnRestartFailed">RESTART RACE</button>
+        <button class="action" id="btnRestartFailed">NEXT ROUND · 30s PIT BAY</button>
         <div class="subactions"><button class="iconbtn" id="btnFailedMenu">MAIN MENU</button></div>
       </div>
     </div>
   `;
   $('#btnRestartFailed', o).addEventListener('click', restartRace);
-  $('#btnFailedMenu', o).addEventListener('click', () => { raceState = 'menu'; showMenu(); });
+  $('#btnFailedMenu', o).addEventListener('click', () => {
+    roundNumber += 1;
+    applyCarryoverSnapshot(subsystems, carriedHardware);
+    syncRobotVisualHardwareState(performance.now() * 0.001);
+    raceState = 'menu';
+    showMenu();
+  });
 }
 
 function hideOverlays() {
@@ -2058,7 +2386,11 @@ function startRace() {
   currentCheckpoint = 0;
   remainingHandPoints = config.handPoints;
   updateHandPointsDisplay();
+  techTimeoutRemaining = TECHNICAL_TIMEOUT_SECONDS;
+  techTimeoutUsedThisRound = false;
   subsystems = createInitialSubsystems();
+  applyCarryoverSnapshot(subsystems, carriedHardware);
+  syncRobotVisualHardwareState(performance.now() * 0.001);
   scoreState = createCompetitionScoreState(config.scoring);
 
   checkpointMeshes.forEach(c => {
@@ -2081,13 +2413,29 @@ function startRace() {
   lastGroundedState = true;
   peakAirborneY = startFloorY;
 
+  if (hasAnyHardwareFault(subsystems)) {
+    openTechnicalTimeout('pre_round', () => {
+      raceState = 'countdown';
+      countdown = 3.0;
+      hideOverlays();
+      displayToast(`ROUND ${String(roundNumber).padStart(2, '0')} READY`);
+    });
+    return;
+  }
+
   raceState = 'countdown';
   countdown = 3.0;
   hideOverlays();
-  displayToast('READY');
+  displayToast(`ROUND ${String(roundNumber).padStart(2, '0')} READY`);
 }
 
 function restartRace() {
+  if (raceState !== 'menu') {
+    const nextSnap = createCarryoverSnapshot(subsystems, roundNumber + 1);
+    carriedHardware = nextSnap;
+    saveCarriedHardware(nextSnap);
+    roundNumber += 1;
+  }
   buildCourseForTrack(getActiveTrack().id, nextCourseSeed());
   startRace();
 }
@@ -2221,6 +2569,9 @@ window.addEventListener('keydown', e => {
   }
 
   if (e.repeat) return;
+  if (e.code === 'KeyT' && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
+    openTechnicalTimeout('mid_race');
+  }
   if (e.code === 'KeyK' && raceState === 'racing' && $('#settings').classList.contains('hidden') && !diagnosticsModalOpen) {
     skipCurrentCheckpoint();
   }
@@ -2310,8 +2661,12 @@ function collidesWithBarrier(x: number, z: number, y: number) {
 }
 
 // Debug hooks for automated verification & visual capture
-(window as unknown as Record<string, unknown>).__setCameraPose = (cx: number, cy: number, cz: number, tx: number, ty: number, tz: number) => {
-  (window as unknown as Record<string, unknown>).__overrideCamera = { cx, cy, cz, tx, ty, tz };
+(window as unknown as Record<string, unknown>).__setCameraPose = (cx: number | null, cy?: number, cz?: number, tx?: number, ty?: number, tz?: number) => {
+  if (cx === null) {
+    delete (window as unknown as Record<string, unknown>).__overrideCamera;
+    return;
+  }
+  (window as unknown as Record<string, unknown>).__overrideCamera = { cx, cy: cy ?? 0, cz: cz ?? 0, tx: tx ?? 0, ty: ty ?? 0, tz: tz ?? 0 };
 };
 (window as unknown as Record<string, unknown>).__setRaceState = (state: string) => {
   raceState = state as any;
@@ -2374,6 +2729,20 @@ function stepPhysics(dt: number) {
     }
   }
 
+  if (raceState === 'tech_timeout') {
+    techTimeoutRemaining = Math.max(0, techTimeoutRemaining - dt);
+    const clockEl = $<HTMLElement>('#pitClockText');
+    const fillEl = $<HTMLElement>('#pitTimerFill');
+    const boxEl = $<HTMLElement>('#pitClockBox');
+    if (clockEl) clockEl.textContent = `${techTimeoutRemaining.toFixed(1)}s`;
+    if (fillEl) fillEl.style.width = `${Math.max(0, (techTimeoutRemaining / TECHNICAL_TIMEOUT_SECONDS) * 100).toFixed(1)}%`;
+    if (boxEl) boxEl.classList.toggle('urgent', techTimeoutRemaining <= 10);
+    if (techTimeoutRemaining <= 0) {
+      finishTechnicalTimeout();
+    }
+    return;
+  }
+
   if (raceState === 'countdown') {
     countdown -= dt;
     if (countdown <= 0) {
@@ -2399,9 +2768,10 @@ function stepPhysics(dt: number) {
   if (inputs.changeCamera) cycleCamera();
   if (inputs.togglePause) togglePause();
 
-  // If vehicle is flipped, track power cannot drive on ground
-  const effectiveLeft = pose.isFlipped ? 0 : inputs.leftTrack;
-  const effectiveRight = pose.isFlipped ? 0 : inputs.rightTrack;
+  // Hardware faults realistically restrict drivetrain output (burnt motors pull sideways, swollen LiPo caps speed, burnt circuit stutters)
+  const hwMods = getEffectiveDrivetrainModifiers(subsystems, elapsed);
+  const effectiveLeft = pose.isFlipped ? 0 : inputs.leftTrack * hwMods.leftMotorMultiplier;
+  const effectiveRight = pose.isFlipped ? 0 : inputs.rightTrack * hwMods.rightMotorMultiplier;
 
   // Query true world-meter ground slope and surface at current position (sampling at active vehicle elevation)
   const slope = slopeAt((wx, wz) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y), motionState.x, motionState.z, 0.10);
@@ -2428,13 +2798,13 @@ function stepPhysics(dt: number) {
     },
     slope,
     {
-      maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])) * healthThrottle,
+      maxSpeed: Math.min(tuning.maxSpeed * config.sensitivity, maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])) * healthThrottle * hwMods.maxSpeedMultiplier,
       motorTrackSpeed: Math.min(maxTrackSpeedMps(MOTOR_SPECIFICATIONS[0]), maxTrackSpeedMps(MOTOR_SPECIFICATIONS[1])),
       motorAcceleration: Math.min(
         tuning.acceleration,
         maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[0]),
         maxMotorAccelerationMps2(MOTOR_SPECIFICATIONS[1]),
-      ) * subsystems.motors.thermalThrottle * healthThrottle,
+      ) * hwMods.accelerationMultiplier * healthThrottle,
       braking: tuning.braking,
       turnRate: tuning.maxRotation,
       turnResponse: tuning.steeringResponse,
@@ -2481,7 +2851,7 @@ function stepPhysics(dt: number) {
     motionState.yaw += obstacleTwistRate * dt;
   }
 
-  // Authentic Archimedes Buoyancy, Hydrodynamic Drag, and Track Paddle Propulsion across dynamic water pools
+  // Submerged Open-Chassis Rover Hydrodynamics: enters deep water tank to swim along submerged floor & exit ramp
   const waterBuoyancy = evaluateWaterBuoyancy(
     motionState.x,
     motionState.z,
@@ -2493,7 +2863,8 @@ function stepPhysics(dt: number) {
     driveResult.trackSpeedRight,
     effectiveGrip,
     MAP_SCALE,
-    runtimeCourse.waterPools
+    runtimeCourse.waterPools,
+    'open_rover'
   );
   if (waterBuoyancy.inWater) {
     motionState.vx += (waterBuoyancy.waterDragX + waterBuoyancy.paddleThrustX) * dt;
@@ -2593,26 +2964,20 @@ function stepPhysics(dt: number) {
   }
 
   // Step 3D Vehicle Dynamics (pitch, roll, ground contour following, rollover)
-  // When in deep water, Archimedes buoyant equilibrium prevents vehicle from sinking below waterline
+  // Submerged open-chassis rover tracks the real underwater basin floor & concrete exit wade ramp
   stepVehicle3D(
     pose,
-    (x, z) => {
-      const gH = evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, pose.y);
-      if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
-        return Math.max(gH, waterBuoyancy.buoyantWaterlineY + TRACK_CONTACT_OFFSET);
-      }
-      return gH;
-    },
+    (x, z) => evaluateCourseHeight(x / MAP_SCALE, z / MAP_SCALE, pose.y),
     driveResult.longitudinalSpeed,
     motionState.angular,
     dt,
     9.81,
     false // Broad obstacle reaction yaw torque is handled above via evaluateRockHeight, preserving 100% player steering on ramps and spiral
   );
-  if (waterBuoyancy.inWater && waterBuoyancy.isFloating) {
-    // Metacentric righting stability while floating in water
-    pose.roll *= Math.exp(-dt * 4.0);
-    pose.pitch *= Math.exp(-dt * 4.0);
+  if (waterBuoyancy.inWater && waterBuoyancy.immersionDepth > 0.04) {
+    // Hydrodynamic roll/pitch viscous damping while wading submerged through deep water
+    pose.roll *= Math.exp(-dt * 2.2);
+    pose.pitch *= Math.exp(-dt * 1.1);
   } else if (Math.abs(pose.roll) > 0.58 && (pose.y + TRACK_CONTACT_OFFSET) > GROUND_DECK_HEIGHT + 0.35) {
     // Real gravitational overhang fulcrum slip: once tipped steeply (>33 deg) over an elevated ledge drop,
     // slide laterally off the deck edge toward the chasm rather than wedging half-over the bridge slab.
@@ -2724,8 +3089,8 @@ function stepPhysics(dt: number) {
   // Keep planar motion state in strict lockstep with 3D pose yaw
   motionState.yaw = pose.yaw;
 
-  // Step Mechatronics & Subsystems (Battery, Motors, ESC, Thermal, Hazards)
-  stepSubsystems(
+  // Step Mechatronics & Subsystems (Battery, Motors, ESC, Thermal, Hazards, Faults)
+  const newFaults = stepSubsystems(
     subsystems,
     effectiveLeft,
     effectiveRight,
@@ -2734,6 +3099,11 @@ function stepPhysics(dt: number) {
     impactDamage,
     dt
   );
+  if (newFaults.length > 0 && raceState === 'racing') {
+    tone(140, 0.28, 0.10);
+    const label = newFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ');
+    displayToast(`🔧 HARDWARE FAULT: ${label} · PRESS [T] FOR 30s TECH PIT`);
+  }
 
   // Fall Detection & Slot Entry Reset on Narrow Elevated Pendulum Catwalk Bridge
   // Evaluates after 3D fall impact so dropping off the 1.35m catwalk applies true height/battery/point consequences first.
@@ -2812,6 +3182,23 @@ function stepPhysics(dt: number) {
     getActiveTrack,
     evaluateCourseHeight: (x: number, z: number, y?: number) => evaluateCourseHeight(x, z, y),
     raceState,
+    roundNumber,
+    techTimeoutRemaining,
+    techTimeoutUsedThisRound,
+    forceFault: (faultId: HardwareFaultId, reason = 'Simulated stress fault') => {
+      if (faultId === 'battery_swollen') subsystems.faults.batterySwollen = true;
+      if (faultId === 'circuit_burnt') subsystems.faults.circuitBurnt = true;
+      if (faultId === 'left_motor_burnt') subsystems.faults.leftMotorBurnt = true;
+      if (faultId === 'right_motor_burnt') subsystems.faults.rightMotorBurnt = true;
+      subsystems.faults.faultReasons[faultId] = reason;
+      syncRobotVisualHardwareState(performance.now() * 0.001);
+      saveCarriedHardware(createCarryoverSnapshot(subsystems, roundNumber));
+    },
+    triggerTechTimeout: () => openTechnicalTimeout('mid_race'),
+    commitRoundAndNext: () => {
+      commitEndOfRoundCarryover();
+      restartRace();
+    },
     countdown,
     pose,
     motionState,
@@ -2935,6 +3322,44 @@ function stepPhysics(dt: number) {
     if (p.life <= 0) p.mesh.visible = false;
   }
 
+  // Hardware Fault Smoke & Venting Gas Particles (swollen LiPo / burnt motors / burnt circuit)
+  const faultAnyNow = hasAnyHardwareFault(subsystems);
+  if (faultAnyNow && Math.random() < dt * 14) {
+    const sp = faultSmokeParticles.find(p => p.life <= 0);
+    if (sp) {
+      const f = subsystems.faults;
+      const rightX = Math.cos(pose.yaw), rightZ = -Math.sin(pose.yaw);
+      const fwdX = Math.sin(pose.yaw), fwdZ = Math.cos(pose.yaw);
+      let lx = 0, lz = 0;
+      if (f.leftMotorBurnt) { lx = -0.46; lz = -0.48; sp.mat.color.set('#22201e'); }
+      else if (f.rightMotorBurnt) { lx = 0.46; lz = -0.48; sp.mat.color.set('#22201e'); }
+      else if (f.circuitBurnt) { lx = 0; lz = 0.42; sp.mat.color.set('#55483a'); }
+      else { lx = -0.24; lz = -0.05; sp.mat.color.set('#7a7d79'); }
+      sp.life = 0.72 + Math.random() * 0.35;
+      sp.mesh.visible = true;
+      sp.mesh.position.set(
+        pose.x + rightX * lx + fwdX * lz + (Math.random() - 0.5) * 0.14,
+        pose.y + 0.62,
+        pose.z + rightZ * lx + fwdZ * lz + (Math.random() - 0.5) * 0.14
+      );
+      sp.vx = pose.vx * 0.15 + (Math.random() - 0.5) * 0.25;
+      sp.vy = 0.75 + Math.random() * 0.55;
+      sp.vz = pose.vz * 0.15 + (Math.random() - 0.5) * 0.25;
+      sp.mesh.scale.setScalar(0.5);
+      sp.mat.opacity = 0.55;
+    }
+  }
+  for (const sp of faultSmokeParticles) {
+    if (sp.life <= 0) continue;
+    sp.life -= dt;
+    sp.mesh.position.x += sp.vx * dt;
+    sp.mesh.position.y += sp.vy * dt;
+    sp.mesh.position.z += sp.vz * dt;
+    sp.mesh.scale.multiplyScalar(1 + dt * 1.45);
+    sp.mat.opacity = Math.max(0, sp.life * 0.52);
+    if (sp.life <= 0) sp.mesh.visible = false;
+  }
+
   // Boundary Line Violation Rule (< 50% allowed free; >= 50% uses lifeline buffer first, then minus pts)
   if (raceState === 'racing') {
     const outFraction = computeOutOfBoundsFraction(pose.x, pose.z, pose.yaw, pose.y + TRACK_CONTACT_OFFSET, MAP_SCALE);
@@ -3018,7 +3443,15 @@ function updateCamera(dt: number) {
   let homeDistance: number;
   let lookTarget: THREE.Vector3;
 
-  if (cameraMode === 0) {
+  if (raceState === 'tech_timeout') {
+    homeYaw = pose.yaw + Math.PI - 0.52;
+    homePitch = 0.72;
+    homeDistance = 2.95;
+    // Shift look target toward camera-left so the damaged robot sits cleanly in the open right viewport beside the pit card
+    const leftX = -Math.cos(homeYaw);
+    const leftZ = Math.sin(homeYaw);
+    lookTarget = V(pose.x + leftX * 0.78, pose.y + 0.46, pose.z + leftZ * 0.78);
+  } else if (cameraMode === 0) {
     homeYaw = cameraFollowYaw + Math.PI;
     homePitch = Math.atan2(6.3, 5.8);
     homeDistance = Math.hypot(5.8, 6.3);
@@ -3075,10 +3508,25 @@ function updateHUD(dt: number) {
   const g = $<HTMLElement>('#gates');
   const s = $<HTMLElement>('#speed');
   const n = $<HTMLElement>('#next');
+  const roundEl = $<HTMLElement>('#roundNum');
+  const pitHudEl = $<HTMLElement>('#pitTimerHud');
+  const pillPit = $<HTMLElement>('#pillPit');
   const bat = $<HTMLElement>('#bat');
   const mot = $<HTMLElement>('#mot');
+  const pillBat = $<HTMLElement>('#pillBat');
+  const pillMot = $<HTMLElement>('#pillMot');
   const hlt = $<HTMLElement>('#hlt');
   const rolloverBanner = $<HTMLElement>('#rolloverAlert');
+
+  if (roundEl) roundEl.textContent = String(roundNumber).padStart(2, '0');
+  if (pitHudEl) {
+    pitHudEl.textContent = techTimeoutUsedThisRound ? 'USED' : `${Math.max(0, techTimeoutRemaining).toFixed(1)}s`;
+  }
+  if (pillPit) {
+    pillPit.classList.toggle('warn', hasAnyHardwareFault(subsystems) && !techTimeoutUsedThisRound);
+  }
+  if (pillBat) pillBat.classList.toggle('alert', subsystems.faults.batterySwollen);
+  if (pillMot) pillMot.classList.toggle('alert', subsystems.faults.leftMotorBurnt || subsystems.faults.rightMotorBurnt || subsystems.faults.circuitBurnt);
 
   if (sc) {
     sc.textContent = String(scoreState.score);
@@ -3103,6 +3551,7 @@ function updateHUD(dt: number) {
   if (n) {
     n.innerHTML = raceState === 'finished' ? 'COURSE COMPLETE' :
       raceState === 'failed' ? 'ROBOT DISABLED · RESTART REQUIRED' :
+      raceState === 'tech_timeout' ? `🔧 30s TECHNICAL TIMEOUT · <i>${Math.max(0, techTimeoutRemaining).toFixed(1)}s</i> LEFT` :
       raceState === 'countdown' ? `RACE STARTS IN <i>${Math.max(1, Math.ceil(countdown))}</i>` :
       raceState === 'paused' ? 'RACE PAUSED' :
       `PASS GATE <i>${String(currentCheckpoint + 1).padStart(2, '0')}</i> IN ORDER`;
@@ -3300,21 +3749,35 @@ function animate() {
   }
 
   const tSec = now * 0.001;
+  syncRobotVisualHardwareState(tSec);
 
-  // Dynamic Animated Flame Tongues across any randomized Fire Hearth lane
+  // Volumetric Shader Flame Plumes, Flickering PointLights & Rising Sparks across Fire Hearth
   for (let f = 0; f < runtimeCourse.flames.length; f++) {
     const fl = runtimeCourse.flames[f];
-    const lick = 1.0 + 0.30 * Math.sin(tSec * fl.freqLick + fl.phase1) + 0.15 * Math.cos(tSec * (fl.freqLick * 1.6) + fl.phase2);
-    const flickerXZ = 1.0 + 0.16 * Math.sin(tSec * (fl.freqLick * 1.25) + fl.phase2);
-    fl.mesh.scale.set(fl.baseScaleXZ * flickerXZ, fl.baseScaleY * lick, fl.baseScaleXZ * flickerXZ);
-    fl.mesh.rotation.z = 0.12 * Math.sin(tSec * fl.swaySpeed + fl.phase1);
-    fl.mesh.rotation.x = 0.09 * Math.cos(tSec * (fl.swaySpeed * 1.1) + fl.phase2);
-    fl.mesh.rotation.y = fl.phase1 + 0.18 * Math.sin(tSec * 2.8 + f);
+    if (fl.shaderMat) {
+      fl.shaderMat.uniforms.uTime.value = tSec;
+    }
+    if (fl.pointLight) {
+      fl.pointLight.intensity = 2.35 + 0.65 * Math.sin(tSec * 7.8 + fl.phase1) + 0.35 * Math.cos(tSec * 14.3 + fl.phase2);
+    } else if (fl.emberBaseY !== undefined && fl.emberBaseX !== undefined && fl.emberBaseZ !== undefined) {
+      const cycle = ((tSec * (fl.emberRiseSpeed ?? 0.6) + fl.phase1) % 1.0);
+      fl.mesh.position.set(
+        fl.emberBaseX + Math.sin(tSec * 2.4 + fl.phase2) * 0.14,
+        fl.emberBaseY + cycle * 1.15,
+        fl.emberBaseZ + Math.cos(tSec * 2.1 + fl.phase1) * 0.12
+      );
+      const emberScale = Math.max(0.15, 1.0 - cycle * 0.85);
+      fl.mesh.scale.setScalar(emberScale);
+    } else {
+      const lick = 1.0 + 0.14 * Math.sin(tSec * fl.freqLick + fl.phase1) + 0.08 * Math.cos(tSec * (fl.freqLick * 1.45) + fl.phase2);
+      const flickerXZ = 1.0 + 0.09 * Math.sin(tSec * (fl.freqLick * 1.1) + fl.phase2);
+      fl.mesh.scale.set(fl.baseScaleXZ * flickerXZ, fl.baseScaleY * lick, fl.baseScaleXZ * flickerXZ);
+    }
   }
 
-  // Magma Hearth Underbed & Charcoal Breathing Glow
-  mats.magmaBed.emissiveIntensity = 2.6 + 0.8 * Math.sin(tSec * 4.5) + 0.3 * Math.cos(tSec * 9.2);
-  mats.charcoal.emissiveIntensity = 2.2 + 0.6 * Math.sin(tSec * 5.2) + 0.3 * Math.cos(tSec * 11.4);
+  // Magma Hearth Underbed & Charcoal Breathing Glow (muted deep cinder tones so clinkers stay dark & grounded)
+  mats.magmaBed.emissiveIntensity = 1.65 + 0.45 * Math.sin(tSec * 4.5) + 0.20 * Math.cos(tSec * 9.2);
+  mats.charcoal.emissiveIntensity = 0.42 + 0.18 * Math.sin(tSec * 5.2) + 0.10 * Math.cos(tSec * 11.4);
 
   // Checkpoint & Dynamic Gantry Laser Beams + Caution Beacons
   const cpStrobeOn = Math.sin(now * 0.008) > 0.3;
@@ -3326,6 +3789,16 @@ function animate() {
     const cp = checkpointMeshes[i];
     const pulse = 0.45 + 0.35 * Math.sin(now * 0.006 + i * 0.7);
     (beam.material as THREE.MeshBasicMaterial).opacity = cp?.passed ? 0.30 : pulse;
+  }
+
+  const dbg = (window as unknown as Record<string, any>).__gameDebug;
+  if (dbg) {
+    dbg.raceState = raceState;
+    dbg.roundNumber = roundNumber;
+    dbg.techTimeoutRemaining = techTimeoutRemaining;
+    dbg.techTimeoutUsedThisRound = techTimeoutUsedThisRound;
+    dbg.subsystems = subsystems;
+    dbg.pose = pose;
   }
 
   updateCamera(frameTime);
@@ -3341,6 +3814,7 @@ window.addEventListener('resize', () => {
 
 // Render UI & Start animation
 renderUI();
+syncRobotVisualHardwareState(0);
 camera.fov = config.cameraFov;
 camera.updateProjectionMatrix();
 $<HTMLInputElement>('#cameraFov').value = String(config.cameraFov);

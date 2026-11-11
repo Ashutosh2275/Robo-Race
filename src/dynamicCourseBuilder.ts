@@ -163,6 +163,12 @@ export type FlameRuntime = {
   swaySpeed: number;
   phase1: number;
   phase2: number;
+  shaderMat?: THREE.ShaderMaterial;
+  pointLight?: THREE.PointLight;
+  emberBaseY?: number;
+  emberBaseX?: number;
+  emberBaseZ?: number;
+  emberRiseSpeed?: number;
 };
 
 export type HangingBridgeRibbonVisual = {
@@ -624,31 +630,232 @@ function getWaterSurfaceBundle() {
         map: waterMap,
         bumpMap: waterBump,
         bumpScale: 0.068,
-        color: '#21545f',
-        emissive: '#071b20',
+        color: '#1b4752',
+        emissive: '#06181e',
         roughness: 0.14,
         metalness: 0.16,
         transparent: true,
-        opacity: 0.76,
+        opacity: 0.54,
         depthWrite: false,
       }),
       causticMat: new THREE.MeshBasicMaterial({
         map: causticMap,
         transparent: true,
-        opacity: 0.20,
+        opacity: 0.24,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
       shoreFoamMat: new THREE.MeshBasicMaterial({
-        color: '#a3babd',
+        color: '#9db4b8',
         transparent: true,
-        opacity: 0.34,
+        opacity: 0.36,
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
     };
   }
   return cachedWaterSurfaceBundle;
+}
+
+let cachedFireHearthMats: {
+  emberPitMat: THREE.MeshStandardMaterial;
+  castIronMat: THREE.MeshStandardMaterial;
+  brassNozzleMat: THREE.MeshStandardMaterial;
+  firebrickMat: THREE.MeshStandardMaterial;
+  sootCurbMat: THREE.MeshStandardMaterial;
+} | null = null;
+
+function getFireHearthMats() {
+  if (!cachedFireHearthMats) {
+    const colCvs = document.createElement('canvas');
+    const emsCvs = document.createElement('canvas');
+    const bmpCvs = document.createElement('canvas');
+    colCvs.width = emsCvs.width = bmpCvs.width = 512;
+    colCvs.height = emsCvs.height = bmpCvs.height = 512;
+    const cx = colCvs.getContext('2d')!;
+    const ex = emsCvs.getContext('2d')!;
+    const bx = bmpCvs.getContext('2d')!;
+
+    // Deep charred foundry cinder ash base
+    cx.fillStyle = '#1b1817';
+    cx.fillRect(0, 0, 512, 512);
+    ex.fillStyle = '#080201';
+    ex.fillRect(0, 0, 512, 512);
+    bx.fillStyle = '#555555';
+    bx.fillRect(0, 0, 512, 512);
+
+    // Cracked ember bed fissures + charcoal clinkers
+    for (let i = 0; i < 420; i++) {
+      const px = (i * 73 + (i % 19) * 31) % 512;
+      const py = (i * 137 + (i % 23) * 19) % 512;
+      const rx = 5 + (i % 14);
+      const ry = 4 + ((i * 3) % 11);
+      // Dark coal/clinker piece
+      cx.fillStyle = i % 3 === 0 ? '#241f1d' : '#141110';
+      cx.beginPath();
+      cx.ellipse(px, py, rx, ry, (i % 7) * 0.4, 0, Math.PI * 2);
+      cx.fill();
+      bx.fillStyle = i % 2 === 0 ? '#a8a8a8' : '#2e2e2e';
+      bx.beginPath();
+      bx.ellipse(px, py, rx * 0.85, ry * 0.85, (i % 7) * 0.4, 0, Math.PI * 2);
+      bx.fill();
+
+      // Glowing muted deep ember seams between clinkers
+      if (i % 3 !== 0) {
+        const g = ex.createRadialGradient(px, py, 1, px, py, rx * 1.35);
+        g.addColorStop(0, i % 5 === 0 ? 'rgba(235, 112, 24, 0.92)' : 'rgba(175, 48, 10, 0.82)');
+        g.addColorStop(0.55, 'rgba(98, 20, 4, 0.45)');
+        g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ex.fillStyle = g;
+        ex.beginPath();
+        ex.arc(px, py, rx * 1.4, 0, Math.PI * 2);
+        ex.fill();
+      }
+    }
+
+    const colorTex = new THREE.CanvasTexture(colCvs);
+    const emsTex = new THREE.CanvasTexture(emsCvs);
+    const bumpTex = new THREE.CanvasTexture(bmpCvs);
+    colorTex.colorSpace = THREE.SRGBColorSpace;
+    emsTex.colorSpace = THREE.SRGBColorSpace;
+
+    cachedFireHearthMats = {
+      emberPitMat: new THREE.MeshStandardMaterial({
+        map: colorTex,
+        emissiveMap: emsTex,
+        emissive: new THREE.Color('#ff5e18'),
+        emissiveIntensity: 1.55,
+        bumpMap: bumpTex,
+        bumpScale: 0.045,
+        roughness: 0.94,
+        metalness: 0.08,
+      }),
+      castIronMat: new THREE.MeshStandardMaterial({
+        color: '#25282b',
+        roughness: 0.62,
+        metalness: 0.82,
+      }),
+      brassNozzleMat: new THREE.MeshStandardMaterial({
+        color: '#735b38',
+        roughness: 0.44,
+        metalness: 0.78,
+      }),
+      firebrickMat: new THREE.MeshStandardMaterial({
+        color: '#4f3a32',
+        roughness: 0.94,
+        metalness: 0.05,
+      }),
+      sootCurbMat: new THREE.MeshStandardMaterial({
+        color: '#2b2b29',
+        roughness: 0.95,
+        metalness: 0.06,
+      }),
+    };
+  }
+  return cachedFireHearthMats;
+}
+
+function createVolumetricFlameMaterial(seed: number, intensity = 1.0): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uSeed: { value: seed },
+      uIntensity: { value: intensity },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      uniform float uTime;
+      uniform float uSeed;
+      void main() {
+        vUv = uv;
+        vec3 pos = position;
+        float lift = pow(clamp(uv.y, 0.0, 1.0), 1.45);
+        pos.x += sin(uTime * 3.8 + uSeed + uv.y * 5.2) * 0.095 * lift;
+        pos.z += cos(uTime * 3.2 + uSeed * 1.7 + uv.y * 4.4) * 0.065 * lift;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uTime;
+      uniform float uSeed;
+      uniform float uIntensity;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.52;
+        for (int i = 0; i < 4; i++) {
+          v += a * noise(p);
+          p *= 2.04;
+          a *= 0.48;
+        }
+        return v;
+      }
+
+      void main() {
+        float y = clamp(vUv.y, 0.0, 1.0);
+        float x = (vUv.x - 0.5) * 2.0;
+
+        // Turbulent upward-convecting distortion
+        vec2 flowUv = vec2(vUv.x * 3.2 + uSeed * 0.37, y * 2.9 - uTime * 2.35 + uSeed * 0.53);
+        float n1 = fbm(flowUv);
+        float n2 = fbm(flowUv * 1.85 + vec2(4.2, -uTime * 1.7));
+        float turb = mix(n1, n2, 0.42);
+
+        // Organic burner plume taper (broad nozzle root -> twisted flickering tongues)
+        float halfW = mix(0.68, 0.10, pow(y, 0.78)) + (turb - 0.5) * 0.38 * (0.3 + y);
+        float radial = smoothstep(halfW, 0.04, abs(x));
+        float verticalEnv = smoothstep(0.0, 0.13, y) * (1.0 - smoothstep(0.45, 0.99, y));
+
+        // Broken wispy flame tongues & upper detached embers/smoke
+        float body = radial * verticalEnv * (0.42 + 0.92 * turb);
+        float flameMask = smoothstep(0.16, 0.56, body);
+
+        // Smoke mantle near upper plume tips
+        float smokeZone = smoothstep(0.42, 0.95, y) * radial * smoothstep(0.09, 0.34, body);
+
+        if (flameMask < 0.01 && smokeZone < 0.01) discard;
+
+        // Muted industrial blackbody temperature palette (avoid washed-out pure white)
+        vec3 deepRed = vec3(0.54, 0.13, 0.03);
+        vec3 amberOrange = vec3(0.86, 0.34, 0.06);
+        vec3 hotGold = vec3(0.96, 0.68, 0.24);
+        vec3 smokeCol = vec3(0.17, 0.14, 0.13);
+
+        float temp = clamp(body * (1.18 - y * 0.52) * uIntensity, 0.0, 1.0);
+        vec3 flameCol = mix(deepRed, amberOrange, smoothstep(0.12, 0.50, temp));
+        flameCol = mix(flameCol, hotGold, smoothstep(0.55, 0.95, temp));
+
+        // Base blue-gas pilot shimmer right at burner nozzle exit (y < 0.14)
+        float pilotTint = (1.0 - smoothstep(0.02, 0.15, y)) * smoothstep(0.45, 0.85, radial);
+        flameCol = mix(flameCol, vec3(0.32, 0.54, 0.78), pilotTint * 0.38);
+
+        vec3 finalCol = mix(smokeCol, flameCol, clamp(flameMask * 1.15, 0.0, 1.0));
+        float alpha = clamp(max(flameMask * 0.88, smokeZone * 0.26), 0.0, 0.90);
+
+        gl_FragColor = vec4(finalCol, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.NormalBlending,
+  });
 }
 
 function getWreckingBallMat() {
@@ -1791,17 +1998,152 @@ export function buildDynamicCourseGroup(
         makeBox(courseGroup, i % 2 === 0 ? mats.yellow : mats.concreteCurb, new THREE.Vector3(rx, GROUND_DECK_HEIGHT + 0.06, toCourseZ(slot, vOff)), new THREE.Vector3(0.34, 0.13, 2.75), slot.dir * 0.22 * (i % 2 === 0 ? 1 : -1));
       }
     } else if (slot.type === 'fire_hearth') {
+      const fireMats = getFireHearthMats();
+      // Approach & exit cast-concrete transitions with dark thermal soot edge bands
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -2.5), toCourseX(slot, -2.0), lz, DRIVE_ROUTE_WIDTH, GROUND_DECK_HEIGHT, 0.05, 0.16, mats.concretePier, t => t, 5);
-      makeBox(courseGroup, mats.concretePier, new THREE.Vector3(cx, 0.05 - 0.18, lz), new THREE.Vector3(4.0, 0.38, DRIVE_ROUTE_WIDTH));
-      makeBox(courseGroup, mats.magmaBed, new THREE.Vector3(cx, 0.045, lz), new THREE.Vector3(3.85, 0.03, DRIVE_ROUTE_WIDTH - 0.45), 0, false);
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 2.0), toCourseX(slot, 2.5), lz, DRIVE_ROUTE_WIDTH, 0.05, GROUND_DECK_HEIGHT, 0.16, mats.concretePier, t => t, 5);
-      for (let f = 0; f < 16; f++) {
-        const fu = -1.7 + (f % 8) * 0.48;
-        const fv = f < 8 ? -1.45 : 1.45;
-        const fm = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.55, 7), mats.flameTongue);
-        fm.position.set(toCourseX(slot, fu), 0.32, toCourseZ(slot, fv));
-        courseGroup.add(fm);
-        flames.push({ mesh: fm, baseScaleY: 1.0, baseScaleXZ: 1.0, freqLick: 7 + (f % 5), swaySpeed: 3.1, phase1: f * 0.9, phase2: f * 1.4 });
+      makeBox(courseGroup, fireMats.sootCurbMat, new THREE.Vector3(toCourseX(slot, -2.02), 0.052, lz), new THREE.Vector3(0.16, 0.012, DRIVE_ROUTE_WIDTH - 0.12), 0, false);
+      makeBox(courseGroup, fireMats.sootCurbMat, new THREE.Vector3(toCourseX(slot, 2.02), 0.052, lz), new THREE.Vector3(0.16, 0.012, DRIVE_ROUTE_WIDTH - 0.12), 0, false);
+
+      // Sunken refractory masonry pan + cracked glowing ember bed below driving grating
+      makeBox(courseGroup, mats.concretePier, new THREE.Vector3(cx, -0.21, lz), new THREE.Vector3(4.02, 0.42, DRIVE_ROUTE_WIDTH));
+      makeBox(courseGroup, fireMats.emberPitMat, new THREE.Vector3(cx, 0.004, lz), new THREE.Vector3(3.92, 0.014, 3.64), 0, false);
+
+      // Scattered charred clinker stones resting across the sunken ash/ember bed
+      for (let ci = 0; ci < 18; ci++) {
+        const cu = -1.78 + ((ci * 79) % 356) * 0.01;
+        const cv = -1.55 + ((ci * 131) % 310) * 0.01;
+        makeBox(
+          courseGroup,
+          mats.charcoal,
+          new THREE.Vector3(toCourseX(slot, cu), 0.014, toCourseZ(slot, cv)),
+          new THREE.Vector3(0.12 + (ci % 3) * 0.04, 0.022, 0.10 + (ci % 2) * 0.04),
+          ci * 0.65,
+          false
+        );
+      }
+
+      // Outer deck shoulders (top = 0.05) + Slotted Heavy Cast-Iron Hearth Grating spanning pit
+      for (const side of [-1, 1] as const) {
+        makeBox(courseGroup, fireMats.sootCurbMat, new THREE.Vector3(cx, 0.025, toCourseZ(slot, side * 1.98)), new THREE.Vector3(4.02, 0.052, 0.44));
+        makeBox(courseGroup, fireMats.castIronMat, new THREE.Vector3(cx, 0.025, toCourseZ(slot, side * 1.78)), new THREE.Vector3(3.96, 0.054, 0.08));
+      }
+      for (const vBar of [-1.28, -0.64, 0, 0.64, 1.28]) {
+        makeBox(courseGroup, fireMats.castIronMat, new THREE.Vector3(cx, 0.022, toCourseZ(slot, vBar)), new THREE.Vector3(3.94, 0.042, 0.075));
+      }
+      for (let gi = 0; gi < 14; gi++) {
+        const gu = -1.86 + gi * (3.72 / 13);
+        makeBox(courseGroup, fireMats.castIronMat, new THREE.Vector3(toCourseX(slot, gu), 0.027, lz), new THREE.Vector3(0.085, 0.048, 3.58));
+      }
+
+      // Twin Firebrick Curb Manifolds + Machined Cast-Iron/Brass Burner Nozzles + Volumetric GLSL Plumes
+      const flameGeom = new THREE.PlaneGeometry(0.68, 0.95, 2, 10);
+      flameGeom.translate(0, 0.475, 0);
+      const grateJetGeom = new THREE.PlaneGeometry(0.44, 0.44, 2, 8);
+      grateJetGeom.translate(0, 0.22, 0);
+      const emberGeom = new THREE.BoxGeometry(0.032, 0.032, 0.032);
+      const burnerU = [-1.52, -0.76, 0.0, 0.76, 1.52];
+
+      for (const side of [-1, 1] as const) {
+        const bankZ = toCourseZ(slot, side * 1.88);
+        // Firebrick plinth base + main iron gas distribution rail
+        makeBox(courseGroup, fireMats.firebrickMat, new THREE.Vector3(cx, 0.095, bankZ), new THREE.Vector3(3.76, 0.09, 0.22));
+        makeCyl(courseGroup, fireMats.castIronMat, new THREE.Vector3(cx, 0.165, bankZ), 0.042, 3.68, 'x', 12);
+
+        burnerU.forEach((bu, idx) => {
+          const bx = toCourseX(slot, bu);
+          const nozzleZ = toCourseZ(slot, side * 1.79);
+          // Cast-iron burner collar & brass diffuser cap angled slightly inward
+          const collar = makeCyl(courseGroup, fireMats.castIronMat, new THREE.Vector3(bx, 0.185, nozzleZ), 0.068, 0.11, 'y', 12);
+          collar.rotation.x = -side * 0.24 * slot.dir;
+          const cap = makeCyl(courseGroup, fireMats.brassNozzleMat, new THREE.Vector3(bx, 0.23, nozzleZ), 0.052, 0.04, 'y', 12);
+          cap.rotation.x = -side * 0.24 * slot.dir;
+
+          const seed = slot.index * 19.3 + idx * 3.7 + (side < 0 ? 0 : 11.1);
+          const fMat = createVolumetricFlameMaterial(seed, 1.0);
+          for (let p = 0; p < 3; p++) {
+            const fm = new THREE.Mesh(flameGeom, fMat);
+            fm.position.set(bx, 0.20, nozzleZ);
+            fm.rotation.y = (p * Math.PI) / 3 + seed * 0.4;
+            fm.rotation.x = -side * 0.14 * slot.dir;
+            courseGroup.add(fm);
+            flames.push({
+              mesh: fm,
+              baseScaleY: 0.92 + ((idx + p) % 3) * 0.14,
+              baseScaleXZ: 0.90 + (p % 2) * 0.16,
+              freqLick: 6 + ((idx + p) % 4),
+              swaySpeed: 2.8,
+              phase1: seed + p * 0.85,
+              phase2: seed * 1.3 + p * 1.2,
+              shaderMat: p === 0 ? fMat : undefined,
+            });
+          }
+        });
+      }
+
+      // Low recessed pilot flame tongues erupting gently from beneath the slotted floor grating
+      [-1.18, 0.0, 1.18].forEach((pu, pIdx) => {
+        for (const pv of [-0.62, 0.62]) {
+          const seed = slot.index * 31.7 + pIdx * 4.3 + pv * 2.1;
+          const gMat = createVolumetricFlameMaterial(seed, 0.85);
+          for (let p = 0; p < 2; p++) {
+            const gm = new THREE.Mesh(grateJetGeom, gMat);
+            gm.position.set(toCourseX(slot, pu), 0.02, toCourseZ(slot, pv));
+            gm.rotation.y = (p * Math.PI) / 2 + 0.35;
+            courseGroup.add(gm);
+            flames.push({
+              mesh: gm,
+              baseScaleY: 0.85 + (pIdx % 2) * 0.22,
+              baseScaleXZ: 0.95,
+              freqLick: 7 + (pIdx % 3),
+              swaySpeed: 3.4,
+              phase1: seed + p,
+              phase2: seed * 1.7 + p,
+              shaderMat: p === 0 ? gMat : undefined,
+            });
+          }
+        }
+      });
+
+      // Rising incandescent ember sparks drifting upward over hearth
+      for (let ei = 0; ei < 18; ei++) {
+        const eu = -1.6 + ((ei * 67) % 320) * 0.01;
+        const ev = -1.55 + ((ei * 97) % 310) * 0.01;
+        const ex = toCourseX(slot, eu);
+        const ez = toCourseZ(slot, ev);
+        const em = new THREE.Mesh(emberGeom, mats.beaconAmber);
+        em.position.set(ex, 0.18 + (ei % 5) * 0.16, ez);
+        courseGroup.add(em);
+        flames.push({
+          mesh: em,
+          baseScaleY: 1,
+          baseScaleXZ: 1,
+          freqLick: 4,
+          swaySpeed: 2.0,
+          phase1: ei * 0.73,
+          phase2: ei * 1.19,
+          emberBaseX: ex,
+          emberBaseY: 0.14,
+          emberBaseZ: ez,
+          emberRiseSpeed: 0.52 + (ei % 4) * 0.18,
+        });
+      }
+
+      // Twin flickering warm combustion PointLights illuminating steel grate & robot chassis
+      for (const lu of [-0.95, 0.95]) {
+        const fLight = new THREE.PointLight(0xd95a18, 2.4, 9.5, 1.5);
+        fLight.position.set(toCourseX(slot, lu), 0.82, lz);
+        courseGroup.add(fLight);
+        flames.push({
+          mesh: fLight as unknown as THREE.Mesh,
+          baseScaleY: 1,
+          baseScaleXZ: 1,
+          freqLick: 7.5,
+          swaySpeed: 1,
+          phase1: lu * 1.4,
+          phase2: lu * 2.1,
+          pointLight: fLight,
+        });
       }
     } else if (slot.type === 'water_basin') {
       const basinConcrete = getWaterBasinConcreteMats();

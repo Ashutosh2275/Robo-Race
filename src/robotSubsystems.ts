@@ -34,13 +34,54 @@ export type IntegrityState = {
 
 export type HazardType = 'none' | 'fire' | 'water' | 'oil' | 'sand';
 
+export type HardwareFaultId =
+  | 'battery_swollen'
+  | 'circuit_burnt'
+  | 'left_motor_burnt'
+  | 'right_motor_burnt';
+
+export type ComponentFaultState = {
+  batterySwollen: boolean;
+  circuitBurnt: boolean;
+  leftMotorBurnt: boolean;
+  rightMotorBurnt: boolean;
+  faultReasons: Partial<Record<HardwareFaultId, string>>;
+};
+
 export type SubsystemsState = {
   battery: BatteryState;
   motors: MotorState;
   esc: EscState;
   integrity: IntegrityState;
+  faults: ComponentFaultState;
   activeHazard: HazardType;
 };
+
+export const TECHNICAL_TIMEOUT_SECONDS = 30;
+
+export function createInitialFaults(): ComponentFaultState {
+  return {
+    batterySwollen: false,
+    circuitBurnt: false,
+    leftMotorBurnt: false,
+    rightMotorBurnt: false,
+    faultReasons: {},
+  };
+}
+
+export function hasAnyHardwareFault(sub: SubsystemsState): boolean {
+  const f = sub.faults;
+  return f.batterySwollen || f.circuitBurnt || f.leftMotorBurnt || f.rightMotorBurnt || sub.integrity.electronicsEnclosure < 65;
+}
+
+export function getActiveFaultList(sub: SubsystemsState): HardwareFaultId[] {
+  const out: HardwareFaultId[] = [];
+  if (sub.faults.batterySwollen) out.push('battery_swollen');
+  if (sub.faults.circuitBurnt) out.push('circuit_burnt');
+  if (sub.faults.leftMotorBurnt) out.push('left_motor_burnt');
+  if (sub.faults.rightMotorBurnt) out.push('right_motor_burnt');
+  return out;
+}
 
 export const AMBIENT_TEMP = 28.0; // °C
 
@@ -80,8 +121,168 @@ export function createInitialSubsystems(): SubsystemsState {
       driveWheels: 100,
       electronicsEnclosure: 100,
     },
+    faults: createInitialFaults(),
     activeHazard: 'none',
   };
+}
+
+export type DrivetrainModifiers = {
+  leftMotorMultiplier: number;
+  rightMotorMultiplier: number;
+  maxSpeedMultiplier: number;
+  accelerationMultiplier: number;
+  circuitCutoutActive: boolean;
+};
+
+/**
+ * Evaluates physical drivetrain impairment caused by burnt motors, swollen LiPo packs,
+ * or broken/shorted ESC distribution circuits carried over or triggered mid-run.
+ */
+export function getEffectiveDrivetrainModifiers(
+  sub: SubsystemsState,
+  elapsedSec = 0
+): DrivetrainModifiers {
+  const f = sub.faults;
+  const leftMotorMultiplier = f.leftMotorBurnt ? 0.34 : 1.0;
+  const rightMotorMultiplier = f.rightMotorBurnt ? 0.34 : 1.0;
+  const batteryCap = f.batterySwollen ? 0.72 : 1.0;
+
+  let circuitFactor = sub.esc.powerDelivery / 100;
+  let circuitCutoutActive = false;
+  if (f.circuitBurnt) {
+    // Burnt/broken ESC trace induces deterministic power brownouts and intermittent dropouts
+    const pulse = Math.sin(elapsedSec * 5.7) + 0.55 * Math.cos(elapsedSec * 13.1);
+    if (pulse < -0.55) {
+      circuitFactor = 0.08;
+      circuitCutoutActive = true;
+    } else {
+      circuitFactor = Math.min(circuitFactor, 0.58);
+    }
+  }
+
+  const maxSpeedMultiplier = Math.max(0.18, batteryCap * (f.circuitBurnt ? 0.74 : 1.0));
+  const accelerationMultiplier = Math.max(0.12, sub.motors.thermalThrottle * batteryCap * circuitFactor);
+
+  return {
+    leftMotorMultiplier,
+    rightMotorMultiplier,
+    maxSpeedMultiplier,
+    accelerationMultiplier,
+    circuitCutoutActive,
+  };
+}
+
+/** Repair time cost (seconds deducted from the 30s technical timeout pit budget). */
+export const FAULT_REPAIR_META: Record<HardwareFaultId, { label: string; symptom: string; pitSec: number }> = {
+  battery_swollen: {
+    label: '4S LiPo Cell Pack Swollen',
+    symptom: 'Puffed pouches venting gas · severe voltage sag (-28% power ceiling)',
+    pitSec: 6,
+  },
+  circuit_burnt: {
+    label: 'Main ESC / Power Circuit Burnt',
+    symptom: 'Scorched MOSFET stage & loose XT60 bus · intermittent throttle dropouts',
+    pitSec: 8,
+  },
+  left_motor_burnt: {
+    label: 'Left 600RPM Motor Winding Burnt',
+    symptom: 'Charred stator coils · -66% left track torque (veers strongly left)',
+    pitSec: 7,
+  },
+  right_motor_burnt: {
+    label: 'Right 600RPM Motor Winding Burnt',
+    symptom: 'Charred stator coils · -66% right track torque (veers strongly right)',
+    pitSec: 7,
+  },
+};
+
+export type HardwareCarryoverSnapshot = {
+  roundNumber: number;
+  faults: ComponentFaultState;
+  batteryHealth: number;
+  electronicsEnclosure: number;
+  leftTrack: number;
+  rightTrack: number;
+  driveWheels: number;
+};
+
+export function createCarryoverSnapshot(sub: SubsystemsState, nextRoundNumber: number): HardwareCarryoverSnapshot {
+  return {
+    roundNumber: nextRoundNumber,
+    faults: {
+      batterySwollen: sub.faults.batterySwollen,
+      circuitBurnt: sub.faults.circuitBurnt,
+      leftMotorBurnt: sub.faults.leftMotorBurnt,
+      rightMotorBurnt: sub.faults.rightMotorBurnt,
+      faultReasons: { ...sub.faults.faultReasons },
+    },
+    batteryHealth: sub.battery.health,
+    electronicsEnclosure: sub.integrity.electronicsEnclosure,
+    leftTrack: sub.integrity.leftTrack,
+    rightTrack: sub.integrity.rightTrack,
+    driveWheels: sub.integrity.driveWheels,
+  };
+}
+
+export function applyCarryoverSnapshot(sub: SubsystemsState, snap: HardwareCarryoverSnapshot | null): void {
+  if (!snap) return;
+  sub.faults = {
+    batterySwollen: !!snap.faults?.batterySwollen,
+    circuitBurnt: !!snap.faults?.circuitBurnt,
+    leftMotorBurnt: !!snap.faults?.leftMotorBurnt,
+    rightMotorBurnt: !!snap.faults?.rightMotorBurnt,
+    faultReasons: { ...(snap.faults?.faultReasons ?? {}) },
+  };
+  sub.battery.health = Math.max(40, Math.min(100, snap.batteryHealth ?? 98));
+  if (sub.faults.batterySwollen) {
+    sub.battery.voltage = 14.2;
+    sub.battery.temperature = AMBIENT_TEMP + 12;
+  }
+  if (sub.faults.circuitBurnt) {
+    sub.esc.powerDelivery = 60;
+  }
+  sub.integrity.electronicsEnclosure = Math.max(20, Math.min(100, snap.electronicsEnclosure ?? 100));
+  sub.integrity.leftTrack = Math.max(45, Math.min(100, snap.leftTrack ?? 100));
+  sub.integrity.rightTrack = Math.max(45, Math.min(100, snap.rightTrack ?? 100));
+  sub.integrity.driveWheels = Math.max(50, Math.min(100, snap.driveWheels ?? 100));
+}
+
+export function repairComponentFault(sub: SubsystemsState, faultId: HardwareFaultId): void {
+  if (faultId === 'battery_swollen') {
+    sub.faults.batterySwollen = false;
+    delete sub.faults.faultReasons.battery_swollen;
+    sub.battery.chargeMah = sub.battery.capacityMah;
+    sub.battery.percentage = 100;
+    sub.battery.health = 98;
+    sub.battery.voltage = 16.4;
+    sub.battery.temperature = AMBIENT_TEMP;
+  } else if (faultId === 'circuit_burnt') {
+    sub.faults.circuitBurnt = false;
+    delete sub.faults.faultReasons.circuit_burnt;
+    sub.esc.temperature = AMBIENT_TEMP;
+    sub.esc.powerDelivery = 100;
+    sub.esc.overheated = false;
+    sub.integrity.electronicsEnclosure = 100;
+  } else if (faultId === 'left_motor_burnt') {
+    sub.faults.leftMotorBurnt = false;
+    delete sub.faults.faultReasons.left_motor_burnt;
+    sub.motors.leftTemp = AMBIENT_TEMP;
+    sub.motors.thermalThrottle = Math.max(sub.motors.thermalThrottle, 0.9);
+    sub.integrity.leftTrack = Math.max(sub.integrity.leftTrack, 85);
+  } else if (faultId === 'right_motor_burnt') {
+    sub.faults.rightMotorBurnt = false;
+    delete sub.faults.faultReasons.right_motor_burnt;
+    sub.motors.rightTemp = AMBIENT_TEMP;
+    sub.motors.thermalThrottle = Math.max(sub.motors.thermalThrottle, 0.9);
+    sub.integrity.rightTrack = Math.max(sub.integrity.rightTrack, 85);
+  }
+}
+
+export function repairEnclosureSeal(sub: SubsystemsState): void {
+  sub.integrity.electronicsEnclosure = 100;
+  sub.integrity.leftTrack = Math.max(sub.integrity.leftTrack, 92);
+  sub.integrity.rightTrack = Math.max(sub.integrity.rightTrack, 92);
+  sub.integrity.driveWheels = Math.max(sub.integrity.driveWheels, 92);
 }
 
 /** Structural integrity at zero permanently ends the current race attempt. */
@@ -185,6 +386,39 @@ export function stepSubsystems(
     sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - 2.5 * dt);
     sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - 2.5 * dt);
   }
+
+  // 5. Realistic Component Burnout, Swelling & Short-Circuit Evaluation
+  const triggeredFaults: HardwareFaultId[] = [];
+  if (!sub.faults.batterySwollen && (sub.battery.temperature >= 62.0 || (sub.battery.percentage <= 18.0 && totalCurrent >= 40.0))) {
+    sub.faults.batterySwollen = true;
+    sub.faults.faultReasons.battery_swollen = hazard === 'fire'
+      ? 'Thermal runaway in Fire Hearth swelled LiPo pouch cells'
+      : 'High-C discharge & heat puffed 4S LiPo cells';
+    triggeredFaults.push('battery_swollen');
+  }
+  if (!sub.faults.leftMotorBurnt && sub.motors.leftTemp >= 95.0) {
+    sub.faults.leftMotorBurnt = true;
+    sub.faults.faultReasons.left_motor_burnt = hazard === 'fire'
+      ? 'Fire Hearth overheated left 600RPM stator windings'
+      : 'Stall overcurrent burnt left motor coils';
+    triggeredFaults.push('left_motor_burnt');
+  }
+  if (!sub.faults.rightMotorBurnt && sub.motors.rightTemp >= 95.0) {
+    sub.faults.rightMotorBurnt = true;
+    sub.faults.faultReasons.right_motor_burnt = hazard === 'fire'
+      ? 'Fire Hearth overheated right 600RPM stator windings'
+      : 'Stall overcurrent burnt right motor coils';
+    triggeredFaults.push('right_motor_burnt');
+  }
+  if (!sub.faults.circuitBurnt && (sub.esc.temperature >= 94.0 || (hazard === 'water' && sub.integrity.electronicsEnclosure < 68))) {
+    sub.faults.circuitBurnt = true;
+    sub.faults.faultReasons.circuit_burnt = hazard === 'water'
+      ? 'Water ingress through cracked enclosure shorted ESC PCB'
+      : 'MOSFET over-temperature burnt ESC distribution circuit';
+    triggeredFaults.push('circuit_burnt');
+  }
+
+  return triggeredFaults;
 }
 
 /**
@@ -201,6 +435,10 @@ export function applyBatteryShock(
   sub.battery.percentage = Math.max(0, Math.min(100, (sub.battery.chargeMah / sub.battery.capacityMah) * 100));
   sub.battery.voltage = 13.0 + (sub.battery.percentage / 100) * 3.8;
   sub.battery.temperature = Math.min(85, sub.battery.temperature + tempRise);
+  if (!sub.faults.batterySwollen && (shockPct >= 14 || sub.battery.temperature >= 62)) {
+    sub.faults.batterySwollen = true;
+    sub.faults.faultReasons.battery_swollen = 'High-G impact deformed and swelled 4S LiPo cells';
+  }
   return shockPct;
 }
 
@@ -230,6 +468,10 @@ export function applyFallImpactDamage(
   sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - trackLoss);
   sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - trackLoss);
   sub.integrity.electronicsEnclosure = Math.max(0, sub.integrity.electronicsEnclosure - chassisLoss * 0.5);
+  if (!sub.faults.circuitBurnt && sub.integrity.electronicsEnclosure < 62) {
+    sub.faults.circuitBurnt = true;
+    sub.faults.faultReasons.circuit_burnt = 'Hard landing fractured electronics bay & shorted ESC bus';
+  }
   return chassisLoss;
 }
 
