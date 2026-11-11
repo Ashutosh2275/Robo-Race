@@ -178,9 +178,15 @@ export function stepVehicle3D(
   // A true cliff edge drop-off has a sharp discontinuous step: one track hangs
   // over empty air while the center remains on the deck.
   const isCliffStep = Math.abs(centerH - (leftH + rightH) * 0.5) > 0.10;
-  const isCliffSideDrop = rollDifferential >= 0.70 && (isCliffStep || rollDifferential >= 0.75);
-  const isCliffEndStep = Math.abs(centerH - (frontH + rearH) * 0.5) > 0.15;
-  const isCliffEndDrop = pitchDifferential >= 0.90 && isCliffEndStep;
+  const isCliffSideDrop = rollDifferential >= 0.70 && isCliffStep;
+  const isCliffEndStep = Math.abs(centerH - (frontH + rearH) * 0.5) > 0.24;
+  const isCliffEndDrop = pitchDifferential >= 1.10 && isCliffEndStep;
+
+  // Solid-deck non-penetration: when both the center belly AND at least one full track
+  // rest on the same solid deck surface, prevent average-ground interpolation from sinking
+  // the chassis straight through the deck when the outer track overhangs air.
+  const maxTrackH = Math.max(leftH, rightH);
+  const hasSolidDeckUnderCenter = Math.abs(maxTrackH - centerH) <= 0.15;
 
   // Continuous track belt support over convex mound/hump crests:
   // Prevents the crest of a huge smooth bump from clipping upward through the lower belt run and belly.
@@ -188,7 +194,10 @@ export function stepVehicle3D(
   const isConvexBeltCrest = !isCliffSideDrop && !isCliffEndDrop
     && hML > leftH + 0.015
     && hMR > rightH + 0.015;
-  const effectiveGroundH = isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH;
+  let effectiveGroundH = isConvexBeltCrest ? Math.max(avgGroundH, midSupportH - 0.012) : avgGroundH;
+  if (hasSolidDeckUnderCenter && centerH > avgGroundH + 0.12 && (pose.y + TRACK_CONTACT_OFFSET >= centerH - 0.16)) {
+    effectiveGroundH = Math.max(effectiveGroundH, centerH - 0.10);
+  }
   const targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
 
   const seamWait = rollDifferential >= 1.10 ? 0.08 : 0.14;
@@ -210,8 +219,11 @@ export function stepVehicle3D(
   if (inverted) {
     pose.isFlipped = true;
     pose.flippedTimer += dt;
-    // When upside down, fall under real gravity until roof contacts terrain below
-    const restingY = avgGroundH + CHASSIS_HEIGHT - TRACK_CONTACT_OFFSET + 0.05;
+    // When upside down, fall under real gravity until roof contacts highest solid deck or floor below
+    const invSurfaceH = (hasSolidDeckUnderCenter && centerH > avgGroundH && (pose.y + CHASSIS_HEIGHT >= centerH - 0.12))
+      ? Math.max(avgGroundH, centerH)
+      : avgGroundH;
+    const restingY = invSurfaceH + CHASSIS_HEIGHT - TRACK_CONTACT_OFFSET + 0.05;
     if (pose.y > restingY + 0.04) {
       pose.isGrounded = false;
       pose.vy -= gravity * dt;
@@ -286,7 +298,7 @@ export function stepVehicle3D(
   const isDrivingSlope = !isCliffSideDrop
     && !isCliffEndDrop
     && Math.abs(centerH - avgGroundH) <= 0.14
-    && pitchDifferential >= 0.10
+    && (pitchDifferential >= 0.10 || rollDifferential >= 0.15)
     && Math.abs(longitudinalSpeed) > 0.2;
   const wasAirborne = !pose.isGrounded;
   const dropGap = pose.isGrounded

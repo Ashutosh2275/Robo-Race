@@ -57,7 +57,7 @@ export const HURDLE_CATALOG: Record<HurdleType, HurdleMeta> = {
   high_climb: { type: 'high_climb', label: 'High-Incline Zigzag Ramp', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.6 },
   oil_chicane: { type: 'oil_chicane', label: 'Oil Slick & Tire Chicane', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.2 },
   turntable_deck: { type: 'turntable_deck', label: 'Rotating Turntable Deck', tier: 'medium', basePoints: 20, halfLen: 5.4, halfWidth: 2.45 },
-  pendulum_bridge: { type: 'pendulum_bridge', label: 'Swinging Pendulum Bridge', tier: 'hard', basePoints: 30, halfLen: 6.0, halfWidth: 1.0 },
+  pendulum_bridge: { type: 'pendulum_bridge', label: 'Swinging Pendulum Bridge', tier: 'hard', basePoints: 30, halfLen: 6.0, halfWidth: 2.20 },
   hanging_bridges: { type: 'hanging_bridges', label: 'Twin Hanging Bridges', tier: 'hard', basePoints: 30, halfLen: 6.2, halfWidth: 2.2 },
   spiral_tower: { type: 'spiral_tower', label: '540° Spiral Tower Climb', tier: 'hard', basePoints: 30, halfLen: 12.2, isFullLane: true, halfWidth: 3.45 },
 };
@@ -921,18 +921,22 @@ function evalSlotLocal(
     }
 
     case 'pendulum_bridge': {
-      const catW = 1.00;
+      const catW = 1.32;
       const deckY = 1.35;
-      if (Math.abs(v) <= catW) {
-        if (u >= -6.0 && u < -3.6) {
-          const t = (u + 6.0) / 2.4;
+      if (u >= -6.0 && u < -3.6) {
+        const t = (u + 6.0) / 2.4;
+        const rampHalfW = halfW + (catW - halfW) * t;
+        if (Math.abs(v) <= rampHalfW) {
           return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.14), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
         }
-        if (u >= -3.6 && u <= 3.6) {
-          return { matched: true, height: deckY, rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
-        }
-        if (u > 3.6 && u <= 6.0) {
-          const t = (6.0 - u) / 2.4;
+      }
+      if (u >= -3.6 && u <= 3.6 && Math.abs(v) <= catW) {
+        return { matched: true, height: deckY, rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
+      }
+      if (u > 3.6 && u <= 6.0) {
+        const t = (6.0 - u) / 2.4;
+        const rampHalfW = halfW + (catW - halfW) * t;
+        if (Math.abs(v) <= rampHalfW) {
           return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.14), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
         }
       }
@@ -946,15 +950,21 @@ function evalSlotLocal(
       const inPit = Math.abs(u) <= 4.7 && Math.abs(v) <= pitHalfZ;
       const trackSpacingHalf = (TRACK_WIDTH / MAP_SCALE) * 0.5;
       const plankHalfW = 0.34;
-      if (u >= -6.1 && u < -4.5 && Math.abs(v) <= 1.25) {
-        if (poseY < GROUND_DECK_HEIGHT - 0.15 && inPit) return { matched: true, height: HANGING_SAND_PIT_Y, rockOffset: 0, surface: { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' } };
+      if (u >= -6.1 && u < -4.5) {
         const t = Math.min(1, (u + 6.1) / 1.6);
-        return { matched: true, height: GROUND_DECK_HEIGHT + (bridgeY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0 };
+        const rampHalfW = halfW + (1.25 - halfW) * t;
+        if (Math.abs(v) <= rampHalfW) {
+          if (poseY < GROUND_DECK_HEIGHT - 0.15 && inPit) return { matched: true, height: HANGING_SAND_PIT_Y, rockOffset: 0, surface: { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' } };
+          return { matched: true, height: GROUND_DECK_HEIGHT + (bridgeY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0 };
+        }
       }
-      if (u > 4.5 && u <= 6.1 && Math.abs(v) <= 1.25) {
-        if (poseY < GROUND_DECK_HEIGHT - 0.15 && inPit) return { matched: true, height: HANGING_SAND_PIT_Y, rockOffset: 0, surface: { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' } };
+      if (u > 4.5 && u <= 6.1) {
         const t = Math.min(1, (6.1 - u) / 1.6);
-        return { matched: true, height: GROUND_DECK_HEIGHT + (bridgeY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0 };
+        const rampHalfW = halfW + (1.25 - halfW) * t;
+        if (Math.abs(v) <= rampHalfW) {
+          if (poseY < GROUND_DECK_HEIGHT - 0.15 && inPit) return { matched: true, height: HANGING_SAND_PIT_Y, rockOffset: 0, surface: { grip: 0.42, rollingResistance: 2.25, hazard: 'sand' } };
+          return { matched: true, height: GROUND_DECK_HEIGHT + (bridgeY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0 };
+        }
       }
       if (u >= -4.5 && u <= 4.5) {
         const spanU = (u + 4.5) / 9.0;
@@ -1009,8 +1019,12 @@ function evalSlotLocal(
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 0.90, rollingResistance: 0.35, hazard: 'none' } };
       }
       // Upper bridge from spiral to turntable (connects cleanly at 540° summit without cutting into <540° North arc)
-      if (u >= -2.05 && u <= 0.25 && Math.abs(v) <= 1.45 && (u >= -1.15 || v >= -0.12) && trackBottomY > 2.00) {
+      if (u >= -2.05 && u <= 0.55 && Math.abs(v) <= 1.68 && (u >= -1.15 || v >= -0.12) && trackBottomY > 2.00) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.05, rollingResistance: 0.28, hazard: 'none' } };
+      }
+      // Summit 540° exit safety guard: probes crossing v = 0 past the East summit seam (v in [0..1.45]) remain on yTop instead of dropping onto Turn 1 below
+      if (trackBottomY >= 2.45 && dx >= 0.5 && v >= 0.0 && v <= 1.45 && dist <= rOuter + 0.15) {
+        return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.08, rollingResistance: 0.28, hazard: 'none' } };
       }
       // Helix climb (540 deg = 1.5 turns starting at West tangent du=-rMid, dv=0 climbing North -> East -> South -> West -> Summit)
       if (dist <= rOuter + 0.22 && dist >= rInner - 0.18) {
@@ -1098,7 +1112,11 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
     if (Math.abs(u) <= slot.halfLen + 0.1 && Math.abs(v) <= slot.meta.halfWidth + 0.25) {
       if (slot.type === 'high_climb') return Math.abs(v) <= 2.60;
       if (slot.type === 'pendulum_bridge') {
-        return Math.abs(v) <= 1.02;
+        if (Math.abs(u) > 3.6) {
+          const t = Math.max(0, Math.min(1, (6.0 - Math.abs(u)) / 2.4));
+          return Math.abs(v) <= 1.34 + (2.20 - 1.34) * (1 - t);
+        }
+        return Math.abs(v) <= 1.34;
       }
       if (slot.type === 'hanging_bridges') {
         if (poseY < GROUND_DECK_HEIGHT - 0.18 && Math.abs(u) <= 4.7) return false;
@@ -1110,7 +1128,8 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
           const swayAvg = (swayL + swayR) * 0.5;
           return Math.abs(v - swayAvg) <= (TRACK_WIDTH / MAP_SCALE) * 0.5 + 0.36;
         }
-        return Math.abs(v) <= 1.30;
+        const t = Math.max(0, Math.min(1, (Math.abs(u) - 4.5) / 1.6));
+        return Math.abs(v) <= 1.30 + (2.20 - 1.30) * t;
       }
       if (slot.type === 'football_arena') {
         const absU = Math.abs(u);

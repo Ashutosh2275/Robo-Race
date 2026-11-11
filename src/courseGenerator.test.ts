@@ -422,3 +422,156 @@ test('hanging chain bridges stretch down under weight, sway left-right asymmetri
     setActiveGeneratedCourse(null);
   }
 });
+
+test('diagonal and turning maneuvers across steep continuous high_climb ramp never trigger false rollover', () => {
+  let climbCourse = null;
+  for (let s = 1; s <= 60; s++) {
+    const c = generateRandomizedCourse('track_d', s * 6151);
+    if (c.slots.some(sl => sl.type === 'high_climb')) {
+      climbCourse = c;
+      break;
+    }
+  }
+  assert.ok(climbCourse, 'Expected high_climb to appear within 60 seeds');
+  const slot = climbCourse!.slots.find(sl => sl.type === 'high_climb')!;
+
+  try {
+    setActiveGeneratedCourse(climbCourse);
+    const startU = -6.8;
+    const startX = slot.centerX + slot.dir * startU;
+    const startH = evaluateCourseHeight(startX, slot.laneZ, GROUND_DECK_HEIGHT);
+    const pose: VehiclePose = {
+      x: startX * MAP_SCALE,
+      y: startH - TRACK_CONTACT_OFFSET,
+      z: slot.laneZ * MAP_SCALE,
+      vx: slot.dir * 3.0,
+      vy: 0,
+      vz: 0,
+      yaw: slot.dir > 0 ? Math.PI / 2 : -Math.PI / 2,
+      yawRate: 0,
+      roll: 0,
+      pitch: 0,
+      rollRate: 0,
+      pitchRate: 0,
+      isGrounded: true,
+      isFlipped: false,
+      flippedTimer: 0,
+      lastImpactSpeed: 0,
+    };
+    const dt = 1 / 60;
+    const worldHeight = (wx: number, wz: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y);
+
+    for (let i = 0; i < 360; i++) {
+      // Swerve diagonally within the continuous steep ramp corridor (0.55 rad sway without driving off the side cliff)
+      const desiredYaw = (slot.dir > 0 ? Math.PI / 2 : -Math.PI / 2) + 0.42 * Math.sin(i * 0.08);
+      pose.yaw = desiredYaw;
+      const spd = 3.2;
+      pose.x += Math.sin(pose.yaw) * spd * dt;
+      pose.z += Math.cos(pose.yaw) * spd * dt;
+      stepVehicle3D(pose, worldHeight, spd, Math.cos(i * 0.08) * 0.65, dt);
+      assert.equal(pose.isFlipped, false, `False rollover triggered during diagonal climb at step ${i}`);
+      const u = (pose.x / MAP_SCALE - slot.centerX) * slot.dir;
+      if (u > 6.8) break;
+    }
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});
+
+test('flared pendulum/hanging ramps and 540-degree spiral summit exit prevent edge-seam height drops', () => {
+  const findCourseWith = (hurdleType: string) => {
+    for (const trackId of TRACK_IDS) {
+      for (let s = 1; s <= 60; s++) {
+        const c = generateRandomizedCourse(trackId, s * 4099 + trackId.charCodeAt(trackId.length - 1));
+        const slot = c.slots.find(sl => sl.type === hurdleType);
+        if (slot) return { course: c, slot };
+      }
+    }
+    throw new Error(`Expected ${hurdleType} within seed sweep`);
+  };
+
+  try {
+    const { course: pendCourse, slot: pend } = findCourseWith('pendulum_bridge');
+    setActiveGeneratedCourse(pendCourse);
+    const pendEntryH = evaluateCourseHeight(
+      pend.centerX + pend.dir * (-4.8),
+      pend.laneZ + pend.dir * 1.60,
+      GROUND_DECK_HEIGHT + 0.5,
+    );
+    const pendExitH = evaluateCourseHeight(
+      pend.centerX + pend.dir * 4.8,
+      pend.laneZ + pend.dir * (-1.60),
+      GROUND_DECK_HEIGHT + 0.5,
+    );
+    assert.ok(pendEntryH > GROUND_DECK_HEIGHT + 0.15, `Flared pendulum entry ramp should support v=+1.60, got ${pendEntryH}`);
+    assert.ok(pendExitH > GROUND_DECK_HEIGHT + 0.15, `Flared pendulum exit ramp should support v=-1.60, got ${pendExitH}`);
+
+    const { course: hbCourse, slot: hb } = findCourseWith('hanging_bridges');
+    setActiveGeneratedCourse(hbCourse);
+    const hbEntryH = evaluateCourseHeight(
+      hb.centerX + hb.dir * (-5.2),
+      hb.laneZ + hb.dir * 1.60,
+      GROUND_DECK_HEIGHT + 0.5,
+    );
+    assert.ok(hbEntryH > GROUND_DECK_HEIGHT + 0.15, `Flared hanging bridge entry ramp should support v=+1.60, got ${hbEntryH}`);
+
+    const { course: spCourse, slot: sp } = findCourseWith('spiral_tower');
+    setActiveGeneratedCourse(spCourse);
+    const summitSeamH = evaluateCourseHeight(
+      sp.centerX + sp.dir * (-4.20 + 2.15),
+      sp.laneZ + sp.dir * 0.25,
+      3.20 - TRACK_CONTACT_OFFSET,
+    );
+    assert.ok(summitSeamH >= 3.15, `Spiral 540-deg East summit seam (v=+0.25) must stay at 3.20m roof instead of dropping to Turn 1, got ${summitSeamH}`);
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});
+
+test('overhanging an elevated +1.35m bridge deck keeps upright and inverted chassis above solid deck without phasing', () => {
+  const edgeWorldHeight = (_wx: number, wz: number) => (wz < 0.35 ? 1.35 : -0.33);
+  const dt = 1 / 60;
+
+  // Upright overhang: center + left track on +1.35m slab, right track overhanging -0.33m drop
+  const upright: VehiclePose = {
+    x: 0,
+    y: 1.35 - TRACK_CONTACT_OFFSET,
+    z: 0.0,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    yaw: Math.PI / 2,
+    yawRate: 0,
+    roll: 0,
+    pitch: 0,
+    rollRate: 0,
+    pitchRate: 0,
+    isGrounded: true,
+    isFlipped: false,
+    flippedTimer: 0,
+    lastImpactSpeed: 0,
+  };
+  for (let i = 0; i < 60; i++) {
+    stepVehicle3D(upright, edgeWorldHeight, 0, 0, dt);
+  }
+  assert.ok(
+    upright.y + TRACK_CONTACT_OFFSET >= 1.15,
+    `Upright overhanging chassis phased into +1.35m slab: ${upright.y + TRACK_CONTACT_OFFSET}`,
+  );
+
+  // Inverted overhang: even upside down on top of the solid slab, restingY must NOT sink below centerH
+  const inverted: VehiclePose = {
+    ...upright,
+    y: 1.35 + 0.35,
+    roll: Math.PI,
+    isFlipped: true,
+    flippedTimer: 0.5,
+  };
+  for (let i = 0; i < 60; i++) {
+    stepVehicle3D(inverted, edgeWorldHeight, 0, 0, dt);
+  }
+  assert.ok(
+    inverted.y >= 1.35,
+    `Inverted chassis phased down through solid +1.35m deck slab: y=${inverted.y}`,
+  );
+});

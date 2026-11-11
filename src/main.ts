@@ -2549,6 +2549,24 @@ function stepPhysics(dt: number) {
     // Metacentric righting stability while floating in water
     pose.roll *= Math.exp(-dt * 4.0);
     pose.pitch *= Math.exp(-dt * 4.0);
+  } else if (Math.abs(pose.roll) > 0.58 && (pose.y + TRACK_CONTACT_OFFSET) > GROUND_DECK_HEIGHT + 0.35) {
+    // Real gravitational overhang fulcrum slip: once tipped steeply (>33 deg) over an elevated ledge drop,
+    // slide laterally off the deck edge toward the chasm rather than wedging half-over the bridge slab.
+    const tipPatches = getContactPatches(pose.x, pose.z, pose.yaw);
+    const tipLeftH = (evaluateCourseHeight(tipPatches.frontLeft.x / MAP_SCALE, tipPatches.frontLeft.z / MAP_SCALE, pose.y)
+      + evaluateCourseHeight(tipPatches.rearLeft.x / MAP_SCALE, tipPatches.rearLeft.z / MAP_SCALE, pose.y)) * 0.5;
+    const tipRightH = (evaluateCourseHeight(tipPatches.frontRight.x / MAP_SCALE, tipPatches.frontRight.z / MAP_SCALE, pose.y)
+      + evaluateCourseHeight(tipPatches.rearRight.x / MAP_SCALE, tipPatches.rearRight.z / MAP_SCALE, pose.y)) * 0.5;
+    if (Math.abs(tipLeftH - tipRightH) >= 0.65) {
+      const slideSign = tipRightH < tipLeftH ? 1 : -1;
+      const rightX = Math.cos(pose.yaw);
+      const rightZ = -Math.sin(pose.yaw);
+      const slideStep = slideSign * Math.sin(Math.min(1.4, Math.abs(pose.roll))) * 2.8 * dt;
+      pose.x += rightX * slideStep;
+      pose.z += rightZ * slideStep;
+      motionState.x = pose.x;
+      motionState.z = pose.z;
+    }
   }
 
   // Track peak airborne elevation and evaluate multi-factor falls from height
@@ -2653,11 +2671,11 @@ function stepPhysics(dt: number) {
   if (raceState === 'racing' && !isRobotDestroyed(subsystems) && pendSlot && Math.abs(localZ - pendSlot.laneZ) <= 2.30) {
     const pu = pendSlot.dir * (localX - pendSlot.centerX);
     if (pu >= -5.6 && pu <= 5.6) {
-      const isOffDeck = Math.abs(localZ - pendSlot.laneZ) > 1.08;
-      const isBelowElevated = pose.y < 1.0;
-      const hitChasmFloor = (pose.y + TRACK_CONTACT_OFFSET) <= ARENA_FLOOR_HEIGHT + 0.12;
+      const isOffDeck = Math.abs(localZ - pendSlot.laneZ) > 1.00;
+      const isBelowElevated = pose.y < 1.15;
+      const hitChasmFloor = (pose.y + TRACK_CONTACT_OFFSET) <= ARENA_FLOOR_HEIGHT + 0.14;
 
-      if (isOffDeck && isBelowElevated && (hitChasmFloor || (pose.isFlipped && pose.flippedTimer > 0.35))) {
+      if ((isOffDeck && isBelowElevated && hitChasmFloor) || (pose.isFlipped && pose.flippedTimer > 0.40 && (isOffDeck || isBelowElevated))) {
         const entryAnchor = recoveryAnchors.find(a => a.id === `slot_${pendSlot.index}`) || recoveryAnchors[0];
         applyRecovery(pose, entryAnchor, worldCourseHeight);
         motionState.x = pose.x;

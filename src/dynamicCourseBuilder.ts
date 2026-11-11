@@ -355,8 +355,8 @@ function makeCurvedSlopedDeck(
   mat: THREE.Material,
   easeFn: (t: number) => number = easeCushionedRamp,
   segments = 22,
+  endWidth = width,
 ) {
-  const half = width / 2;
   const xMin = Math.min(x0, x1);
   const xMax = Math.max(x0, x1);
   const span = Math.max(1e-6, Math.abs(x1 - x0));
@@ -368,6 +368,7 @@ function makeCurvedSlopedDeck(
     const s = i / segments;
     const x = xMin + (xMax - xMin) * s;
     const u = Math.max(0, Math.min(1, Math.abs(x - x0) / span));
+    const half = (width + (endWidth - width) * u) * 0.5;
     const y = y0 + (y1 - y0) * easeFn(u);
     positions.push(
       x, y, z - half,
@@ -1191,10 +1192,10 @@ export function buildDynamicCourseGroup(
       turntables.push({ group: ttGroup, x: cx, z: lz, radius: 2.30, deckY });
     } else if (slot.type === 'pendulum_bridge') {
       const deckY = 1.35;
-      const wCat = 2.00;
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -6.0), toCourseX(slot, -3.6), lz, wCat, GROUND_DECK_HEIGHT, deckY, 0.22, mats.diamondPlate, t => easeCushionedRamp(t, 0.14), 22);
+      const wCat = 2.64;
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -6.0), toCourseX(slot, -3.6), lz, DRIVE_ROUTE_WIDTH, GROUND_DECK_HEIGHT, deckY, 0.22, mats.diamondPlate, t => easeCushionedRamp(t, 0.14), 22, wCat);
       makeBox(courseGroup, mats.diamondPlate, new THREE.Vector3(cx, deckY - 0.11, lz), new THREE.Vector3(7.2, 0.22, wCat));
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 3.6), toCourseX(slot, 6.0), lz, wCat, deckY, GROUND_DECK_HEIGHT, 0.22, mats.diamondPlate, t => easeCushionedRamp(t, 0.14), 22);
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 3.6), toCourseX(slot, 6.0), lz, wCat, deckY, GROUND_DECK_HEIGHT, 0.22, mats.diamondPlate, t => easeCushionedRamp(t, 0.14), 22, DRIVE_ROUTE_WIDTH);
       for (const side of [-1, 1]) {
         makeBox(courseGroup, mats.yellow, new THREE.Vector3(cx, deckY + 0.008, lz + side * (wCat / 2 - 0.08)), new THREE.Vector3(7.2, 0.01, 0.08), 0, false);
       }
@@ -1205,9 +1206,9 @@ export function buildDynamicCourseGroup(
         const localBallR = 0.40;
         const worldBallR = localBallR * MAP_SCALE;
         for (const side of [-1, 1]) {
-          makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, (pivotY + ARENA_FLOOR_HEIGHT) / 2, lz + side * 1.45), new THREE.Vector3(0.16, pivotY - ARENA_FLOOR_HEIGHT, 0.16));
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, (pivotY + ARENA_FLOOR_HEIGHT) / 2, lz + side * 1.55), new THREE.Vector3(0.16, pivotY - ARENA_FLOOR_HEIGHT, 0.16));
         }
-        makeBox(courseGroup, mats.orange, new THREE.Vector3(bx, pivotY, lz), new THREE.Vector3(0.20, 0.20, 3.10));
+        makeBox(courseGroup, mats.orange, new THREE.Vector3(bx, pivotY, lz), new THREE.Vector3(0.20, 0.20, 3.30));
 
         // Metric world-ratio frame so chain & heavy cast-iron wrecking ball are true 1:1 un-squished geometry
         const pendWorldGroup = new THREE.Group();
@@ -1269,8 +1270,8 @@ export function buildDynamicCourseGroup(
     } else if (slot.type === 'hanging_bridges') {
       const bridgeY = 0.88;
       makeBox(courseGroup, mats.sand, new THREE.Vector3(cx, HANGING_SAND_PIT_Y - 0.12, lz), new THREE.Vector3(9.4, 0.24, 4.2));
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -6.1), toCourseX(slot, -4.5), lz, 2.50, GROUND_DECK_HEIGHT, bridgeY, 0.18, mats.metal, easeCushionedRamp, 14);
-      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 4.5), toCourseX(slot, 6.1), lz, 2.50, bridgeY, GROUND_DECK_HEIGHT, 0.18, mats.metal, easeCushionedRamp, 14);
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, -6.1), toCourseX(slot, -4.5), lz, DRIVE_ROUTE_WIDTH, GROUND_DECK_HEIGHT, bridgeY, 0.18, mats.metal, easeCushionedRamp, 14, 2.50);
+      makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 4.5), toCourseX(slot, 6.1), lz, 2.50, bridgeY, GROUND_DECK_HEIGHT, 0.18, mats.metal, easeCushionedRamp, 14, DRIVE_ROUTE_WIDTH);
       for (const tu of [-4.5, 4.5]) {
         const tx = toCourseX(slot, tu);
         for (const side of [-1, 1]) {
@@ -1431,14 +1432,14 @@ export function buildDynamicCourseGroup(
       }
 
       // Upper Summit Approach Bridge + Side Guardrails + Rotating Rooftop Turntable + Downhill Descent Ramp
-      makeBox(courseGroup, mats.asphalt, new THREE.Vector3(toCourseX(slot, -0.80), yTop - 0.11, lz), new THREE.Vector3(2.1, 0.22, 2.70));
+      makeBox(courseGroup, mats.asphalt, new THREE.Vector3(toCourseX(slot, -0.65), yTop - 0.11, lz), new THREE.Vector3(2.4, 0.22, 3.20));
       for (const side of [-1, 1]) {
-        // Keep North (-1) rail clear of the arriving upper helix road (starts past helix intersection u=-1.18)
-        const minU = side < 0 ? -1.18 : -1.85;
-        const maxU = 0.22;
+        // Keep North (-1) rail clear of the arriving 540-deg upper helix merge throat (starts past merge u=-0.35)
+        const minU = side < 0 ? -0.35 : -1.85;
+        const maxU = 0.55;
         const bLen = maxU - minU;
         const bx = toCourseX(slot, (minU + maxU) * 0.5);
-        const bz = toCourseZ(slot, side * 1.40);
+        const bz = toCourseZ(slot, side * 1.65);
         makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, yTop + 0.17, bz), new THREE.Vector3(bLen, 0.34, 0.12));
         makeBox(courseGroup, mats.yellow, new THREE.Vector3(bx, yTop + 0.36, bz), new THREE.Vector3(bLen, 0.05, 0.13), 0, false);
         colliders.push({
@@ -1712,11 +1713,11 @@ export function stepDynamicHurdles(
     const dist = Math.hypot(dx, dy, dz);
     const hitDist = pend.ballRadius * MAP_SCALE + 0.56;
     if (dist < hitDist) {
-      const overlap = hitDist - dist;
+      const overlap = (hitDist - dist) * 0.65;
       const hDist = Math.hypot(dx, dz);
       const hnx = hDist > 0.001 ? dx / hDist : 0;
       const hnz = hDist > 0.001 ? dz / hDist : (Math.sign(vBallZ) || 1);
-      pose.x += hnx * overlap;
+      pose.x += hnx * overlap * 0.5;
       pose.z += hnz * overlap;
       motionState.x = pose.x;
       motionState.z = pose.z;
@@ -1725,8 +1726,8 @@ export function stepDynamicHurdles(
         pend.hitCooldown = 0.85;
         const relSpeed = Math.hypot(pose.vx, pose.vz - vBallZ);
         const pushDirZ = Math.sign(vBallZ) || hnz;
-        pose.vz = pushDirZ * Math.max(1.35, Math.min(2.6, Math.abs(vBallZ) * 0.45));
-        pose.vx = hnx * Math.max(0.65, Math.min(1.5, Math.abs(pose.vx) * 0.5 + 0.6));
+        pose.vz = pushDirZ * Math.max(0.65, Math.min(1.10, Math.abs(vBallZ) * 0.28));
+        pose.vx *= 0.72;
         motionState.vx = pose.vx;
         motionState.vz = pose.vz;
         onPendulumImpact(relSpeed);
