@@ -23,10 +23,13 @@ import {
 } from './courseGenerator.ts';
 import {
   createBrickMasonryPbrMaps,
+  createGoalNetTexture,
   createWaterBasinConcretePbrMaps,
   createWaterSurfaceMaps,
 } from './proceduralTextures.ts';
 import {
+  ROBOT_HALF_LENGTH,
+  ROBOT_HALF_WIDTH,
   TRACK_CONTACT_OFFSET,
   TRACK_WIDTH,
   applyTurntableSurfaceInteraction,
@@ -519,6 +522,7 @@ let cachedTennisMat: THREE.MeshStandardMaterial | null = null;
 let cachedTurfMat: THREE.MeshStandardMaterial | null = null;
 let cachedWreckingBallMat: THREE.MeshStandardMaterial | null = null;
 let cachedBrickMat: THREE.MeshStandardMaterial | null = null;
+let cachedGoalNetMat: THREE.MeshBasicMaterial | null = null;
 let cachedWaterBasinConcreteMats: {
   floorMat: THREE.MeshStandardMaterial;
   wallMat: THREE.MeshStandardMaterial;
@@ -761,11 +765,46 @@ function getTurfMat() {
       map: tex,
       bumpMap: bumpTex,
       bumpScale: 0.02,
-      roughness: 0.94,
-      metalness: 0.02,
+      roughness: 0.96,
+      metalness: 0.01,
     });
   }
   return cachedTurfMat;
+}
+
+function getGoalNetMat() {
+  if (!cachedGoalNetMat) {
+    cachedGoalNetMat = new THREE.MeshBasicMaterial({
+      map: createGoalNetTexture(10, 5),
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+  }
+  return cachedGoalNetMat;
+}
+
+const _strutUp = new THREE.Vector3(0, 1, 0);
+const _strutDir = new THREE.Vector3();
+function makeStrutBetween(
+  parent: THREE.Object3D,
+  mat: THREE.Material,
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  radius: number,
+  segs = 10,
+) {
+  _strutDir.subVectors(b, a);
+  const len = _strutDir.length();
+  if (len < 1e-4) return;
+  const geom = new THREE.CylinderGeometry(radius, radius, len, segs);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.addVectors(a, b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(_strutUp, _strutDir.normalize());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
 }
 
 function createBrickTextureMat(_baseMat: THREE.Material) {
@@ -880,10 +919,10 @@ export function buildDynamicCourseGroup(
     const lz = laneZValues[li];
     const laneIdx = li + 1;
     const laneSlots = plan.slots.filter(s => s.laneIndex === laneIdx);
-    // Split [-17.5..+17.5] around sunken cutouts (water_basin / hanging_bridges)
+    // Split [-17.5..+17.5] around sunken cutouts (water_basin / hanging_bridges) & widened stadium aprons (football_arena)
     const cutouts: Array<[number, number]> = [];
     for (const s of laneSlots) {
-      if (s.type === 'water_basin' || s.type === 'hanging_bridges' || s.type === 'pendulum_bridge') {
+      if (s.type === 'water_basin' || s.type === 'hanging_bridges' || s.type === 'pendulum_bridge' || s.type === 'football_arena') {
         const xA = Math.min(s.entryX, s.exitX);
         const xB = Math.max(s.entryX, s.exitX);
         cutouts.push([xA, xB]);
@@ -1215,29 +1254,72 @@ export function buildDynamicCourseGroup(
       const pitchHalfV = 3.05; // 6.10 wide left-to-right (HORIZONTAL stadium orientation)
       const goalMouthHalfU = 1.55; // 3.10 (~4.0m world) wide full goalpost at BOTH ends!
       const goalDepthV = 0.78;
-      const goalH = 1.05;
+      const goalH = 1.02;
 
-      // Flared asphalt side aprons smoothly widening lane (2.20 -> 3.05) into pitch & tapering back
+      // Extruded textured trapezoidal stadium entry/exit aprons [-4.50..-2.75] and [+2.75..+4.50]
       for (const endSign of [-1, 1] as const) {
         const uOuter = endSign * 4.50;
         const uInner = endSign * pitchHalfU;
+        const xOuter = toCourseX(slot, uOuter);
+        const xInner = toCourseX(slot, uInner);
+        const shape = new THREE.Shape();
+        if (xOuter < xInner) {
+          shape.moveTo(xOuter, -2.20);
+          shape.lineTo(xInner, -pitchHalfV);
+          shape.lineTo(xInner, pitchHalfV);
+          shape.lineTo(xOuter, 2.20);
+        } else {
+          shape.moveTo(xInner, -pitchHalfV);
+          shape.lineTo(xOuter, -2.20);
+          shape.lineTo(xOuter, 2.20);
+          shape.lineTo(xInner, pitchHalfV);
+        }
+        shape.closePath();
+
+        const apronGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: false });
+        apronGeo.rotateX(-Math.PI / 2);
+        const aPos = apronGeo.attributes.position;
+        const aUv = apronGeo.attributes.uv;
+        for (let i = 0; i < aPos.count; i++) {
+          aUv.setXY(i, aPos.getX(i) * 0.25, aPos.getZ(i) * 0.25);
+        }
+        aUv.needsUpdate = true;
+        const apronMesh = new THREE.Mesh(apronGeo, mats.asphalt);
+        apronMesh.position.set(0, GROUND_DECK_HEIGHT + 0.006 - 0.12, lz);
+        apronMesh.receiveShadow = true;
+        courseGroup.add(apronMesh);
+
+        // Centered yellow lead-in line across approach/exit apron stopping at grass threshold
+        const yMidU = (uOuter + uInner) * 0.5;
+        makeBox(courseGroup, mats.yellow, new THREE.Vector3(toCourseX(slot, yMidU), GROUND_DECK_HEIGHT + 0.015, lz), new THREE.Vector3(Math.abs(uInner - uOuter), 0.008, 0.08), 0, false);
+
+        // Angled white sideline stripes & perimeter concrete apron curbs flaring cleanly (2.20 -> 3.05)
         for (const side of [-1, 1] as const) {
-          const zRoad = toCourseZ(slot, side * 2.20);
-          const zPitch = toCourseZ(slot, side * pitchHalfV);
-          const xO = toCourseX(slot, uOuter);
-          const xI = toCourseX(slot, uInner);
-          const wingGeo = new THREE.BufferGeometry();
-          const verts = new Float32Array([
-            xO, GROUND_DECK_HEIGHT, zRoad,
-            xI, GROUND_DECK_HEIGHT, zRoad,
-            xI, GROUND_DECK_HEIGHT, zPitch,
-          ]);
-          wingGeo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-          wingGeo.setIndex(endSign * side > 0 ? [0, 1, 2] : [0, 2, 1]);
-          wingGeo.computeVertexNormals();
-          const wingMesh = new THREE.Mesh(wingGeo, mats.asphalt);
-          wingMesh.receiveShadow = true;
-          courseGroup.add(wingMesh);
+          const zRoadStripe = toCourseZ(slot, side * 2.10);
+          const zPitchStripe = toCourseZ(slot, side * (pitchHalfV - 0.05));
+          const lenStripe = Math.hypot(xInner - xOuter, zPitchStripe - zRoadStripe);
+          const angStripe = Math.atan2(-(zPitchStripe - zRoadStripe), xInner - xOuter);
+          makeBox(
+            courseGroup,
+            mats.laneStripeWhite,
+            new THREE.Vector3((xOuter + xInner) * 0.5, GROUND_DECK_HEIGHT + 0.015, (zRoadStripe + zPitchStripe) * 0.5),
+            new THREE.Vector3(lenStripe, 0.008, 0.08),
+            angStripe,
+            false,
+          );
+
+          const zRoadEdge = toCourseZ(slot, side * 2.22);
+          const zPitchEdge = toCourseZ(slot, side * (pitchHalfV + 0.06));
+          const lenEdge = Math.hypot(xInner - xOuter, zPitchEdge - zRoadEdge);
+          const angEdge = Math.atan2(-(zPitchEdge - zRoadEdge), xInner - xOuter);
+          makeBox(
+            courseGroup,
+            mats.concreteCurb,
+            new THREE.Vector3((xOuter + xInner) * 0.5, GROUND_DECK_HEIGHT + 0.03, (zRoadEdge + zPitchEdge) * 0.5),
+            new THREE.Vector3(lenEdge, 0.06, 0.10),
+            angEdge,
+            false,
+          );
         }
       }
 
@@ -1246,9 +1328,7 @@ export function buildDynamicCourseGroup(
 
       // White Touchline Perimeter & Midfield Lines
       for (const side of [-1, 1]) {
-        // Side touchlines along Left (-v) and Right (+v) goal lines
         makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, turfTopY + 0.004, toCourseZ(slot, side * (pitchHalfV - 0.05))), new THREE.Vector3(pitchHalfU * 2 - 0.08, 0.008, 0.08), 0, false);
-        // Entry & exit end sidelines along u = +/- pitchHalfU
         makeBox(courseGroup, mats.laneStripeWhite, new THREE.Vector3(toCourseX(slot, side * (pitchHalfU - 0.05)), turfTopY + 0.004, lz), new THREE.Vector3(0.08, 0.008, pitchHalfV * 2 - 0.08), 0, false);
       }
       // Halfway Line dividing Left Goal Half & Right Goal Half (runs front-to-back at v=0)
@@ -1262,21 +1342,42 @@ export function buildDynamicCourseGroup(
       centerSpot.position.set(cx, turfTopY + 0.006, lz);
       courseGroup.add(centerSpot);
 
-      // Build BOTH Realistic Full-Width Stadium Goalposts + Penalty Boxes + Low Side Containment Curbs
+      // Build BOTH Realistic Full-Width Stadium Goalposts + Penalty Boxes + Woven Net Canopies
       const ledMats: Record<-1 | 1, THREE.MeshBasicMaterial> = {
         [-1]: new THREE.MeshBasicMaterial({ color: '#b08a42' }),
         [1]: new THREE.MeshBasicMaterial({ color: '#b08a42' }),
       };
 
+      const addNetQuad = (p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3) => {
+        const ng = new THREE.BufferGeometry();
+        const pos = new Float32Array([
+          p0.x, p0.y, p0.z,
+          p1.x, p1.y, p1.z,
+          p2.x, p2.y, p2.z,
+          p3.x, p3.y, p3.z,
+        ]);
+        const uv = new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]);
+        ng.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        ng.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        ng.setIndex([0, 1, 2, 0, 2, 3]);
+        ng.computeVertexNormals();
+        courseGroup.add(new THREE.Mesh(ng, getGoalNetMat()));
+      };
+
       for (const side of [-1, 1] as const) {
         const lineV = side * pitchHalfV;
+        const roofV = side * (pitchHalfV + goalDepthV * 0.34);
         const backV = side * (pitchHalfV + goalDepthV);
         const midV = side * (pitchHalfV + goalDepthV * 0.5);
         const zLine = toCourseZ(slot, lineV);
+        const zRoof = toCourseZ(slot, roofV);
         const zBack = toCourseZ(slot, backV);
         const zMid = toCourseZ(slot, midV);
         const xPostA = toCourseX(slot, -goalMouthHalfU);
         const xPostB = toCourseX(slot, goalMouthHalfU);
+        const yTop = turfTopY + goalH;
+        const yRoof = turfTopY + goalH * 0.88;
+        const yBot = turfTopY + 0.04;
 
         // Penalty Box (18-yard) & 6-yard Goal Box chalk lines + Penalty Spot
         const penBoxInV = lineV - side * 1.15;
@@ -1291,43 +1392,55 @@ export function buildDynamicCourseGroup(
         penSpot.position.set(cx, turfTopY + 0.006, toCourseZ(slot, lineV - side * 1.50));
         courseGroup.add(penSpot);
 
-        // Authentic Full Goalpost Uprights + Crossbar + Rear Frame + Angled Stanchions + Net Shell
-        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(xPostA, turfTopY + goalH * 0.5, zLine), 0.065, goalH, 'y', 14);
-        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(xPostB, turfTopY + goalH * 0.5, zLine), 0.065, goalH, 'y', 14);
-        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, turfTopY + goalH, zLine), 0.065, goalMouthHalfU * 2 + 0.12, 'x', 14);
-
-        // Rear bottom ground bar & upper net tension rod
-        makeCyl(courseGroup, mats.orange, new THREE.Vector3(cx, turfTopY + 0.04, zBack), 0.045, goalMouthHalfU * 2, 'x', 10);
-        makeCyl(courseGroup, mats.orange, new THREE.Vector3(cx, turfTopY + goalH * 0.88, toCourseZ(slot, lineV + side * (goalDepthV * 0.85))), 0.04, goalMouthHalfU * 2, 'x', 10);
+        // Goalpost Uprights, Crossbar & Rounded Elbow Joints
+        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(xPostA, turfTopY + goalH * 0.5, zLine), 0.056, goalH, 'y', 14);
+        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(xPostB, turfTopY + goalH * 0.5, zLine), 0.056, goalH, 'y', 14);
+        makeCyl(courseGroup, mats.laneStripeWhite, new THREE.Vector3(cx, yTop, zLine), 0.056, goalMouthHalfU * 2, 'x', 14);
         for (const px of [xPostA, xPostB]) {
-          // Side ground runners
-          makeCyl(courseGroup, mats.orange, new THREE.Vector3(px, turfTopY + 0.04, zMid), 0.04, goalDepthV, 'z', 10);
-          // Diagonal rear stanchion braces
-          const braceLen = Math.hypot(goalDepthV, goalH * 0.86);
-          const brace = makeBox(courseGroup, mats.orange, new THREE.Vector3(px, turfTopY + goalH * 0.52, zMid), new THREE.Vector3(0.065, 0.065, braceLen));
-          brace.rotation.x = (side * slot.dir > 0 ? 1 : -1) * Math.atan2(goalH * 0.86, goalDepthV);
+          const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.056, 12, 10), mats.laneStripeWhite);
+          elbow.position.set(px, yTop, zLine);
+          courseGroup.add(elbow);
         }
 
-        // Solid green goal-pocket turf deck extending to rear stanchion so net floor is supported at deck level
-        makeBox(courseGroup, getTurfMat(), new THREE.Vector3(cx, GROUND_DECK_HEIGHT - 0.004, zMid), new THREE.Vector3(goalMouthHalfU * 2 + 0.24, 0.04, goalDepthV + 0.08), 0, false);
+        // Exact Vector-Connected Rear Stanchions (Roof Depth Bar, Rear Back Bar, Ground Runners & Side Struts)
+        const pTopL = new THREE.Vector3(xPostA, yTop, zLine);
+        const pTopR = new THREE.Vector3(xPostB, yTop, zLine);
+        const pRoofL = new THREE.Vector3(xPostA, yRoof, zRoof);
+        const pRoofR = new THREE.Vector3(xPostB, yRoof, zRoof);
+        const pBackL = new THREE.Vector3(xPostA, yBot, zBack);
+        const pBackR = new THREE.Vector3(xPostB, yBot, zBack);
+        const pFrontL = new THREE.Vector3(xPostA, yBot, zLine);
+        const pFrontR = new THREE.Vector3(xPostB, yBot, zLine);
 
-        // Woven Net Shell (weathered muted steel wireframe net)
-        const netShell = new THREE.Mesh(
-          new THREE.BoxGeometry(goalMouthHalfU * 2, goalH * 0.94, goalDepthV),
-          new THREE.MeshBasicMaterial({ color: '#aeb4b0', transparent: true, opacity: 0.34, wireframe: true }),
-        );
-        netShell.position.set(cx, turfTopY + goalH * 0.47, zMid);
-        courseGroup.add(netShell);
+        makeStrutBetween(courseGroup, mats.orange, pRoofL, pRoofR, 0.036, 10);
+        makeStrutBetween(courseGroup, mats.orange, pBackL, pBackR, 0.042, 10);
+        makeStrutBetween(courseGroup, mats.orange, pTopL, pRoofL, 0.036, 10);
+        makeStrutBetween(courseGroup, mats.orange, pTopR, pRoofR, 0.036, 10);
+        makeStrutBetween(courseGroup, mats.orange, pRoofL, pBackL, 0.036, 10);
+        makeStrutBetween(courseGroup, mats.orange, pRoofR, pBackR, 0.036, 10);
+        makeStrutBetween(courseGroup, mats.orange, pFrontL, pBackL, 0.040, 10);
+        makeStrutBetween(courseGroup, mats.orange, pFrontR, pBackR, 0.040, 10);
 
-        // Goal Confirmation LED Crossbar Strip
+        // Woven Knotted Diamond Net Canopy & Pocket Walls
+        addNetQuad(pTopL, pTopR, pRoofR, pRoofL);
+        addNetQuad(pRoofL, pRoofR, pBackR, pBackL);
+        addNetQuad(pTopL, pRoofL, pBackL, pFrontL);
+        addNetQuad(pTopR, pRoofR, pBackR, pFrontR);
+
+        // Solid green goal-pocket turf deck & rear concrete curb border
+        makeBox(courseGroup, getTurfMat(), new THREE.Vector3(cx, GROUND_DECK_HEIGHT - 0.004, zMid), new THREE.Vector3(goalMouthHalfU * 2 + 0.24, 0.04, goalDepthV + 0.06), 0, false);
+        makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(cx, turfTopY + 0.018, toCourseZ(slot, side * (pitchHalfV + goalDepthV + 0.04))), new THREE.Vector3(goalMouthHalfU * 2 + 0.28, 0.05, 0.09), 0, false);
+
+        // Sleek Stadium Goal Scoreboard Housing + LED Light Strip atop crossbar
+        makeBox(courseGroup, mats.black, new THREE.Vector3(cx, yTop + 0.075, zLine), new THREE.Vector3(goalMouthHalfU * 1.92, 0.065, 0.07), 0, false);
         const ledMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(goalMouthHalfU * 1.9, 0.085, 0.09),
+          new THREE.BoxGeometry(goalMouthHalfU * 1.84, 0.038, 0.08),
           ledMats[side],
         );
-        ledMesh.position.set(cx, turfTopY + goalH + 0.10, zLine);
+        ledMesh.position.set(cx, yTop + 0.075, zLine);
         courseGroup.add(ledMesh);
 
-        // Netted Goalpost Colliders (rear wall + two side net posts so robot cannot drive through back of net)
+        // Netted Goalpost Colliders (rear wall + two side net posts)
         colliders.push({
           id: `football_goal_back_${slot.index}_${side}`,
           x: cx,
@@ -1344,7 +1457,7 @@ export function buildDynamicCourseGroup(
             id: `football_goal_side_${slot.index}_${side}_${puSide}`,
             x: toCourseX(slot, puSide * goalMouthHalfU),
             z: zMid,
-            hx: 0.10,
+            hx: 0.09,
             hz: goalDepthV * 0.5,
             y: turfTopY + goalH * 0.5,
             height: goalH,
@@ -2104,8 +2217,17 @@ export function stepDynamicHurdles(
   }
 
   // 4. Dynamic Horizontal Dual-Goal Football Arenas (4-5 Tennis Balls + Both-End Full Goalposts)
-  const robotR = 0.72; // effective rover push radius (local m)
+  const roverHalfL = ROBOT_HALF_LENGTH / MAP_SCALE + 0.04;
+  const roverHalfW = ROBOT_HALF_WIDTH / MAP_SCALE + 0.03;
   const pitchFloorY = GROUND_DECK_HEIGHT + 0.016;
+  const postRadius = 0.065;
+  const substeps = 3;
+  const subDt = dt / substeps;
+  const fwdX = Math.sin(pose.yaw);
+  const fwdZ = Math.cos(pose.yaw);
+  const rightX = Math.cos(pose.yaw);
+  const rightZ = -Math.sin(pose.yaw);
+
   for (const arena of runtime.footballArenas) {
     if (arena.flashLeftTimer > 0) {
       arena.flashLeftTimer = Math.max(0, arena.flashLeftTimer - dt);
@@ -2116,123 +2238,179 @@ export function stepDynamicHurdles(
       if (arena.flashRightTimer === 0) arena.goalRightLedMat.color.set('#b08a42');
     }
 
-    // Sub-step balls for crisp bouncing & zero tunneling
-    for (let i = 0; i < arena.balls.length; i++) {
-      const b = arena.balls[i];
-      if (!b.scored) {
-        // Check Robot -> Ball push impulse
-        const rvx = pose.vx / MAP_SCALE;
-        const rvz = pose.vz / MAP_SCALE;
-        const dx = b.x - rx;
-        const dz = b.z - rz;
-        const d = Math.hypot(dx, dz);
-        const minD = robotR + b.radius;
-        if (d < minD && d > 1e-4) {
-          const nx = dx / d;
-          const nz = dz / d;
-          b.x = rx + nx * (minD + 0.01);
-          b.z = rz + nz * (minD + 0.01);
-          const relVn = rvx * nx + rvz * nz - (b.vx * nx + b.vz * nz);
-          const kickSpeed = Math.max(1.85, relVn * 1.38 + Math.hypot(rvx, rvz) * 0.55);
-          b.vx += nx * kickSpeed;
-          b.vz += nz * kickSpeed;
-        }
-      }
+    const rvx = pose.vx / MAP_SCALE;
+    const rvz = pose.vz / MAP_SCALE;
+    const roverSpeed = Math.hypot(rvx, rvz);
 
-      // Ball -> Ball elastic collisions
-      for (let j = i + 1; j < arena.balls.length; j++) {
-        const b2 = arena.balls[j];
-        const dx = b2.x - b.x;
-        const dz = b2.z - b.z;
-        const dist = Math.hypot(dx, dz);
-        const sumR = b.radius + b2.radius;
-        if (dist < sumR && dist > 1e-4) {
-          const nx = dx / dist;
-          const nz = dz / dist;
-          const sep = (sumR - dist) * 0.5;
-          b.x -= nx * sep;
-          b.z -= nz * sep;
-          b2.x += nx * sep;
-          b2.z += nz * sep;
-          const vRel = (b2.vx - b.vx) * nx + (b2.vz - b.vz) * nz;
-          if (vRel < 0) {
-            const jImp = -0.92 * vRel;
-            b.vx -= jImp * nx;
-            b.vz -= jImp * nz;
-            b2.vx += jImp * nx;
-            b2.vz += jImp * nz;
+    for (let stepIdx = 0; stepIdx < substeps; stepIdx++) {
+      for (let i = 0; i < arena.balls.length; i++) {
+        const b = arena.balls[i];
+        if (!b.scored) {
+          // Oriented Robot Chassis Bumper (OBB) -> Ball Circle collision
+          const relX = b.x - rx;
+          const relZ = b.z - rz;
+          const locFwd = relX * fwdX + relZ * fwdZ;
+          const locSide = relX * rightX + relZ * rightZ;
+          const clampFwd = Math.max(-roverHalfL, Math.min(roverHalfL, locFwd));
+          const clampSide = Math.max(-roverHalfW, Math.min(roverHalfW, locSide));
+          const closestX = rx + fwdX * clampFwd + rightX * clampSide;
+          const closestZ = rz + fwdZ * clampFwd + rightZ * clampSide;
+          const dx = b.x - closestX;
+          const dz = b.z - closestZ;
+          const d = Math.hypot(dx, dz);
+          if (d < b.radius) {
+            let nx: number;
+            let nz: number;
+            let pen = b.radius - d;
+            if (d > 1e-4) {
+              nx = dx / d;
+              nz = dz / d;
+            } else {
+              // Inside chassis OBB: push out cleanly toward nearest bumper face
+              const toFwd = roverHalfL - Math.abs(locFwd);
+              const toSide = roverHalfW - Math.abs(locSide);
+              if (toFwd < toSide) {
+                const sgn = locFwd >= 0 ? 1 : -1;
+                nx = fwdX * sgn;
+                nz = fwdZ * sgn;
+                pen = toFwd + b.radius;
+              } else {
+                const sgn = locSide >= 0 ? 1 : -1;
+                nx = rightX * sgn;
+                nz = rightZ * sgn;
+                pen = toSide + b.radius;
+              }
+            }
+            b.x += nx * (pen + 0.015);
+            b.z += nz * (pen + 0.015);
+            const relVn = rvx * nx + rvz * nz - (b.vx * nx + b.vz * nz);
+            if (relVn > -0.25) {
+              const kickSpeed = Math.max(1.65, relVn * 1.45 + roverSpeed * 0.52);
+              b.vx = rvx * 0.45 + nx * kickSpeed;
+              b.vz = rvz * 0.45 + nz * kickSpeed;
+            }
           }
         }
-      }
 
-      // Integrate velocity & turf rolling drag
-      b.x += b.vx * dt;
-      b.z += b.vz * dt;
-      const drag = Math.exp(-(b.scored ? 4.5 : 1.25) * dt);
-      b.vx *= drag;
-      b.vz *= drag;
+        // Ball -> Ball elastic collisions
+        for (let j = i + 1; j < arena.balls.length; j++) {
+          const b2 = arena.balls[j];
+          const dx = b2.x - b.x;
+          const dz = b2.z - b.z;
+          const dist = Math.hypot(dx, dz);
+          const sumR = b.radius + b2.radius;
+          if (dist < sumR && dist > 1e-4) {
+            const nx = dx / dist;
+            const nz = dz / dist;
+            const sep = (sumR - dist) * 0.5;
+            b.x -= nx * sep;
+            b.z -= nz * sep;
+            b2.x += nx * sep;
+            b2.z += nz * sep;
+            const vRel = (b2.vx - b.vx) * nx + (b2.vz - b.vz) * nz;
+            if (vRel < 0) {
+              const jImp = -0.92 * vRel;
+              b.vx -= jImp * nx;
+              b.vz -= jImp * nz;
+              b2.vx += jImp * nx;
+              b2.vz += jImp * nz;
+            }
+          }
+        }
 
-      // Convert into slot local (u, v) to bounce cleanly inside horizontal pitch & check EITHER Goalpost mouth
-      const u = arena.slot.dir * (b.x - arena.slot.centerX);
-      const v = arena.slot.dir * (b.z - arena.slot.laneZ);
-      let nextU = u;
-      let nextV = v;
-      let vu = arena.slot.dir * b.vx;
-      let vv = arena.slot.dir * b.vz;
+        // Integrate substep velocity & realistic turf rolling drag
+        b.x += b.vx * subDt;
+        b.z += b.vz * subDt;
+        const drag = Math.exp(-(b.scored ? 3.8 : 1.15) * subDt);
+        b.vx *= drag;
+        b.vz *= drag;
 
-      if (b.scored) {
-        // Confine scored ball gently inside the netted Goal Shell pocket on its scored side
-        const gSide = b.scoredSide ?? 1;
-        const uMin = -arena.goalMouthHalfU + b.radius + 0.04;
-        const uMax = arena.goalMouthHalfU - b.radius - 0.04;
-        const vMin = gSide === -1
-          ? -(arena.pitchHalfV + arena.goalDepthV) + b.radius + 0.04
-          : arena.pitchHalfV + b.radius + 0.02;
-        const vMax = gSide === -1
-          ? -arena.pitchHalfV - b.radius - 0.02
-          : arena.pitchHalfV + arena.goalDepthV - b.radius - 0.04;
-        if (nextU < uMin) { nextU = uMin; vu = Math.abs(vu) * 0.4; }
-        if (nextU > uMax) { nextU = uMax; vu = -Math.abs(vu) * 0.4; }
-        if (nextV < vMin) { nextV = vMin; vv = Math.abs(vv) * 0.4; }
-        if (nextV > vMax) { nextV = vMax; vv = -Math.abs(vv) * 0.4; }
-      } else {
-        // Keep active balls within entry/exit pitch bounds along driving direction (u)
-        const maxU = arena.pitchHalfU - b.radius;
-        if (nextU < -maxU) { nextU = -maxU; vu = Math.abs(vu) * 0.72; }
-        if (nextU > maxU) { nextU = maxU; vu = -Math.abs(vu) * 0.72; }
+        // Convert into slot local (u, v) for goalpost deflection, goal scoring, and pocket settling
+        let nextU = arena.slot.dir * (b.x - arena.slot.centerX);
+        let nextV = arena.slot.dir * (b.z - arena.slot.laneZ);
+        let vu = arena.slot.dir * b.vx;
+        let vv = arena.slot.dir * b.vz;
 
-        // Check EITHER Left Goal (v <= -pitchHalfV) or Right Goal (v >= +pitchHalfV) within goal mouth
-        const inGoalMouthU = Math.abs(nextU) <= arena.goalMouthHalfU - b.radius * 0.45;
-        const crossedLeft = nextV <= -arena.pitchHalfV + 0.06;
-        const crossedRight = nextV >= arena.pitchHalfV - 0.06;
-        if (inGoalMouthU && (crossedLeft || crossedRight)) {
-          const gSide: -1 | 1 = crossedLeft ? -1 : 1;
-          b.scored = true;
-          b.scoredSide = gSide;
-          arena.goalsScored += 1;
-          if (gSide === -1) {
-            arena.goalLeftLedMat.color.set('#4e9e61');
-            arena.flashLeftTimer = 1.25;
+        if (!b.scored) {
+          // Physical circular collision against the 4 upright goalposts at (±goalMouthHalfU, ±pitchHalfV)
+          for (const gSide of [-1, 1] as const) {
+            const postV = gSide * arena.pitchHalfV;
+            for (const pSide of [-1, 1] as const) {
+              const postU = pSide * arena.goalMouthHalfU;
+              const pdU = nextU - postU;
+              const pdV = nextV - postV;
+              const pDist = Math.hypot(pdU, pdV);
+              const minPostDist = b.radius + postRadius;
+              if (pDist < minPostDist && pDist > 1e-4) {
+                const pnx = pdU / pDist;
+                const pnz = pdV / pDist;
+                nextU = postU + pnx * (minPostDist + 0.005);
+                nextV = postV + pnz * (minPostDist + 0.005);
+                const vn = vu * pnx + vv * pnz;
+                if (vn < 0) {
+                  vu -= 1.65 * vn * pnx;
+                  vv -= 1.65 * vn * pnz;
+                }
+              }
+            }
+          }
+
+          // Confine balls cleanly between Left/Right stadium approach lines along u
+          const maxU = arena.pitchHalfU - b.radius;
+          if (nextU < -maxU) { nextU = -maxU; vu = Math.abs(vu) * 0.72; }
+          if (nextU > maxU) { nextU = maxU; vu = -Math.abs(vv === 0 ? vu : vu) * 0.72; }
+
+          // Check whether ball is inside the unobstructed goal opening vs hitting side touchline curbs
+          const inGoalMouthU = Math.abs(nextU) <= arena.goalMouthHalfU - b.radius * 0.25;
+          if (inGoalMouthU) {
+            // Goal opening is completely free: roll unobstructed across ±pitchHalfV into the pocket!
+            const scoredLeft = nextV <= -(arena.pitchHalfV + b.radius * 0.10);
+            const scoredRight = nextV >= (arena.pitchHalfV + b.radius * 0.10);
+            if (scoredLeft || scoredRight) {
+              const gSide: -1 | 1 = scoredLeft ? -1 : 1;
+              b.scored = true;
+              b.scoredSide = gSide;
+              arena.goalsScored += 1;
+              if (gSide === -1) {
+                arena.goalLeftLedMat.color.set('#4e9e61');
+                arena.flashLeftTimer = 1.25;
+              } else {
+                arena.goalRightLedMat.color.set('#4e9e61');
+                arena.flashRightTimer = 1.25;
+              }
+              onFootballGoal(arena, arena.goalsScored);
+            }
           } else {
-            arena.goalRightLedMat.color.set('#4e9e61');
-            arena.flashRightTimer = 1.25;
+            // Bounce off touchline retaining curbs outside the goalposts
+            const maxCurbV = arena.pitchHalfV - b.radius - 0.06;
+            if (nextV < -maxCurbV) { nextV = -maxCurbV; vv = Math.abs(vv) * 0.72; }
+            if (nextV > maxCurbV) { nextV = maxCurbV; vv = -Math.abs(vv) * 0.72; }
           }
-          onFootballGoal(arena, arena.goalsScored);
         } else {
-          // Bounce off side touchline containment curbs outside goal mouths
-          const maxV = arena.pitchHalfV - b.radius;
-          if (nextV < -maxV) { nextV = -maxV; vv = Math.abs(vv) * 0.72; }
-          if (nextV > maxV) { nextV = maxV; vv = -Math.abs(vv) * 0.72; }
+          // Ball is inside the netted goal pocket: stay cleanly contained against side nets & back bar
+          const gSide = b.scoredSide ?? 1;
+          const uMin = -arena.goalMouthHalfU + b.radius + 0.05;
+          const uMax = arena.goalMouthHalfU - b.radius - 0.05;
+          const vMin = gSide === -1
+            ? -(arena.pitchHalfV + arena.goalDepthV) + b.radius + 0.05
+            : arena.pitchHalfV + b.radius * 0.10;
+          const vMax = gSide === -1
+            ? -arena.pitchHalfV - b.radius * 0.10
+            : arena.pitchHalfV + arena.goalDepthV - b.radius - 0.05;
+          if (nextU < uMin) { nextU = uMin; vu = Math.abs(vu) * 0.35; }
+          if (nextU > uMax) { nextU = uMax; vu = -Math.abs(vu) * 0.35; }
+          if (nextV < vMin) { nextV = vMin; vv = Math.abs(vv) * 0.35; }
+          if (nextV > vMax) { nextV = vMax; vv = -Math.abs(vv) * 0.35; }
         }
-      }
 
-      b.x = arena.slot.centerX + arena.slot.dir * nextU;
-      b.z = arena.slot.laneZ + arena.slot.dir * nextV;
-      b.vx = arena.slot.dir * vu;
-      b.vz = arena.slot.dir * vv;
-      b.holder.position.set(b.x, pitchFloorY + b.radius * MAP_SCALE, b.z);
-      b.mesh.rotation.z -= (b.vx / Math.max(0.05, b.radius)) * dt;
-      b.mesh.rotation.x += (b.vz / Math.max(0.05, b.radius)) * dt;
+        b.x = arena.slot.centerX + arena.slot.dir * nextU;
+        b.z = arena.slot.laneZ + arena.slot.dir * nextV;
+        b.vx = arena.slot.dir * vu;
+        b.vz = arena.slot.dir * vv;
+        b.holder.position.set(b.x, pitchFloorY + b.radius * MAP_SCALE, b.z);
+        b.mesh.rotation.z -= (b.vx / Math.max(0.05, b.radius)) * subDt;
+        b.mesh.rotation.x += (b.vz / Math.max(0.05, b.radius)) * subDt;
+      }
     }
   }
 

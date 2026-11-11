@@ -813,3 +813,33 @@ export function createWaterSurfaceMaps(): PbrMapSet & { causticMap: THREE.Canvas
     wakeFoamMap: finalizeTexture(wakeCvs, true, 1, 1, true),
   };
 }
+
+/**
+ * Generates weathered knotted stadium goal netting with crisp diamond cordwork.
+ */
+export function createGoalNetTexture(repeatX = 12, repeatY = 6): THREE.CanvasTexture {
+  const size = 128;
+  const cvs = document.createElement('canvas');
+  cvs.width = cvs.height = size;
+  const cx = cvs.getContext('2d')!;
+  cx.clearRect(0, 0, size, size);
+
+  cx.strokeStyle = 'rgba(208, 212, 204, 0.78)';
+  cx.lineWidth = 6;
+  cx.beginPath();
+  cx.moveTo(0, 0);
+  cx.lineTo(size, size);
+  cx.moveTo(size, 0);
+  cx.lineTo(0, size);
+  cx.stroke();
+
+  // Twine knot intersections
+  cx.fillStyle = 'rgba(195, 198, 190, 0.90)';
+  for (const [kx, ky] of [[64, 64], [0, 0], [128, 0], [0, 128], [128, 128]]) {
+    cx.beginPath();
+    cx.arc(kx, ky, 5, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  return finalizeTexture(cvs, true, repeatX, repeatY);
+}
