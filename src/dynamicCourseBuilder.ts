@@ -902,19 +902,24 @@ export function buildDynamicCourseGroup(
     } else if (slot.type === 'spiral_tower') {
       const spU = -4.20;
       const spX = toCourseX(slot, spU);
-      const rInner = 1.15;
-      const rOuter = 3.15;
+      const rInner = 1.00;
+      const rOuter = 3.30;
       const yTop = 3.20;
       const ttU = 2.20;
       const ttX = toCourseX(slot, ttU);
 
-      // Central structural steel pylon + concrete footing
+      // Central structural steel pylon + smooth circular inner core guard drum
       const pylonH = yTop + 0.35 - ARENA_FLOOR_HEIGHT;
-      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.18, lz), 0.52, 0.36, 'y', 24);
-      makeCyl(courseGroup, mats.metal, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + pylonH / 2, lz), 0.25, pylonH, 'y', 24);
-      colliders.push({ id: `spiral_pylon_${slot.index}`, x: spX, z: lz, hx: 0.45, hz: 0.45, y: ARENA_FLOOR_HEIGHT + pylonH / 2, height: pylonH, rot: 0, walkable: false });
+      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.18, lz), 0.94, 0.36, 'y', 24);
+      makeCyl(courseGroup, mats.metal, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + pylonH / 2, lz), 0.72, pylonH, 'y', 24);
+      for (let k = 0; k < 8; k++) {
+        const ka = (k * Math.PI) / 4;
+        const kx = spX + Math.cos(ka) * 0.80;
+        const kz = lz + Math.sin(ka) * 0.80;
+        colliders.push({ id: `spiral_core_${slot.index}_${k}`, x: kx, z: kz, hx: 0.34, hz: 0.10, y: ARENA_FLOOR_HEIGHT + pylonH / 2, height: pylonH, rot: -ka + Math.PI / 2, walkable: false });
+      }
 
-      // 540-degree helical spiral ramp ribbon
+      // 540-degree helical spiral ramp ribbon + outer safety guardrail + low-wedge retaining skirt
       const spSegs = 54;
       for (let s = 0; s < spSegs; s++) {
         const t0 = s / spSegs;
@@ -923,9 +928,9 @@ export function buildDynamicCourseGroup(
         const beta1 = t1 * 3 * Math.PI;
         const y0 = GROUND_DECK_HEIGHT + t0 * (yTop - GROUND_DECK_HEIGHT);
         const y1 = GROUND_DECK_HEIGHT + t1 * (yTop - GROUND_DECK_HEIGHT);
+        const yMid = (y0 + y1) * 0.5;
         const midBeta = (beta0 + beta1) * 0.5;
         const rMid = (rInner + rOuter) * 0.5;
-        // Local helical coordinates match evalSlotLocal atan2(-v, -dx)
         const du = -Math.cos(midBeta) * rMid;
         const dv = -Math.sin(midBeta) * rMid;
         const p0x = toCourseX(slot, spU - Math.cos(beta0) * rMid);
@@ -936,15 +941,79 @@ export function buildDynamicCourseGroup(
         const px = toCourseX(slot, spU + du);
         const pz = toCourseZ(slot, dv);
         const ang = Math.atan2(-(p1z - p0z), p1x - p0x);
-        makeBox(courseGroup, mats.asphalt, new THREE.Vector3(px, (y0 + y1) * 0.5 - 0.10, pz), new THREE.Vector3(segLen, 0.20, rOuter - rInner), ang);
-        // Painted edge stripes on spiral helix
+        makeBox(courseGroup, mats.asphalt, new THREE.Vector3(px, yMid - 0.10, pz), new THREE.Vector3(segLen, 0.20, rOuter - rInner), ang);
+
+        // Outer painted curb & containment guardrail wall (leaves entry s<2 and summit bridge merge s>=47 open)
         const duOut = -Math.cos(midBeta) * (rOuter - 0.08);
         const dvOut = -Math.sin(midBeta) * (rOuter - 0.08);
-        makeBox(courseGroup, mats.yellow, new THREE.Vector3(toCourseX(slot, spU + duOut), (y0 + y1) * 0.5 + 0.008, toCourseZ(slot, dvOut)), new THREE.Vector3(segLen * 1.04, 0.014, 0.09), ang, false);
+        makeBox(courseGroup, mats.yellow, new THREE.Vector3(toCourseX(slot, spU + duOut), yMid + 0.008, toCourseZ(slot, dvOut)), new THREE.Vector3(segLen * 1.04, 0.014, 0.09), ang, false);
+
+        if (s >= 2 && s <= 49) {
+          const rRail = rOuter + 0.06;
+          const o0x = toCourseX(slot, spU - Math.cos(beta0) * rRail);
+          const o0z = toCourseZ(slot, -Math.sin(beta0) * rRail);
+          const o1x = toCourseX(slot, spU - Math.cos(beta1) * rRail);
+          const o1z = toCourseZ(slot, -Math.sin(beta1) * rRail);
+          const oLen = Math.hypot(o1x - o0x, o1z - o0z) + 0.08;
+          const oAng = Math.atan2(-(o1z - o0z), o1x - o0x);
+          const rx = toCourseX(slot, spU - Math.cos(midBeta) * rRail);
+          const rz = toCourseZ(slot, -Math.sin(midBeta) * rRail);
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(rx, yMid + 0.17, rz), new THREE.Vector3(oLen, 0.34, 0.12), oAng);
+          makeBox(courseGroup, mats.yellow, new THREE.Vector3(rx, yMid + 0.36, rz), new THREE.Vector3(oLen, 0.05, 0.13), oAng, false);
+          colliders.push({
+            id: `spiral_rail_${slot.index}_${s}`,
+            x: rx,
+            z: rz,
+            hx: oLen * 0.5,
+            hz: 0.08,
+            y: yMid + 0.20,
+            height: 0.44,
+            rot: oAng,
+            walkable: false,
+          });
+
+          // Solid retaining skirt beneath low-clearance Turn 1 overhang so ground vehicles cannot clip inside/under ramp
+          if (s <= 24 && yMid > ARENA_FLOOR_HEIGHT + 0.08) {
+            const skirtH = yMid - ARENA_FLOOR_HEIGHT;
+            makeBox(courseGroup, mats.concretePier, new THREE.Vector3(rx, ARENA_FLOOR_HEIGHT + skirtH * 0.5 - 0.04, rz), new THREE.Vector3(oLen, skirtH, 0.14), oAng);
+            colliders.push({
+              id: `spiral_skirt_${slot.index}_${s}`,
+              x: rx,
+              z: rz,
+              hx: oLen * 0.5,
+              hz: 0.09,
+              y: ARENA_FLOOR_HEIGHT + skirtH * 0.5,
+              height: skirtH + 0.12,
+              rot: oAng,
+              walkable: false,
+            });
+          }
+        }
       }
 
-      // Upper Summit Approach Bridge + Rotating Rooftop Turntable + Downhill Descent Ramp
-      makeBox(courseGroup, mats.asphalt, new THREE.Vector3(toCourseX(slot, -0.85), yTop - 0.11, lz), new THREE.Vector3(2.0, 0.22, 2.70));
+      // Upper Summit Approach Bridge + Side Guardrails + Rotating Rooftop Turntable + Downhill Descent Ramp
+      makeBox(courseGroup, mats.asphalt, new THREE.Vector3(toCourseX(slot, -0.80), yTop - 0.11, lz), new THREE.Vector3(2.1, 0.22, 2.70));
+      for (const side of [-1, 1]) {
+        // Keep North (-1) rail clear of the arriving upper helix road (starts past helix intersection u=-1.18)
+        const minU = side < 0 ? -1.18 : -1.85;
+        const maxU = 0.22;
+        const bLen = maxU - minU;
+        const bx = toCourseX(slot, (minU + maxU) * 0.5);
+        const bz = toCourseZ(slot, side * 1.40);
+        makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, yTop + 0.17, bz), new THREE.Vector3(bLen, 0.34, 0.12));
+        makeBox(courseGroup, mats.yellow, new THREE.Vector3(bx, yTop + 0.36, bz), new THREE.Vector3(bLen, 0.05, 0.13), 0, false);
+        colliders.push({
+          id: `spiral_bridge_rail_${slot.index}_${side}`,
+          x: bx,
+          z: bz,
+          hx: bLen * 0.5,
+          hz: 0.08,
+          y: yTop + 0.20,
+          height: 0.44,
+          rot: 0,
+          walkable: false,
+        });
+      }
       makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(ttX, (yTop + ARENA_FLOOR_HEIGHT) / 2 - 0.1, lz), 0.72, yTop - ARENA_FLOOR_HEIGHT - 0.18, 'y', 24);
       colliders.push({ id: `spiral_tt_pier_${slot.index}`, x: ttX, z: lz, hx: 0.72, hz: 0.72, y: ARENA_FLOOR_HEIGHT + 1.5, height: 3.0, rot: 0, walkable: false });
       const ttGroup = new THREE.Group();
@@ -963,8 +1032,63 @@ export function buildDynamicCourseGroup(
         ttGroup.add(bar);
       }
       turntables.push({ group: ttGroup, x: ttX, z: lz, radius: 2.35, deckY: yTop });
-      // Descent Viaduct Ramp back down to ground
+      // Stationary North & South curved safety curbs around rotating turntable (leaving West/East mouths wide open)
+      for (const side of [-1, 1]) {
+        for (let k = 0; k < 5; k++) {
+          const a = side * (Math.PI * 0.5) + (k - 2) * 0.28;
+          const cr = 2.42;
+          const cxRim = ttX + Math.cos(a) * cr;
+          const czRim = lz + Math.sin(a) * cr;
+          const rimAng = Math.atan2(-Math.cos(a), -Math.sin(a));
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(cxRim, yTop + 0.17, czRim), new THREE.Vector3(0.72, 0.34, 0.12), rimAng);
+          makeBox(courseGroup, mats.yellow, new THREE.Vector3(cxRim, yTop + 0.36, czRim), new THREE.Vector3(0.72, 0.05, 0.13), rimAng, false);
+          colliders.push({
+            id: `spiral_tt_rim_${slot.index}_${side}_${k}`,
+            x: cxRim,
+            z: czRim,
+            hx: 0.36,
+            hz: 0.08,
+            y: yTop + 0.20,
+            height: 0.44,
+            rot: rimAng,
+            walkable: false,
+          });
+        }
+      }
+      // Descent Viaduct Ramp back down to ground + smooth sloped side guardrails
       makeCurvedSlopedDeck(courseGroup, toCourseX(slot, 4.40), toCourseX(slot, 11.20), lz, 3.20, yTop, GROUND_DECK_HEIGHT, 0.24, mats.asphalt, t => easeCushionedRamp(t, 0.12), 28);
+      for (const side of [-1, 1]) {
+        for (let ds = 0; ds < 10; ds++) {
+          const du0 = 4.45 + ds * 0.67;
+          const du1 = du0 + 0.67;
+          const t0d = (du0 - 4.40) / 6.80;
+          const t1d = (du1 - 4.40) / 6.80;
+          const dy0 = yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t0d, 0.12);
+          const dy1 = yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t1d, 0.12);
+          const dym = (dy0 + dy1) * 0.5;
+          const segDx = (du1 - du0) * slot.dir;
+          const segDy = dy1 - dy0;
+          const segHyp = Math.hypot(segDx, segDy) + 0.04;
+          const slopeRotZ = Math.atan2(segDy, segDx);
+          const rxD = toCourseX(slot, (du0 + du1) * 0.5);
+          const rzD = toCourseZ(slot, side * 1.66);
+          const railMesh = makeBox(courseGroup, mats.metal, new THREE.Vector3(rxD, dym + 0.14, rzD), new THREE.Vector3(segHyp, 0.28, 0.10));
+          railMesh.rotation.z = slopeRotZ;
+          const capMesh = makeBox(courseGroup, mats.yellow, new THREE.Vector3(rxD, dym + 0.29, rzD), new THREE.Vector3(segHyp, 0.045, 0.11), 0, false);
+          capMesh.rotation.z = slopeRotZ;
+          colliders.push({
+            id: `spiral_desc_rail_${slot.index}_${side}_${ds}`,
+            x: rxD,
+            z: rzD,
+            hx: 0.36,
+            hz: 0.07,
+            y: dym + 0.16,
+            height: 0.36,
+            rot: 0,
+            walkable: false,
+          });
+        }
+      }
     }
   }
 

@@ -134,3 +134,48 @@ test('dynamic course hooks evaluate slot terrain height, surface, and boundary l
     setActiveGeneratedCourse(null);
   }
 });
+
+test('spiral tower helix climbs monotonically across 540 degrees without dropping through ramp mid-climb', () => {
+  // Find a seed containing spiral_tower
+  let spiralCourse = null;
+  for (let s = 1; s <= 40; s++) {
+    const c = generateRandomizedCourse('track_b', s * 9973);
+    if (c.slots.some(sl => sl.type === 'spiral_tower')) {
+      spiralCourse = c;
+      break;
+    }
+  }
+  assert.ok(spiralCourse, 'Expected spiral_tower to appear within 40 seeds');
+  const sp = spiralCourse.slots.find(sl => sl.type === 'spiral_tower')!;
+
+  try {
+    setActiveGeneratedCourse(spiralCourse);
+    const spU = -4.20;
+    const rMid = 2.15;
+    let prevH = -10;
+    for (let deg = 5; deg <= 535; deg += 5) {
+      const beta = (deg * Math.PI) / 180;
+      const u = spU - Math.cos(beta) * rMid;
+      const v = -Math.sin(beta) * rMid;
+      const x = sp.centerX + sp.dir * u;
+      const z = sp.laneZ + sp.dir * v;
+      // Simulate climbing vehicle with front lookahead where pose.y trails slightly behind front contact patch
+      const expectedH = -0.33 + (beta / (3 * Math.PI)) * (3.20 - (-0.33));
+      const poseY = expectedH - 0.12 - 0.15;
+      const sampledH = evaluateCourseHeight(x, z, poseY);
+      assert.ok(
+        Math.abs(sampledH - expectedH) < 0.08,
+        `Spiral drop/jump at ${deg} deg: expected ${expectedH.toFixed(3)}, got ${sampledH.toFixed(3)}`,
+      );
+      assert.ok(sampledH >= prevH - 0.01, `Height must increase smoothly along helix (${prevH} -> ${sampledH})`);
+      prevH = sampledH;
+    }
+
+    // Ground-level vehicle beneath high Turn 2 overhang remains at ground grade
+    const groundUnderX = sp.centerX + sp.dir * (-4.20);
+    const groundUnderZ = sp.laneZ + sp.dir * 2.15;
+    assert.equal(evaluateCourseHeight(groundUnderX, groundUnderZ, -0.45), -0.33);
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});

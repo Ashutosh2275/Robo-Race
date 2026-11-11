@@ -59,7 +59,7 @@ export const HURDLE_CATALOG: Record<HurdleType, HurdleMeta> = {
   turntable_deck: { type: 'turntable_deck', label: 'Rotating Turntable Deck', tier: 'medium', basePoints: 20, halfLen: 5.4, halfWidth: 2.45 },
   pendulum_bridge: { type: 'pendulum_bridge', label: 'Swinging Pendulum Bridge', tier: 'hard', basePoints: 30, halfLen: 6.0, halfWidth: 1.0 },
   hanging_bridges: { type: 'hanging_bridges', label: 'Twin Hanging Bridges', tier: 'hard', basePoints: 30, halfLen: 6.2, halfWidth: 2.2 },
-  spiral_tower: { type: 'spiral_tower', label: '540° Spiral Tower Climb', tier: 'hard', basePoints: 30, halfLen: 12.2, isFullLane: true, halfWidth: 3.25 },
+  spiral_tower: { type: 'spiral_tower', label: '540° Spiral Tower Climb', tier: 'hard', basePoints: 30, halfLen: 12.2, isFullLane: true, halfWidth: 3.45 },
 };
 
 export type ArenaMetadata = {
@@ -786,46 +786,48 @@ function evalSlotLocal(
     }
 
     case 'spiral_tower': {
-      // Spiral center at u = -4.20, rInner = 1.15, rOuter = 3.15; Turntable at u = +2.20, r = 2.35; Descent [4.55..11.20]
+      // Spiral center at u = -4.20, rInner = 1.00, rOuter = 3.30; Turntable at u = +2.20, r = 2.35; Descent [4.40..11.20]
       const spU = -4.20;
-      const rInner = 1.15;
-      const rOuter = 3.15;
+      const rInner = 1.00;
+      const rOuter = 3.30;
       const yTop = 3.20;
       const ttU = 2.20;
       const rTt = 2.35;
       const dx = u - spU;
       const dist = Math.hypot(dx, v);
+      const trackBottomY = poseY + 0.12;
 
       // Descent ramp [4.40..11.20]
-      if (u >= 4.40 && u <= 11.20 && Math.abs(v) <= 1.60) {
-        if (poseY > 0.55 || u >= 6.80) {
+      if (u >= 4.40 && u <= 11.20 && Math.abs(v) <= 1.65) {
+        if (trackBottomY > GROUND_DECK_HEIGHT + 0.85 || u >= 6.80) {
           const t = (u - 4.40) / 6.80;
           return { matched: true, height: yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t, 0.12), rockOffset: 0, surface: { grip: 1.05, rollingResistance: 0.30, hazard: 'none' } };
         }
       }
       // Elevated Turntable
-      if (Math.hypot(u - ttU, v) <= rTt + 0.08 && poseY > 1.85) {
+      if (Math.hypot(u - ttU, v) <= rTt + 0.08 && trackBottomY > 1.85) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 0.90, rollingResistance: 0.35, hazard: 'none' } };
       }
-      // Upper bridge from spiral to turntable
-      if (u >= -1.80 && u <= 0.10 && Math.abs(v) <= 1.35 && poseY > 2.20) {
+      // Upper bridge from spiral to turntable (connects cleanly at 540° summit without cutting into <540° North arc)
+      if (u >= -2.05 && u <= 0.25 && Math.abs(v) <= 1.45 && (u >= -1.15 || v >= -0.12) && trackBottomY > 2.00) {
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.05, rollingResistance: 0.28, hazard: 'none' } };
       }
-      // Helix climb (540 deg = 1.5 turns starting at u = spU - rCenter, going CW/CCW smoothly around center)
-      if (dist <= rOuter + 0.12 && dist >= rInner - 0.08) {
+      // Helix climb (540 deg = 1.5 turns starting at West tangent du=-rMid, dv=0 climbing North -> East -> South -> West -> Summit)
+      if (dist <= rOuter + 0.22 && dist >= rInner - 0.18) {
         let beta = Math.atan2(-v, -dx);
         if (beta < 0) beta += 2 * Math.PI;
         let totalBeta: number;
-        if (poseY < 0.60 && dx < 0 && beta > Math.PI) totalBeta = 0;
+        if (trackBottomY < GROUND_DECK_HEIGHT + 0.72 && dx < 0 && beta > Math.PI) totalBeta = 0;
         else if (v > 0.0) totalBeta = beta;
         else {
           const ratio = Math.max(-1, Math.min(1, dx / Math.max(1e-6, dist)));
-          const threshold = 1.40 + 0.60 * ratio;
-          totalBeta = poseY > threshold ? beta + 2 * Math.PI : beta;
+          const threshold = 1.65 + 0.65 * ratio;
+          totalBeta = trackBottomY > threshold ? beta + 2 * Math.PI : beta;
         }
         const t = Math.max(0, Math.min(1, totalBeta / (3 * Math.PI)));
         const h = GROUND_DECK_HEIGHT + t * (yTop - GROUND_DECK_HEIGHT);
-        if (poseY < 0.10 && h > 0.45 && poseY < h - 0.50) {
+        // Only treat as driving underneath Turn 2 overhang when clearly on ground under elevated loop
+        if (trackBottomY < GROUND_DECK_HEIGHT + 0.45 && h > GROUND_DECK_HEIGHT + 1.25 && trackBottomY < h - 0.95) {
           return { matched: true, height: GROUND_DECK_HEIGHT, rockOffset: 0 };
         }
         return { matched: true, height: h, rockOffset: 0, surface: { grip: 1.15, rollingResistance: 0.28, hazard: 'none' } };
@@ -906,9 +908,9 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
       if (slot.type === 'spiral_tower') {
         if (poseY > 0.30) {
           const spDist = Math.hypot(u - (-4.20), v);
-          if (spDist >= 1.10 && spDist <= 3.22) return true;
+          if (spDist >= 0.96 && spDist <= 3.38) return true;
           if (Math.hypot(u - 2.20, v) <= 2.40) return true;
-          if (u >= -1.9 && u <= 0.15 && Math.abs(v) <= 1.35) return true;
+          if (u >= -2.05 && u <= 0.25 && Math.abs(v) <= 1.45) return true;
           if (u >= 4.4 && u <= 11.2 && Math.abs(v) <= 1.65) return true;
           return false;
         }
