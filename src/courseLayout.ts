@@ -951,6 +951,8 @@ export type DynamicCourseHooks = {
   evaluateSurface: (x: number, z: number, poseY?: number) => SurfaceProperties | null;
   evaluateRock: (x: number, z: number) => number | null;
   isWithinBoundary: (x: number, z: number, poseY: number) => boolean | null;
+  classifyFallZone?: (localX: number, localZ: number, localY: number) => 'sand_pit' | 'water_basin' | 'arena_floor' | 'lower_track' | 'elevated_deck' | null;
+  classifyFallOrigin?: (localX: number, localZ: number, peakY: number) => 'spiral_tower' | 'high_climb' | 'pendulum_bridge' | 'hanging_bridge' | 'track_edge' | null;
 };
 
 let activeDynamicCourseHooks: DynamicCourseHooks | null = null;

@@ -51,10 +51,10 @@ export const HURDLE_CATALOG: Record<HurdleType, HurdleMeta> = {
   rumble_washboard: { type: 'rumble_washboard', label: 'Chevron Rumble Wash', tier: 'easy', basePoints: 10, halfLen: 4.5, halfWidth: 2.2 },
   fire_hearth: { type: 'fire_hearth', label: 'Refractory Fire Hearth', tier: 'easy', basePoints: 10, halfLen: 3.2, halfWidth: 2.2 },
   water_basin: { type: 'water_basin', label: 'Deep Water Basin', tier: 'easy', basePoints: 10, halfLen: 4.8, halfWidth: 2.2 },
-  football_arena: { type: 'football_arena', label: 'Football Goal Arena', tier: 'medium', basePoints: 20, halfLen: 5.6, halfWidth: 2.2, footballBalls: 5 },
+  football_arena: { type: 'football_arena', label: 'Football Goal Arena', tier: 'medium', basePoints: 20, halfLen: 4.5, halfWidth: 3.85, footballBalls: 5 },
   seesaw_bridge: { type: 'seesaw_bridge', label: 'Seesaw Balance Bridge', tier: 'medium', basePoints: 20, halfLen: 5.2, halfWidth: 2.2 },
   speed_humps_ice: { type: 'speed_humps_ice', label: 'Mega Humps & Ice Sheet', tier: 'medium', basePoints: 20, halfLen: 5.8, halfWidth: 2.2 },
-  high_climb: { type: 'high_climb', label: 'High-Incline Zigzag Ramp', tier: 'medium', basePoints: 20, halfLen: 4.8, halfWidth: 2.6 },
+  high_climb: { type: 'high_climb', label: 'High-Incline Zigzag Ramp', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.6 },
   oil_chicane: { type: 'oil_chicane', label: 'Oil Slick & Tire Chicane', tier: 'medium', basePoints: 20, halfLen: 5.0, halfWidth: 2.2 },
   turntable_deck: { type: 'turntable_deck', label: 'Rotating Turntable Deck', tier: 'medium', basePoints: 20, halfLen: 5.4, halfWidth: 2.45 },
   pendulum_bridge: { type: 'pendulum_bridge', label: 'Swinging Pendulum Bridge', tier: 'hard', basePoints: 30, halfLen: 6.0, halfWidth: 1.0 },
@@ -461,6 +461,8 @@ export function setActiveGeneratedCourse(course: GeneratedCourse | null): void {
       evaluateSurface: evaluateDynamicCourseSurface,
       evaluateRock: evaluateDynamicRockHeight,
       isWithinBoundary: isWithinDynamicBoundaryLines,
+      classifyFallZone: classifyDynamicFallZone,
+      classifyFallOrigin: classifyDynamicFallOrigin,
     });
   } else {
     registerDynamicCourseHooks(null);
@@ -611,9 +613,19 @@ function evalSlotLocal(
     }
 
     case 'football_arena': {
-      if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
-      // Slight cushioned turf trim inside [-4.8, +4.8]
-      const inTurf = Math.abs(u) <= 4.8 && Math.abs(v) <= 2.15;
+      // Horizontal dual-goal pitch widened laterally to [-3.05..+3.05] over [-2.75..+2.75], with flared entry/exit aprons
+      const absU = Math.abs(u);
+      const absV = Math.abs(v);
+      const allowedHalfV = absU <= 2.75
+        ? 3.05
+        : absU <= 4.50
+          ? 2.20 + (3.05 - 2.20) * ((4.50 - absU) / 1.75)
+          : halfW;
+      const inGoalPocket = absU <= 1.58 && absV > 3.05 && absV <= 3.85;
+      if (absV > allowedHalfV + 0.05 && !inGoalPocket) {
+        return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
+      }
+      const inTurf = absU <= 2.75 && (absV <= 3.05 || inGoalPocket);
       return {
         matched: true,
         height: inTurf ? GROUND_DECK_HEIGHT + 0.016 : GROUND_DECK_HEIGHT,
@@ -682,17 +694,17 @@ function evalSlotLocal(
 
     case 'high_climb': {
       if (Math.abs(v) > 2.65) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
-      const yTop = 2.87;
-      if (u >= -4.4 && u < 0.2) {
-        const t = (u + 4.4) / 4.6;
+      const yTop = 2.45;
+      if (u >= -4.6 && u < 0.0) {
+        const t = (u + 4.6) / 4.6;
         return {
           matched: true,
-          height: GROUND_DECK_HEIGHT + (yTop - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.12),
+          height: GROUND_DECK_HEIGHT + (yTop - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.14),
           rockOffset: 0,
           surface: { grip: 0.78, kineticGrip: 0.36, breakawayGrade: 0.46, rollingResistance: 0.12, hazard: 'none', lateralGripMultiplier: 1.55 },
         };
       }
-      if (u >= 0.2 && u <= 1.0) {
+      if (u >= 0.0 && u <= 0.6) {
         return {
           matched: true,
           height: yTop,
@@ -700,13 +712,13 @@ function evalSlotLocal(
           surface: { grip: 1.18, rollingResistance: 0.40, hazard: 'none', lateralGripMultiplier: 1.50 },
         };
       }
-      if (u > 1.0 && u <= 4.4) {
-        const t = (4.4 - u) / 3.4;
+      if (u > 0.6 && u <= 4.8) {
+        const t = (4.8 - u) / 4.2;
         return {
           matched: true,
-          height: GROUND_DECK_HEIGHT + (yTop - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.16),
+          height: GROUND_DECK_HEIGHT + (yTop - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.22),
           rockOffset: 0,
-          surface: { grip: 1.18, rollingResistance: 0.42, hazard: 'none', lateralGripMultiplier: 1.50 },
+          surface: { grip: 1.22, rollingResistance: 0.42, hazard: 'none', lateralGripMultiplier: 1.50 },
         };
       }
       return { matched: true, height: GROUND_DECK_HEIGHT, rockOffset: 0 };
@@ -737,16 +749,16 @@ function evalSlotLocal(
       const catW = 1.00;
       const deckY = 1.35;
       if (Math.abs(v) <= catW) {
-        if (u >= -5.8 && u < -3.7) {
-          const t = (u + 5.8) / 2.1;
-          return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
+        if (u >= -6.0 && u < -3.6) {
+          const t = (u + 6.0) / 2.4;
+          return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.14), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
         }
-        if (u >= -3.7 && u <= 3.7) {
+        if (u >= -3.6 && u <= 3.6) {
           return { matched: true, height: deckY, rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
         }
-        if (u > 3.7 && u <= 5.8) {
-          const t = (5.8 - u) / 2.1;
-          return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
+        if (u > 3.6 && u <= 6.0) {
+          const t = (6.0 - u) / 2.4;
+          return { matched: true, height: GROUND_DECK_HEIGHT + (deckY - GROUND_DECK_HEIGHT) * easeCushionedRamp(t, 0.14), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.25, hazard: 'none' } };
         }
       }
       if (poseY > GROUND_DECK_HEIGHT + 0.15) return { matched: true, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
@@ -797,11 +809,11 @@ function evalSlotLocal(
       const dist = Math.hypot(dx, v);
       const trackBottomY = poseY + 0.12;
 
-      // Descent ramp [4.40..11.20]
-      if (u >= 4.40 && u <= 11.20 && Math.abs(v) <= 1.65) {
-        if (trackBottomY > GROUND_DECK_HEIGHT + 0.85 || u >= 6.80) {
-          const t = (u - 4.40) / 6.80;
-          return { matched: true, height: yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t, 0.12), rockOffset: 0, surface: { grip: 1.05, rollingResistance: 0.30, hazard: 'none' } };
+      // Smooth long cushioned Descent Viaduct Ramp [4.40..11.80]
+      if (u >= 4.40 && u <= 11.80 && Math.abs(v) <= 1.65) {
+        if (trackBottomY > GROUND_DECK_HEIGHT + 0.85 || u >= 7.00) {
+          const t = (u - 4.40) / 7.40;
+          return { matched: true, height: yTop + (GROUND_DECK_HEIGHT - yTop) * easeCushionedRamp(t, 0.16), rockOffset: 0, surface: { grip: 1.12, rollingResistance: 0.34, hazard: 'none' } };
         }
       }
       // Elevated Turntable
@@ -905,13 +917,21 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
         if (Math.abs(u) <= 4.5) return Math.abs(v) <= (TRACK_WIDTH / MAP_SCALE) * 0.5 + 0.36;
         return Math.abs(v) <= 1.30;
       }
+      if (slot.type === 'football_arena') {
+        const absU = Math.abs(u);
+        const absV = Math.abs(v);
+        const allowedHalfV = absU <= 2.75
+          ? 3.05
+          : 2.20 + (3.05 - 2.20) * ((4.50 - Math.min(4.50, absU)) / 1.75);
+        return absV <= allowedHalfV || (absU <= 1.55 && absV <= 3.78);
+      }
       if (slot.type === 'spiral_tower') {
         if (poseY > 0.30) {
           const spDist = Math.hypot(u - (-4.20), v);
           if (spDist >= 0.96 && spDist <= 3.38) return true;
           if (Math.hypot(u - 2.20, v) <= 2.40) return true;
           if (u >= -2.05 && u <= 0.25 && Math.abs(v) <= 1.45) return true;
-          if (u >= 4.4 && u <= 11.2 && Math.abs(v) <= 1.65) return true;
+          if (u >= 4.4 && u <= 11.8 && Math.abs(v) <= 1.65) return true;
           return false;
         }
       }
@@ -935,4 +955,51 @@ export function isWithinDynamicBoundaryLines(x: number, z: number, poseY: number
     }
   }
   return false;
+}
+
+export function classifyDynamicFallZone(
+  localX: number,
+  localZ: number,
+  localY: number,
+): 'sand_pit' | 'water_basin' | 'arena_floor' | 'lower_track' | 'elevated_deck' | null {
+  if (!activeGeneratedCourse) return null;
+  for (const slot of activeGeneratedCourse.slots) {
+    const u = slot.dir * (localX - slot.centerX);
+    const v = slot.dir * (localZ - slot.laneZ);
+    if (slot.type === 'hanging_bridges' && Math.abs(u) <= 4.75 && Math.abs(v) <= 2.15 && localY < GROUND_DECK_HEIGHT - 0.12) {
+      return 'sand_pit';
+    }
+    if (slot.type === 'water_basin' && Math.abs(u) <= 4.45 && Math.abs(v) <= DRIVE_ROUTE_WIDTH * 0.5 + 0.15 && localY < 0.05) {
+      return 'water_basin';
+    }
+  }
+  if (isWithinDynamicBoundaryLines(localX, localZ, localY)) {
+    return localY > GROUND_DECK_HEIGHT + 0.25 ? 'elevated_deck' : 'lower_track';
+  }
+  return 'arena_floor';
+}
+
+export function classifyDynamicFallOrigin(
+  localX: number,
+  localZ: number,
+  peakY: number,
+): 'spiral_tower' | 'high_climb' | 'pendulum_bridge' | 'hanging_bridge' | 'track_edge' | null {
+  if (!activeGeneratedCourse) return null;
+  for (const slot of activeGeneratedCourse.slots) {
+    const u = slot.dir * (localX - slot.centerX);
+    const v = slot.dir * (localZ - slot.laneZ);
+    if (slot.type === 'spiral_tower' && peakY > 0.45 && Math.abs(u) <= 12.2 && Math.abs(v) <= 3.6) {
+      return 'spiral_tower';
+    }
+    if (slot.type === 'high_climb' && peakY > 0.30 && Math.abs(u) <= 5.2 && Math.abs(v) <= 2.8) {
+      return 'high_climb';
+    }
+    if (slot.type === 'pendulum_bridge' && peakY > 0.30 && Math.abs(u) <= 6.2 && Math.abs(v) <= 2.4) {
+      return 'pendulum_bridge';
+    }
+    if (slot.type === 'hanging_bridges' && peakY > 0.20 && Math.abs(u) <= 6.4 && Math.abs(v) <= 2.4) {
+      return 'hanging_bridge';
+    }
+  }
+  return 'track_edge';
 }

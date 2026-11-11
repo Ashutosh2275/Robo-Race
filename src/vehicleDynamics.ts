@@ -283,8 +283,15 @@ export function stepVehicle3D(
   // Follow ramps smoothly while supported. Leaving a raised road produces a
   // real gravity-driven drop to the lower arena floor instead of snapping the
   // chassis directly to the next sampled height.
+  const isDrivingSlope = !isCliffSideDrop
+    && !isCliffEndDrop
+    && Math.abs(centerH - avgGroundH) <= 0.14
+    && pitchDifferential >= 0.10
+    && Math.abs(longitudinalSpeed) > 0.2;
   const wasAirborne = !pose.isGrounded;
-  const dropGap = pose.isGrounded ? 0.16 : 0.02;
+  const dropGap = pose.isGrounded
+    ? (isDrivingSlope ? Math.min(0.36, 0.24 + Math.abs(longitudinalSpeed) * 0.025) : 0.16)
+    : 0.02;
   if (targetY < pose.y - dropGap) {
     pose.isGrounded = false;
     pose.vy -= gravity * dt;

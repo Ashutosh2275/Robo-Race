@@ -217,7 +217,9 @@ export function applyFallImpactDamage(
   const safeThresholdMps = 2.2;
   if (impactSpeedMps <= safeThresholdMps || isRobotDestroyed(sub)) return 0;
 
-  const excess = impactSpeedMps - safeThresholdMps;
+  const rawExcess = impactSpeedMps - safeThresholdMps;
+  // Softly compress catastrophic excess above 3.5 m/s so a single bridge fall doesn't exceed ~55% HP
+  const excess = rawExcess <= 3.5 ? rawExcess : 3.5 + (rawExcess - 3.5) * 0.28;
   const surfaceFactor = hazard === 'sand' ? 0.78 : 1.0;
   const chassisLoss = Math.min(sub.integrity.chassis, excess * excess * 3.8 * surfaceFactor);
   const wheelLoss = excess * excess * 2.85 * surfaceFactor;
@@ -228,5 +230,22 @@ export function applyFallImpactDamage(
   sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - trackLoss);
   sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - trackLoss);
   sub.integrity.electronicsEnclosure = Math.max(0, sub.integrity.electronicsEnclosure - chassisLoss * 0.5);
+  return chassisLoss;
+}
+
+/**
+ * Applies calibrated structural & drive damage from a swinging wrecking ball impact.
+ * Scales smoothly from ~8% to 24% HP per collision rather than wiping >80% health at once.
+ */
+export function applyPendulumImpactDamage(
+  sub: SubsystemsState,
+  relSpeedMps: number,
+): number {
+  if (relSpeedMps <= 0.75 || isRobotDestroyed(sub)) return 0;
+  const excess = Math.max(0, relSpeedMps - 0.75);
+  const chassisLoss = Math.min(sub.integrity.chassis, Math.min(24, 6.0 + excess * 4.2));
+  sub.integrity.chassis = Math.max(0, sub.integrity.chassis - chassisLoss);
+  sub.integrity.driveWheels = Math.max(0, sub.integrity.driveWheels - chassisLoss * 0.65);
+  sub.integrity.electronicsEnclosure = Math.max(0, sub.integrity.electronicsEnclosure - chassisLoss * 0.40);
   return chassisLoss;
 }

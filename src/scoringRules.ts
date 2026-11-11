@@ -390,6 +390,8 @@ export type FallLandingPlace = 'sand_pit' | 'water_basin' | 'arena_floor' | 'low
 export type FallOriginZone = 'spiral_tower' | 'high_climb' | 'pendulum_bridge' | 'hanging_bridge' | 'track_edge';
 
 export function classifyFallZone(localX: number, localZ: number, localY: number): FallLandingPlace {
+  const dyn = getDynamicCourseHooks()?.classifyFallZone?.(localX, localZ, localY);
+  if (dyn) return dyn;
   if (
     Math.abs(localZ - HANGING_BRIDGE_CONFIG.zLane) <= HANGING_BRIDGE_CONFIG.pitHalfZ + 0.15
     && localX >= HANGING_BRIDGE_CONFIG.pitXMin
@@ -409,11 +411,26 @@ export function classifyFallZone(localX: number, localZ: number, localY: number)
 }
 
 export function classifyFallOrigin(localX: number, localZ: number, peakY: number): FallOriginZone {
+  const dyn = getDynamicCourseHooks()?.classifyFallOrigin?.(localX, localZ, peakY);
+  if (dyn) return dyn;
   if (peakY > 0.50 && Math.abs(localZ) <= 3.5 && localX >= -7.0 && localX <= 10.5) return 'spiral_tower';
   if (peakY > 0.30 && Math.abs(localZ - HIGH_CLIMB_CONFIG.laneZ) <= 3.2 && localX >= 8.5 && localX <= 17.2) return 'high_climb';
   if (peakY > 0.30 && Math.abs(localZ - PENDULUM_CONFIG.zLane) <= 2.5 && localX >= 3.5 && localX <= 16.5) return 'pendulum_bridge';
   if (peakY > 0.20 && Math.abs(localZ - HANGING_BRIDGE_CONFIG.zLane) <= 2.5 && localX >= -11.0 && localX <= 2.6) return 'hanging_bridge';
   return 'track_edge';
+}
+
+/**
+ * Evaluates calibrated damage, battery shock, and competition penalty from a swinging pendulum strike.
+ */
+export function evaluatePendulumStrikeDamage(
+  relSpeedMps: number,
+  config: ScoringConfig,
+): { batteryShockPct: number; pointsPenalty: number } {
+  const speed = Math.max(0, relSpeedMps);
+  const batteryShockPct = Math.min(6, Math.round((1.5 + speed * 0.9) * 10) / 10);
+  const pointsPenalty = Math.max(3, Math.min(10, Math.round(config.fallBasePenaltyPoints * (0.45 + speed * 0.08))));
+  return { batteryShockPct, pointsPenalty };
 }
 
 /**
@@ -482,7 +499,7 @@ export function evaluateFallOutcome(input: FallEvaluationInput, config: ScoringC
 
   // On-track slides, speed-hump skips, and ramp jumps: keep damage minimal or zero.
   if (isOnTrackDescent) {
-    const onTrackSafeMps = 3.10;
+    const onTrackSafeMps = 3.55;
     if (normalImpactMps <= onTrackSafeMps) {
       return {
         significantFall: false,
@@ -497,11 +514,11 @@ export function evaluateFallOutcome(input: FallEvaluationInput, config: ScoringC
     }
 
     const excessOnTrack = normalImpactMps - onTrackSafeMps;
-    // Map heavy 3.5..7.5 m/s normal track slams into a soft ~0.6%..7.5% HP shock.
+    // Map heavy 3.6..7.5 m/s normal track slams into a soft ~0.6%..7.5% HP shock.
     const clampedGain = Math.min(1.40, Math.sqrt(excessOnTrack) * 0.62 * (input.isInverted ? 1.25 : 1.0));
     const effectiveImpactMps = 2.20 + clampedGain;
     const batteryShockPct = Math.min(3.0, excessOnTrack * 0.65 * (input.isInverted ? 1.25 : 1.0));
-    const pointsPenalty = normalImpactMps >= 3.80
+    const pointsPenalty = normalImpactMps >= 4.10
       ? Math.max(1, Math.min(4, Math.round((config.fallBasePenaltyPoints * 0.15) * (0.5 + excessOnTrack * 0.45))))
       : 0;
 

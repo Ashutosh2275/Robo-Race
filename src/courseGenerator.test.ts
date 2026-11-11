@@ -9,14 +9,28 @@ import {
 import {
   evaluateCourseHeight,
   evaluateCourseSurface,
+  GROUND_DECK_HEIGHT,
+  MAP_SCALE,
   type TrackId,
 } from './courseLayout.ts';
 import {
   DEFAULT_SCORING_CONFIG,
   awardFootballGoalPoints,
   createCompetitionScoreState,
+  evaluateFallOutcome,
+  evaluatePendulumStrikeDamage,
   isLocalPointWithinBoundaryLines,
 } from './scoringRules.ts';
+import {
+  applyFallImpactDamage,
+  applyPendulumImpactDamage,
+  createInitialSubsystems,
+} from './robotSubsystems.ts';
+import {
+  TRACK_CONTACT_OFFSET,
+  stepVehicle3D,
+  type VehiclePose,
+} from './vehicleDynamics.ts';
 
 const TRACK_IDS: TrackId[] = ['track_a', 'track_b', 'track_c', 'track_d'];
 
@@ -178,4 +192,120 @@ test('spiral tower helix climbs monotonically across 540 degrees without droppin
   } finally {
     setActiveGeneratedCourse(null);
   }
+});
+
+test('horizontal football arena exposes dual full-width goal pockets within boundary lines', () => {
+  let fbCourse = null;
+  for (let s = 1; s <= 40; s++) {
+    const c = generateRandomizedCourse('track_b', s * 4099);
+    if (c.slots.some(sl => sl.type === 'football_arena')) {
+      fbCourse = c;
+      break;
+    }
+  }
+  assert.ok(fbCourse, 'Expected football_arena in seed sweep');
+  const fb = fbCourse.slots.find(sl => sl.type === 'football_arena')!;
+  try {
+    setActiveGeneratedCourse(fbCourse);
+    // Wide left-to-right horizontal pitch (v up to +/-3.05) and both netted goal pockets (|v| up to 3.75)
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ, 0), true);
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ - 2.95, 0), true);
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ + 2.95, 0), true);
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ - 3.45, 0), true);
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ + 3.45, 0), true);
+    // Out-of-bounds beyond behind goal rear net
+    assert.equal(isLocalPointWithinBoundaryLines(fb.centerX, fb.laneZ + 4.10, 0), false);
+    assert.ok(Math.abs(evaluateCourseHeight(fb.centerX, fb.laneZ + 3.45, -0.1) - (GROUND_DECK_HEIGHT + 0.016)) < 1e-6);
+    assert.equal(evaluateCourseHeight(fb.centerX + fb.dir * 3.8, fb.laneZ, -0.1), GROUND_DECK_HEIGHT);
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});
+
+test('long ramp descents (spiral viaduct and high climb) follow slope continuously without auto-falling', () => {
+  let spCourse = null;
+  let hcCourse = null;
+  for (let s = 1; s <= 50; s++) {
+    const c = generateRandomizedCourse('track_b', s * 6133);
+    if (!spCourse && c.slots.some(sl => sl.type === 'spiral_tower')) spCourse = c;
+    if (!hcCourse && c.slots.some(sl => sl.type === 'high_climb')) hcCourse = c;
+    if (spCourse && hcCourse) break;
+  }
+  assert.ok(spCourse && hcCourse, 'Expected both spiral_tower and high_climb slots in seed sweep');
+
+  const testRampDescent = (course: typeof spCourse, startLocalX: number, startLocalZ: number, speedMps: number, dir: 1 | -1, durationSec: number) => {
+    setActiveGeneratedCourse(course);
+    const groundAtStart = evaluateCourseHeight(startLocalX, startLocalZ, 2.6);
+    const pose: VehiclePose = {
+      x: startLocalX * MAP_SCALE,
+      y: groundAtStart - TRACK_CONTACT_OFFSET,
+      z: startLocalZ * MAP_SCALE,
+      vx: dir * speedMps,
+      vy: 0,
+      vz: 0,
+      yaw: dir > 0 ? 0 : Math.PI,
+      yawRate: 0,
+      roll: 0,
+      pitch: 0,
+      rollRate: 0,
+      pitchRate: 0,
+      isGrounded: true,
+      isFlipped: false,
+      flippedTimer: 0,
+      lastImpactSpeed: 0,
+    };
+    const worldHeight = (wx: number, wz: number) => evaluateCourseHeight(wx / MAP_SCALE, wz / MAP_SCALE, pose.y);
+    const dt = 1 / 60;
+    let airborneFrames = 0;
+    let maxImpact = 0;
+    const steps = Math.round(durationSec / dt);
+    for (let i = 0; i < steps; i++) {
+      pose.vx = dir * speedMps;
+      pose.x += pose.vx * dt;
+      stepVehicle3D(pose, worldHeight, speedMps, 0, dt);
+      if (!pose.isGrounded) airborneFrames += 1;
+      maxImpact = Math.max(maxImpact, pose.lastImpactSpeed ?? 0);
+    }
+    assert.equal(airborneFrames, 0, `Expected continuous grounded slope tracking without auto-fall, got ${airborneFrames} airborne frames`);
+    assert.ok(maxImpact <= 2.5, `Expected gentle continuous slope contact, got maxImpact ${maxImpact.toFixed(2)}`);
+  };
+
+  try {
+    const sp = spCourse!.slots.find(sl => sl.type === 'spiral_tower')!;
+    testRampDescent(spCourse!, sp.centerX + sp.dir * 4.5, sp.laneZ, 5.2, sp.dir, 2.0);
+
+    const hc = hcCourse!.slots.find(sl => sl.type === 'high_climb')!;
+    testRampDescent(hcCourse!, hc.centerX + hc.dir * 0.4, hc.laneZ, 4.8, hc.dir, 1.5);
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+
+  // Soft ramp touch-down near bottom must produce zero cliff fall penalties
+  const slopeLanding = evaluateFallOutcome({
+    dropHeightM: 0.45,
+    impactSpeedMps: 2.8,
+    horizontalSpeedMps: 4.0,
+    landingPlace: 'lower_track',
+    originZone: 'spiral_tower',
+    isInverted: false,
+    slopeGx: 0.35,
+    slopeGz: 0,
+    vx: 4.0,
+    vz: 0,
+  }, DEFAULT_SCORING_CONFIG);
+  assert.equal(slopeLanding.significantFall, false);
+  assert.equal(slopeLanding.pointsPenalty, 0);
+});
+
+test('pendulum wrecking ball collision and moderate bridge drop apply calibrated non-wipeout damage', () => {
+  const subs = createInitialSubsystems();
+  const hitLoss = applyPendulumImpactDamage(subs, 4.2);
+  const strikeScore = evaluatePendulumStrikeDamage(4.2, DEFAULT_SCORING_CONFIG);
+  assert.ok(hitLoss >= 10 && hitLoss <= 24, `Direct pendulum strike loss should be calibrated 10-24%, got ${hitLoss.toFixed(1)}%`);
+  assert.ok(strikeScore.pointsPenalty >= 4 && strikeScore.pointsPenalty <= 10);
+
+  // Even following up with a fall from the 1.35m bridge onto arena floor (-0.33m) must not exceed 80% total wipeout in one hit
+  const subsFall = createInitialSubsystems();
+  const bridgeDropLoss = applyFallImpactDamage(subsFall, 6.2, 'none');
+  assert.ok(bridgeDropLoss < 60, `Moderate bridge drop damage should stay below 60%, got ${bridgeDropLoss.toFixed(1)}%`);
 });

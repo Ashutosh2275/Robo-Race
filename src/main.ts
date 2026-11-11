@@ -23,6 +23,7 @@ import {
   createInitialSubsystems,
   stepSubsystems,
   applyFallImpactDamage,
+  applyPendulumImpactDamage,
   applyBatteryShock,
   isRobotDestroyed,
   type SubsystemsState,
@@ -36,6 +37,7 @@ import {
   computeOutOfBoundsFraction,
   stepBoundaryRule,
   evaluateFallOutcome,
+  evaluatePendulumStrikeDamage,
   classifyFallZone,
   classifyFallOrigin,
   type ScoringConfig,
@@ -2327,12 +2329,24 @@ function stepPhysics(dt: number) {
     effectiveGrip,
     nowSec,
     dt,
-    () => {
+    (relSpeedMps: number) => {
       pose.vy = 0;
       pose.rollRate = 0;
       pose.pitchRate = 0;
-      tone(105, 0.32, 0.14);
-      displayToast('PENDULUM IMPACT! STAY WITHIN BOUNDARY LINES!');
+      const hpLoss = applyPendulumImpactDamage(subsystems, relSpeedMps);
+      const pendPenalty = evaluatePendulumStrikeDamage(relSpeedMps, config.scoring);
+      applyBatteryShock(subsystems, pendPenalty.batteryShockPct);
+      if (pendPenalty.pointsPenalty > 0) {
+        scoreState.penaltyPoints += pendPenalty.pointsPenalty;
+        scoreState.score -= pendPenalty.pointsPenalty;
+        scoreState.events.push({
+          label: 'Pendulum Strike',
+          delta: -pendPenalty.pointsPenalty,
+          detail: `Kinetic wrecking ball impact (${relSpeedMps.toFixed(1)} m/s, -${Math.round(hpLoss)}% HP)`,
+        });
+      }
+      tone(105, 0.28, 0.12);
+      displayToast(`💥 PENDULUM HIT (-${Math.round(hpLoss)}% HP · -${pendPenalty.pointsPenalty} PTS)`);
     },
     (arena: FootballArenaRuntime, goalIndex: number) => {
       const award = awardFootballGoalPoints(scoreState, goalIndex, arena.ballCount, arena.tier, config.scoring);
@@ -2428,7 +2442,7 @@ function stepPhysics(dt: number) {
       const su = spiralSlot.dir * (landX - spiralSlot.centerX);
       const sv = Math.abs(landZ - spiralSlot.laneZ);
       inSpiralZone = Math.hypot(landX - (spiralSlot.centerX - spiralSlot.dir * 4.5), landZ - spiralSlot.laneZ) <= 5.2 || sv <= 3.6;
-      onSpiralDescentSlope = su >= 4.2 && su <= 11.4 && sv <= 1.80;
+      onSpiralDescentSlope = su >= 4.0 && su <= 12.6 && sv <= 2.15;
     }
     const isOverhangPlunge = (originZone === 'spiral_tower' || inSpiralZone)
       && peakAirborneY >= 1.20
