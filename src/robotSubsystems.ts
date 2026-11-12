@@ -38,13 +38,17 @@ export type HardwareFaultId =
   | 'battery_swollen'
   | 'circuit_burnt'
   | 'left_motor_burnt'
-  | 'right_motor_burnt';
+  | 'right_motor_burnt'
+  | 'left_belt_slipped'
+  | 'right_belt_slipped';
 
 export type ComponentFaultState = {
   batterySwollen: boolean;
   circuitBurnt: boolean;
   leftMotorBurnt: boolean;
   rightMotorBurnt: boolean;
+  leftBeltSlipped: boolean;
+  rightBeltSlipped: boolean;
   faultReasons: Partial<Record<HardwareFaultId, string>>;
 };
 
@@ -65,13 +69,23 @@ export function createInitialFaults(): ComponentFaultState {
     circuitBurnt: false,
     leftMotorBurnt: false,
     rightMotorBurnt: false,
+    leftBeltSlipped: false,
+    rightBeltSlipped: false,
     faultReasons: {},
   };
 }
 
 export function hasAnyHardwareFault(sub: SubsystemsState): boolean {
   const f = sub.faults;
-  return f.batterySwollen || f.circuitBurnt || f.leftMotorBurnt || f.rightMotorBurnt || sub.integrity.electronicsEnclosure < 65;
+  return (
+    f.batterySwollen
+    || f.circuitBurnt
+    || f.leftMotorBurnt
+    || f.rightMotorBurnt
+    || f.leftBeltSlipped
+    || f.rightBeltSlipped
+    || sub.integrity.electronicsEnclosure < 65
+  );
 }
 
 export function getActiveFaultList(sub: SubsystemsState): HardwareFaultId[] {
@@ -80,6 +94,8 @@ export function getActiveFaultList(sub: SubsystemsState): HardwareFaultId[] {
   if (sub.faults.circuitBurnt) out.push('circuit_burnt');
   if (sub.faults.leftMotorBurnt) out.push('left_motor_burnt');
   if (sub.faults.rightMotorBurnt) out.push('right_motor_burnt');
+  if (sub.faults.leftBeltSlipped) out.push('left_belt_slipped');
+  if (sub.faults.rightBeltSlipped) out.push('right_belt_slipped');
   return out;
 }
 
@@ -143,8 +159,8 @@ export function getEffectiveDrivetrainModifiers(
   elapsedSec = 0
 ): DrivetrainModifiers {
   const f = sub.faults;
-  const leftMotorMultiplier = f.leftMotorBurnt ? 0.34 : 1.0;
-  const rightMotorMultiplier = f.rightMotorBurnt ? 0.34 : 1.0;
+  const leftMotorMultiplier = (f.leftMotorBurnt ? 0.34 : 1.0) * (f.leftBeltSlipped ? 0.42 : 1.0);
+  const rightMotorMultiplier = (f.rightMotorBurnt ? 0.34 : 1.0) * (f.rightBeltSlipped ? 0.42 : 1.0);
   const batteryCap = f.batterySwollen ? 0.72 : 1.0;
 
   let circuitFactor = sub.esc.powerDelivery / 100;
@@ -194,6 +210,16 @@ export const FAULT_REPAIR_META: Record<HardwareFaultId, { label: string; symptom
     symptom: 'Charred stator coils · -66% right track torque (veers strongly right)',
     pitSec: 7,
   },
+  left_belt_slipped: {
+    label: 'Left Cycle-Tube Belt Off Wheel',
+    symptom: 'Curved inner-tube belt slipped off pulley groove · severe traction loss',
+    pitSec: 4,
+  },
+  right_belt_slipped: {
+    label: 'Right Cycle-Tube Belt Off Wheel',
+    symptom: 'Curved inner-tube belt slipped off pulley groove · severe traction loss',
+    pitSec: 4,
+  },
 };
 
 export type HardwareCarryoverSnapshot = {
@@ -214,6 +240,8 @@ export function createCarryoverSnapshot(sub: SubsystemsState, nextRoundNumber: n
       circuitBurnt: sub.faults.circuitBurnt,
       leftMotorBurnt: sub.faults.leftMotorBurnt,
       rightMotorBurnt: sub.faults.rightMotorBurnt,
+      leftBeltSlipped: sub.faults.leftBeltSlipped,
+      rightBeltSlipped: sub.faults.rightBeltSlipped,
       faultReasons: { ...sub.faults.faultReasons },
     },
     batteryHealth: sub.battery.health,
@@ -231,6 +259,8 @@ export function applyCarryoverSnapshot(sub: SubsystemsState, snap: HardwareCarry
     circuitBurnt: !!snap.faults?.circuitBurnt,
     leftMotorBurnt: !!snap.faults?.leftMotorBurnt,
     rightMotorBurnt: !!snap.faults?.rightMotorBurnt,
+    leftBeltSlipped: !!snap.faults?.leftBeltSlipped,
+    rightBeltSlipped: !!snap.faults?.rightBeltSlipped,
     faultReasons: { ...(snap.faults?.faultReasons ?? {}) },
   };
   sub.battery.health = Math.max(40, Math.min(100, snap.batteryHealth ?? 98));
@@ -275,6 +305,14 @@ export function repairComponentFault(sub: SubsystemsState, faultId: HardwareFaul
     sub.motors.rightTemp = AMBIENT_TEMP;
     sub.motors.thermalThrottle = Math.max(sub.motors.thermalThrottle, 0.9);
     sub.integrity.rightTrack = Math.max(sub.integrity.rightTrack, 85);
+  } else if (faultId === 'left_belt_slipped') {
+    sub.faults.leftBeltSlipped = false;
+    delete sub.faults.faultReasons.left_belt_slipped;
+    sub.integrity.leftTrack = Math.max(sub.integrity.leftTrack, 92);
+  } else if (faultId === 'right_belt_slipped') {
+    sub.faults.rightBeltSlipped = false;
+    delete sub.faults.faultReasons.right_belt_slipped;
+    sub.integrity.rightTrack = Math.max(sub.integrity.rightTrack, 92);
   }
 }
 

@@ -1,5 +1,20 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import {
+  DEFAULT_CAMERA_RETURN_DELAY_SEC,
+  stepCameraFreeLook,
+  wrapSignedAngleRad,
+  type CameraFreeLookState,
+} from './cameraControl';
+import {
+  CYCLE_TUBE_LOOP_LENGTH,
+  CYCLE_TUBE_WHEEL_Z,
+  createInitialBeltTrackingState,
+  sampleCycleTubeLoop,
+  stepBeltTrackingState,
+  type BeltTrackingState,
+  type CycleTubeSampleOptions,
+} from './cycleTubeBelt';
 import { integrateDrive, slopeAt, type DriveState } from './drivePhysics';
 import { CONTROL_PRESETS, type ControlTuning, type VehicleTuning } from './driveControls';
 import { DRIVE_SPROCKET_RADIUS_M, MOTOR_SPECIFICATIONS, maxMotorAccelerationMps2, maxTrackSpeedMps } from './drivetrainConfig';
@@ -794,9 +809,8 @@ const robot = new THREE.Group();
 robot.rotation.order = 'YXZ';
 scene.add(robot);
 
-// RIGID CENTRAL CHASSIS: strictly un-morphed, locked scale (1,1,1)
-// All mechanical components are children of robotBody so that the complete vehicle
-// pitches, yaws, rolls, and flips as ONE coherent rigid body!
+// RIGID 'I'-FRAME CHASSIS: open-wheel 'I' structure with front & rear cross-arms,
+// narrow central spine (zero square tub / zero yellow cover boxes), and 4 corner pulley wheels.
 const robotBody = new THREE.Group();
 robotBody.rotation.order = 'YXZ';
 robot.add(robotBody);
@@ -804,34 +818,43 @@ robot.add(robotBody);
 const chassis = new THREE.Group();
 robotBody.add(chassis);
 
-// Main bottom forged steel chassis pan + heavy front/rear bumper plates
-box(chassis, mats.black, V(0, 0.38, 0), V(1.36, 0.18, 1.52));
-box(chassis, mats.metal, V(0, 0.36, 0.77), V(1.18, 0.14, 0.06));
-box(chassis, mats.metal, V(0, 0.36, -0.77), V(1.18, 0.14, 0.06));
-
-// Perimeter brushed steel C-channel rails with bolted corner gussets
-for (const x of [-0.60, 0.60]) {
-  box(chassis, mats.metal, V(x, 0.58, 0), V(0.065, 0.22, 1.46));
-  for (const bz of [-0.55, 0, 0.55]) {
-    cyl(chassis, mats.chrome, V(x, 0.695, bz), 0.016, 0.02, 'y', 8);
+// Central longitudinal structural spine (the stem of the 'I', leaving open daylight cutouts on left/right)
+box(chassis, mats.black, V(0, 0.35, 0), V(0.44, 0.14, 1.12));
+for (const sx of [-0.20, 0.20]) {
+  box(chassis, mats.metal, V(sx, 0.44, 0), V(0.042, 0.12, 1.06));
+  for (const bz of [-0.42, -0.14, 0.14, 0.42]) {
+    cyl(chassis, mats.chrome, V(sx, 0.505, bz), 0.014, 0.018, 'y', 8);
   }
 }
-for (const z of [-0.70, 0.70]) {
-  box(chassis, mats.metal, V(0, 0.58, z), V(1.22, 0.22, 0.065));
-}
 
-// Field-worn Mechatronics inside the open bay (mutated visibly on hardware burn/swell/short):
-// 1. 4S LiPo Battery pack (muted slate wrap, nylon retaining straps & faded caution placard)
+// Front & Rear Cross-Arms (top and bottom bars of the 'I' reaching to the 4 corner wheel hubs)
+for (const end of [-1, 1]) {
+  const armZ = end * CYCLE_TUBE_WHEEL_Z;
+  box(chassis, mats.metal, V(0, 0.34, armZ), V(1.38, 0.14, 0.19));
+  box(chassis, mats.black, V(0, 0.42, armZ), V(1.16, 0.025, 0.13));
+  for (const side of [-1, 1]) {
+    // Corner axle pillow-block housing & forged steel stub shaft carrying each corner pulley wheel
+    box(chassis, mats.metal, V(side * 0.66, 0.33, armZ), V(0.12, 0.15, 0.21));
+    cyl(chassis, mats.chrome, V(side * 0.72, 0.32, armZ), 0.042, 0.24, 'x', 14);
+    // Triangular corner gusset plates tying cross-arms cleanly to the central spine
+    box(chassis, mats.metal, V(side * 0.26, 0.34, armZ - end * 0.11), V(0.11, 0.09, 0.11));
+  }
+}
+box(chassis, mats.metal, V(0, 0.34, 0.68), V(1.04, 0.10, 0.05));
+box(chassis, mats.metal, V(0, 0.34, -0.68), V(1.04, 0.10, 0.05));
+
+// Field-worn Mechatronics neatly mounted along the narrow central 'I' spine:
+// 1. 4S LiPo Battery pack centered on spine (mutates visibly if cells swell)
 const batteryWrapMat = new THREE.MeshStandardMaterial({ color: '#273b50', roughness: 0.72, metalness: 0.08 });
 const batteryLabelMat = new THREE.MeshStandardMaterial({ map: yellowPaintMaps.map, bumpMap: yellowPaintMaps.bumpMap, bumpScale: 0.015, roughness: 0.82, metalness: 0.14 });
-const batteryMesh = box(chassis, batteryWrapMat, V(-0.24, 0.52, -0.05), V(0.48, 0.16, 0.72));
-const batteryLabelMesh = box(chassis, batteryLabelMat, V(-0.24, 0.605, -0.05), V(0.24, 0.014, 0.36));
+const batteryMesh = box(chassis, batteryWrapMat, V(0, 0.49, -0.06), V(0.34, 0.14, 0.54));
+const batteryLabelMesh = box(chassis, batteryLabelMat, V(0, 0.565, -0.06), V(0.20, 0.014, 0.30));
 const batteryStrapMeshes: THREE.Mesh[] = [];
-for (const strapZ of [-0.24, 0.14]) {
-  batteryStrapMeshes.push(box(chassis, mats.black, V(-0.24, 0.53, strapZ), V(0.50, 0.175, 0.05)));
+for (const strapZ of [-0.21, 0.09]) {
+  batteryStrapMeshes.push(box(chassis, mats.black, V(0, 0.50, strapZ), V(0.36, 0.155, 0.045)));
 }
 
-// 2. Dual Brushless Motors (cast housings & oxidized copper stator coils)
+// 2. Dual Geared 600RPM Drive Motors mounted symmetrically on Rear Cross-Arm
 const motorStatorMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial] = [
   new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
   new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
@@ -839,217 +862,214 @@ const motorStatorMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial] 
 for (const side of [-1, 1]) {
   const mx = side * 0.46;
   const stMat = motorStatorMats[side < 0 ? 0 : 1];
-  cyl(chassis, mats.metal, V(mx, 0.44, -0.48), 0.13, 0.30, 'z');
-  cyl(chassis, stMat, V(mx, 0.44, -0.48), 0.11, 0.22, 'z');
-  cyl(chassis, mats.black, V(mx, 0.44, -0.63), 0.10, 0.03, 'z');
+  cyl(chassis, mats.metal, V(mx, 0.34, -0.58), 0.105, 0.28, 'x');
+  cyl(chassis, stMat, V(mx, 0.34, -0.58), 0.09, 0.19, 'x');
+  cyl(chassis, mats.black, V(mx - side * 0.145, 0.34, -0.58), 0.082, 0.03, 'x');
 }
 
-// 3. Dual ESCs with tarnished burgundy-oxide extruded heat sinks & diagnostic PCB fault beacon
+// 3. Dual ESCs with extruded heat sinks & diagnostic PCB fault beacon on forward spine
 const escHeatSinkMats = [
   new THREE.MeshStandardMaterial({ color: '#5b2424', roughness: 0.48, metalness: 0.68 }),
   new THREE.MeshStandardMaterial({ color: '#5b2424', roughness: 0.48, metalness: 0.68 }),
 ];
 for (let ei = 0; ei < 2; ei++) {
-  const x = ei === 0 ? -0.18 : 0.18;
-  box(chassis, escHeatSinkMats[ei], V(x, 0.51, 0.42), V(0.26, 0.08, 0.24));
-  for (let f = -0.10; f <= 0.10; f += 0.035) {
-    box(chassis, mats.metal, V(x + f, 0.56, 0.42), V(0.015, 0.04, 0.22));
+  const x = ei === 0 ? -0.105 : 0.105;
+  box(chassis, escHeatSinkMats[ei], V(x, 0.47, 0.34), V(0.18, 0.075, 0.22));
+  for (let f = -0.065; f <= 0.065; f += 0.032) {
+    box(chassis, mats.metal, V(x + f, 0.515, 0.34), V(0.013, 0.035, 0.20));
   }
 }
 const faultStatusLedMat = new THREE.MeshBasicMaterial({ color: '#42b866' });
-cyl(chassis, faultStatusLedMat, V(0.28, 0.548, -0.02), 0.022, 0.02, 'y', 10);
+cyl(chassis, faultStatusLedMat, V(0, 0.49, 0.47), 0.020, 0.02, 'y', 10);
 const circuitSparkLight = new THREE.PointLight(0x7cc4ff, 0, 2.2, 2.0);
-circuitSparkLight.position.set(0, 0.62, 0.36);
+circuitSparkLight.position.set(0, 0.56, 0.34);
 chassis.add(circuitSparkLight);
 
-// 4. Rugged Roll Hoop & Optical Telemetry Pod + Dual Spring-Base Whip Antennas
-box(chassis, mats.black, V(0.28, 0.50, -0.08), V(0.26, 0.08, 0.24));
-for (const sx of [-0.54, 0.54]) {
-  cyl(chassis, mats.metal, V(sx, 0.74, -0.58), 0.025, 0.22, 'y', 10);
+// 4. Compact Telemetry Arch, Optical IMU Pod & Dual Spring-Base Whip Antennas on Rear Cross-Arm
+const trackCovers: THREE.Mesh[] = []; // Used by Cutaway toggle to hide upper telemetry arch cleanly
+for (const sx of [-0.34, 0.34]) {
+  trackCovers.push(cyl(chassis, mats.metal, V(sx, 0.55, -0.58), 0.022, 0.26, 'y', 10));
 }
-box(chassis, mats.metal, V(0, 0.85, -0.58), V(1.10, 0.045, 0.045));
-// Smoked-glass IMU/Camera sensor unit on rear arch
-box(chassis, mats.black, V(0, 0.90, -0.57), V(0.24, 0.09, 0.11));
-cyl(chassis, new THREE.MeshStandardMaterial({ color: '#142026', roughness: 0.18, metalness: 0.75 }), V(0, 0.90, -0.51), 0.032, 0.02, 'z', 14);
-cyl(chassis, mats.chrome, V(0.25, 0.58, -0.08), 0.022, 0.08, 'y');
-cyl(chassis, mats.chrome, V(0.31, 0.58, -0.08), 0.022, 0.08, 'y');
-cyl(chassis, mats.black, V(0.25, 0.82, -0.08), 0.012, 0.48, 'y');
-cyl(chassis, mats.black, V(0.31, 0.82, -0.08), 0.012, 0.48, 'y');
+trackCovers.push(box(chassis, mats.metal, V(0, 0.68, -0.58), V(0.72, 0.04, 0.04)));
+trackCovers.push(box(chassis, mats.black, V(0, 0.725, -0.57), V(0.22, 0.08, 0.10)));
+trackCovers.push(cyl(chassis, new THREE.MeshStandardMaterial({ color: '#142026', roughness: 0.18, metalness: 0.75 }), V(0, 0.725, -0.515), 0.028, 0.02, 'z', 14));
+cyl(chassis, mats.chrome, V(-0.12, 0.49, -0.42), 0.018, 0.07, 'y');
+cyl(chassis, mats.chrome, V(0.12, 0.49, -0.42), 0.018, 0.07, 'y');
+cyl(chassis, mats.black, V(-0.12, 0.71, -0.42), 0.011, 0.44, 'y');
+cyl(chassis, mats.black, V(0.12, 0.71, -0.42), 0.011, 0.44, 'y');
 
-// 5. Braided silicone power cables and aged XT60 plug
-cyl(chassis, mats.red, V(-0.04, 0.56, 0.15), 0.015, 0.38, 'z');
-cyl(chassis, mats.black, V(0.04, 0.56, 0.15), 0.015, 0.38, 'z');
-box(chassis, mats.yellow, V(0, 0.56, 0.32), V(0.06, 0.04, 0.08));
+// 5. Braided silicone power cables and XT60 bus along center spine
+cyl(chassis, mats.red, V(-0.035, 0.52, 0.16), 0.013, 0.26, 'z');
+cyl(chassis, mats.black, V(0.035, 0.52, 0.16), 0.013, 0.26, 'z');
+box(chassis, mats.metal, V(0, 0.52, 0.24), V(0.055, 0.035, 0.065));
 
-// 6. Warm Tungsten-Halogen Armored Projector Headlights with Steel Guard Bezels
+// 6. Warm Tungsten-Halogen Armored Projector Headlights integrated on Front Cross-Arm
 for (const side of [-1, 1]) {
-  const hx = side * 0.42;
-  cyl(chassis, mats.metal, V(hx, 0.48, 0.76), 0.06, 0.055, 'z');
-  cyl(chassis, new THREE.MeshBasicMaterial({ color: '#e6d0a1' }), V(hx, 0.48, 0.785), 0.044, 0.02, 'z');
-  const ringBezel = new THREE.Mesh(new THREE.TorusGeometry(0.054, 0.008, 8, 16), mats.chrome);
-  ringBezel.position.set(hx, 0.48, 0.795);
+  const hx = side * 0.34;
+  cyl(chassis, mats.metal, V(hx, 0.43, 0.67), 0.055, 0.055, 'z');
+  cyl(chassis, new THREE.MeshBasicMaterial({ color: '#e6d0a1' }), V(hx, 0.43, 0.695), 0.040, 0.02, 'z');
+  const ringBezel = new THREE.Mesh(new THREE.TorusGeometry(0.048, 0.008, 8, 16), mats.chrome);
+  ringBezel.position.set(hx, 0.43, 0.702);
   chassis.add(ringBezel);
   const headSpot = new THREE.SpotLight(0xead6aa, 5.5, 9.0, Math.PI / 4.5, 0.45, 1.25);
-  headSpot.position.set(hx, 0.48, 0.79);
+  headSpot.position.set(hx, 0.43, 0.70);
   headSpot.target.position.set(hx, 0.15, 3.5);
   chassis.add(headSpot);
   chassis.add(headSpot.target);
 }
 
-// 7. Heavy Forged Steel Tow Recovery Shackles (Front & Rear)
+// 7. Heavy Forged Steel Tow Recovery Shackles on Front & Rear Cross-Arms
 for (const end of [-1, 1]) {
-  const bz = end * 0.79;
-  for (const sx of [-0.35, 0.35]) {
-    cyl(chassis, mats.metal, V(sx, 0.36, bz), 0.025, 0.06, 'x');
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 8, 16), mats.yellow);
-    ring.position.set(sx, 0.36, bz + end * 0.04);
+  const bz = end * 0.70;
+  for (const sx of [-0.34, 0.34]) {
+    cyl(chassis, mats.metal, V(sx, 0.34, bz), 0.022, 0.055, 'x');
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.010, 8, 16), mats.chrome);
+    ring.position.set(sx, 0.34, bz + end * 0.036);
     ring.rotation.x = Math.PI / 2;
     chassis.add(ring);
   }
 }
 
-// Track Assemblies and Yellow Protective Coverings (strictly inside robotBody)
-const trackCovers: THREE.Mesh[] = [];
-const tracks: { group: THREE.Group; cleats: THREE.Mesh[]; wheelSpins: THREE.Group[]; phase: number }[] = [];
+// 4 Corner Flanged Pulley Wheels + Dynamic Curved Cycle-Tube Belts (no yellow boxes, no mid rollers)
+const CYCLE_TUBE_LOOP_SEGMENTS = 84;
+// 6-point rounded tubular belt profile across pulley width [localDx, normalOffset]
+const CYCLE_TUBE_PROFILE: ReadonlyArray<readonly [number, number]> = [
+  [-0.156, 0.002],
+  [-0.122, 0.015],
+  [0.122, 0.015],
+  [0.156, 0.002],
+  [0.136, -0.015],
+  [-0.136, -0.015],
+];
 
-function createTrackBeltGeometry() {
-  const centerZ = 0.58;
-  const centerY = 0.32;
-  const outerRadius = 0.20;
-  const innerRadius = 0.135;
-  const shape = new THREE.Shape();
-  shape.moveTo(-centerZ, centerY - outerRadius);
-  shape.lineTo(centerZ, centerY - outerRadius);
-  shape.absarc(centerZ, centerY, outerRadius, -Math.PI / 2, Math.PI / 2, false);
-  shape.lineTo(-centerZ, centerY + outerRadius);
-  shape.absarc(-centerZ, centerY, outerRadius, Math.PI / 2, Math.PI * 1.5, false);
-  shape.closePath();
+function createDynamicCycleTubeBeltGeometry(sideSign: -1 | 1): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  const ringPts = CYCLE_TUBE_PROFILE.length;
+  const ringStride = ringPts + 1;
+  const vertCount = (CYCLE_TUBE_LOOP_SEGMENTS + 1) * ringStride;
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices: number[] = [];
 
-  const inner = new THREE.Path();
-  inner.moveTo(-centerZ, centerY + innerRadius);
-  inner.lineTo(centerZ, centerY + innerRadius);
-  inner.absarc(centerZ, centerY, innerRadius, Math.PI / 2, -Math.PI / 2, true);
-  inner.lineTo(-centerZ, centerY - innerRadius);
-  inner.absarc(-centerZ, centerY, innerRadius, -Math.PI / 2, -Math.PI * 1.5, true);
-  inner.closePath();
-  shape.holes.push(inner);
-
-  const width = 0.34;
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, curveSegments: 16, steps: 1 });
-  geometry.translate(0, 0, -width / 2);
-  geometry.rotateY(Math.PI / 2);
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-const trackBeltGeometry = createTrackBeltGeometry();
-const trackLoopRadius = 0.195;
-const trackStraightLength = 1.16;
-const trackLoopLength = trackStraightLength * 2 + Math.PI * 2 * trackLoopRadius;
-
-function sampleTrackLoop(distance: number) {
-  const s = ((distance % trackLoopLength) + trackLoopLength) % trackLoopLength;
-  let y: number;
-  let z: number;
-  let tangentY: number;
-  let tangentZ: number;
-  if (s < trackStraightLength) {
-    z = -0.58 + s;
-    y = 0.32 + trackLoopRadius;
-    tangentY = 0;
-    tangentZ = 1;
-  } else if (s < trackStraightLength + Math.PI * trackLoopRadius) {
-    const angle = Math.PI / 2 - (s - trackStraightLength) / trackLoopRadius;
-    z = 0.58 + Math.cos(angle) * trackLoopRadius;
-    y = 0.32 + Math.sin(angle) * trackLoopRadius;
-    tangentY = -Math.cos(angle);
-    tangentZ = Math.sin(angle);
-  } else if (s < trackStraightLength * 2 + Math.PI * trackLoopRadius) {
-    const u = s - trackStraightLength - Math.PI * trackLoopRadius;
-    z = 0.58 - u;
-    y = 0.32 - trackLoopRadius;
-    tangentY = 0;
-    tangentZ = -1;
-  } else {
-    const u = s - trackStraightLength * 2 - Math.PI * trackLoopRadius;
-    const angle = -Math.PI / 2 - u / trackLoopRadius;
-    z = -0.58 + Math.cos(angle) * trackLoopRadius;
-    y = 0.32 + Math.sin(angle) * trackLoopRadius;
-    tangentY = -Math.cos(angle);
-    tangentZ = Math.sin(angle);
+  for (let i = 0; i <= CYCLE_TUBE_LOOP_SEGMENTS; i++) {
+    const vCoord = (i / CYCLE_TUBE_LOOP_SEGMENTS) * 4.0;
+    for (let k = 0; k <= ringPts; k++) {
+      const idx = i * ringStride + k;
+      uvs[idx * 2] = k / ringPts;
+      uvs[idx * 2 + 1] = vCoord;
+    }
   }
-  return { y, z, rotationX: Math.atan2(-tangentY, tangentZ) };
+  for (let i = 0; i < CYCLE_TUBE_LOOP_SEGMENTS; i++) {
+    for (let k = 0; k < ringPts; k++) {
+      const a = i * ringStride + k;
+      const b = (i + 1) * ringStride + k;
+      const c = (i + 1) * ringStride + k + 1;
+      const d = i * ringStride + k + 1;
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  updateDynamicCycleTubeBeltGeometry(geo, { sideSign });
+  return geo;
 }
 
-for (const side of [-1, 1]) {
+function updateDynamicCycleTubeBeltGeometry(geo: THREE.BufferGeometry, options: CycleTubeSampleOptions) {
+  const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
+  const arr = posAttr.array as Float32Array;
+  const ringPts = CYCLE_TUBE_PROFILE.length;
+  const ringStride = ringPts + 1;
+
+  for (let i = 0; i <= CYCLE_TUBE_LOOP_SEGMENTS; i++) {
+    const dist = ((i % CYCLE_TUBE_LOOP_SEGMENTS) / CYCLE_TUBE_LOOP_SEGMENTS) * CYCLE_TUBE_LOOP_LENGTH;
+    const sample = sampleCycleTubeLoop(dist, options);
+    const cosRoll = Math.cos(sample.rollX);
+    const sinRoll = Math.sin(sample.rollX);
+
+    for (let k = 0; k <= ringPts; k++) {
+      const [dx, dn] = CYCLE_TUBE_PROFILE[k % ringPts];
+      // Apply cross-section roll & outward normal offset from curved cycle-tube spine
+      const rolledDx = dx * cosRoll;
+      const rolledDy = dx * sinRoll;
+      const vx = sample.x + rolledDx;
+      const vy = sample.y + sample.ny * dn + rolledDy;
+      const vz = sample.z + sample.nz * dn;
+
+      const idx3 = (i * ringStride + k) * 3;
+      arr[idx3] = vx;
+      arr[idx3 + 1] = vy;
+      arr[idx3 + 2] = vz;
+    }
+  }
+  posAttr.needsUpdate = true;
+  geo.computeVertexNormals();
+}
+
+const tracks: {
+  group: THREE.Group;
+  sideSign: -1 | 1;
+  beltGeo: THREE.BufferGeometry;
+  cleats: THREE.Mesh[];
+  wheelSpins: THREE.Group[];
+  phase: number;
+}[] = [];
+
+for (const side of [-1, 1] as const) {
   const x = side * (TRACK_WIDTH / 2);
   const trackGroup = new THREE.Group();
   trackGroup.position.x = x;
   robotBody.add(trackGroup);
 
-  // Weathered field-armor track shrouds with steel trim bars, cooling vents & rubber mudflaps
-  const guard = box(robotBody, mats.coverYellow, V(x, 0.68, 0), V(0.40, 0.14, 1.70));
-  const outerSkirt = box(robotBody, mats.coverYellow, V(x, 0.56, 0), V(0.40, 0.12, 1.58));
-  box(robotBody, mats.metal, V(x + side * 0.203, 0.58, 0), V(0.015, 0.04, 1.26));
-  for (const louverZ of [-0.42, -0.34, -0.26, 0.26, 0.34, 0.42]) {
-    box(robotBody, mats.black, V(x, 0.753, louverZ), V(0.24, 0.01, 0.035));
-  }
-  for (const end of [-1, 1]) {
-    const cap = box(robotBody, mats.coverYellow, V(x, 0.64, end * 0.82), V(0.39, 0.10, 0.14));
-    const mudflap = box(robotBody, mats.black, V(x, 0.57, end * 0.89), V(0.37, 0.12, 0.025));
-    mudflap.rotation.x = end * 0.42;
-    trackCovers.push(cap, mudflap);
-  }
-  for (const bz of [-0.62, -0.20, 0.20, 0.62]) {
-    cyl(robotBody, mats.metal, V(x, 0.755, bz), 0.016, 0.015, 'y', 8);
-  }
-  trackCovers.push(guard, outerSkirt);
-
-  // Continuous rubber belt band with an open center so the exposed bogie wheels remain visible.
-  const belt = new THREE.Mesh(trackBeltGeometry, mats.rubber);
+  // Dynamic curved bicycle inner-tube belt looping around the two corner wheels on this side
+  const beltGeo = createDynamicCycleTubeBeltGeometry(side);
+  const belt = new THREE.Mesh(beltGeo, mats.rubber);
   belt.castShadow = true;
   belt.receiveShadow = true;
   trackGroup.add(belt);
 
-  // Longitudinal lower steel suspension bogie frame + 3 middle road rollers
-  box(trackGroup, mats.black, V(0, 0.25, 0), V(0.14, 0.06, 0.96));
-  for (const rZ of [-0.28, 0, 0.28]) {
-    cyl(trackGroup, mats.metal, V(0, 0.21, rZ), 0.075, 0.30, 'x', 14);
-    cyl(trackGroup, mats.wheel, V(side * 0.14, 0.21, rZ), 0.042, 0.04, 'x', 10);
-  }
-
-  // Two primary sprocket / idler wheels per side with multi-layer rims & lug bolts
+  // Two open flanged pulley wheels per side positioned at the outer corners of the 'I'
   const wheelSpins: THREE.Group[] = [];
   for (const end of [-1, 1]) {
-    const isPowered = side < 0 ? end > 0 : end < 0;
+    const isPowered = end < 0; // Rear corner wheels driven by the twin 600RPM rear cross-arm motors
     const spin = new THREE.Group();
-    spin.position.set(0, 0.32, end * 0.58);
+    spin.position.set(0, 0.32, end * CYCLE_TUBE_WHEEL_Z);
     trackGroup.add(spin);
-    const wheel = cyl(spin, mats.wheel, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M, 0.35, 'x', 24);
-    wheel.userData = { role: isPowered ? 'motor-driven sprocket' : 'passive belt-driven idler' };
-    cyl(spin, mats.black, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M + 0.008, 0.28, 'x', 24);
-    cyl(spin, mats.metal, V(side * 0.18, 0, 0), 0.062, 0.045, 'x', 12);
+    const wheel = cyl(spin, mats.wheel, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M - 0.004, 0.30, 'x', 24);
+    wheel.userData = { role: isPowered ? 'motor-driven corner pulley' : 'passive front corner pulley' };
+    // Inner traction drum + open-hub toroidal pulley retention flanges so spokes & lugs remain visible
+    cyl(spin, mats.black, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M + 0.002, 0.25, 'x', 24);
+    for (const fx of [-0.156, 0.156]) {
+      const flange = new THREE.Mesh(new THREE.TorusGeometry(DRIVE_SPROCKET_RADIUS_M + 0.006, 0.012, 8, 28), mats.chrome);
+      flange.position.set(fx, 0, 0);
+      flange.rotation.y = Math.PI / 2;
+      flange.castShadow = true;
+      spin.add(flange);
+    }
+    cyl(spin, mats.metal, V(side * 0.168, 0, 0), 0.058, 0.038, 'x', 12);
     for (let b = 0; b < 6; b++) {
       const ang = (b * Math.PI) / 3;
-      cyl(spin, mats.chrome, V(side * 0.18, Math.sin(ang) * 0.095, Math.cos(ang) * 0.095), 0.012, 0.03, 'x', 8);
+      cyl(spin, mats.chrome, V(side * 0.168, Math.sin(ang) * 0.105, Math.cos(ang) * 0.105), 0.013, 0.024, 'x', 8);
     }
     wheelSpins.push(spin);
   }
 
-  // Track cleats (treads) that animate along stadium path
+  // Molded vulcanized rubber grip ribs riding along the curved cycle-tube loop
   const cleats: THREE.Mesh[] = [];
-  const cleatGeo = new THREE.BoxGeometry(0.35, 0.035, 0.13);
-  for (let i = 0; i < 24; i++) {
-    const point = sampleTrackLoop((i / 24) * trackLoopLength);
+  const cleatGeo = new THREE.BoxGeometry(0.28, 0.020, 0.085);
+  for (let i = 0; i < 20; i++) {
+    const point = sampleCycleTubeLoop((i / 20) * CYCLE_TUBE_LOOP_LENGTH, { sideSign: side });
     const q = new THREE.Mesh(cleatGeo, mats.black);
-    q.position.set(0, point.y, point.z);
+    q.position.set(point.x, point.y, point.z);
     q.rotation.x = point.rotationX;
+    q.rotation.z = point.rollX;
     q.castShadow = true;
     trackGroup.add(q);
     cleats.push(q);
   }
 
-  tracks.push({ group: trackGroup, cleats, wheelSpins, phase: 0 });
+  tracks.push({ group: trackGroup, sideSign: side, beltGeo, cleats, wheelSpins, phase: 0 });
 }
 
 // Contact shadow beneath robot (placed in scene, follows vehicle on ground)
@@ -1213,21 +1233,24 @@ let elapsed = 0;
 let penaltyTime = 0;
 let countdown = 0;
 
+let beltTracking: BeltTrackingState = createInitialBeltTrackingState();
+let lastFrameBeltShock = 0;
+
 function syncRobotVisualHardwareState(timeSec: number) {
   const f = subsystems.faults;
-  // 1. LiPo battery physical swelling & strained straps
+  // 1. LiPo battery physical swelling & strained straps on central 'I' spine
   if (f.batterySwollen) {
     batteryMesh.scale.set(1.14, 1.72, 1.06);
-    batteryMesh.position.y = 0.56;
-    batteryLabelMesh.position.y = 0.69;
+    batteryMesh.position.y = 0.54;
+    batteryLabelMesh.position.y = 0.665;
     batteryLabelMesh.scale.set(1.06, 1.0, 1.02);
     batteryWrapMat.color.set('#3f3b32');
     batteryWrapMat.roughness = 0.88;
     batteryStrapMeshes.forEach(s => s.scale.set(1.12, 1.55, 1.02));
   } else {
     batteryMesh.scale.set(1, 1, 1);
-    batteryMesh.position.y = 0.52;
-    batteryLabelMesh.position.y = 0.605;
+    batteryMesh.position.y = 0.49;
+    batteryLabelMesh.position.y = 0.565;
     batteryLabelMesh.scale.set(1, 1, 1);
     batteryWrapMat.color.set('#273b50');
     batteryWrapMat.roughness = 0.72;
@@ -1566,7 +1589,7 @@ function renderUI() {
         <label>Line Buffer Lifelines <input id="scoreLifelines" type="number" min="0" max="20" step="1" value="${config.scoring.boundaryLifelines}"></label>
         <label>Fall Base Minus Pts <input id="scoreFallPenalty" type="number" min="0" max="100" step="5" value="${config.scoring.fallBasePenaltyPoints}"></label>
       </div>
-      <div class="control-diagram">360° MOUSE CAMERA: Click canvas to lock pointer for full 360° mouse look · Move mouse to rotate camera freely around robot · Press ESC or Pause to release mouse cursor for settings · Wheel zooms · Overturning allows limited Hand Points recovery.</div>
+      <div class="control-diagram">360° GOOGLE-MAPS STYLE CAMERA: Click canvas to lock pointer for full 360° mouse loop · Move mouse or wheel to look/zoom freely around robot · Automatically glides back to default view ~2.5s after stopping · Press ESC or Pause to release cursor · Wheel zooms · Overturning allows limited Hand Points recovery.</div>
       <div class="control-diagram">
         <b>DIFFERENTIAL CONTROLS:</b><br>
         W: Forward · S: Reverse<br>
@@ -1928,14 +1951,34 @@ function renderUI() {
 
   window.addEventListener('mousemove', e => {
     if (isPointerLocked) {
+      if (e.movementX === 0 && e.movementY === 0) return;
       const scale = 0.0035 * config.cameraSensitivity;
-      cameraFreeYaw -= e.movementX * scale;
-      cameraFreePitch = clamp(cameraFreePitch + e.movementY * scale, -1.25, 1.25);
-      cameraFreeLookIdle = 999999;
+      const freeState: CameraFreeLookState = {
+        freeYaw: cameraFreeYaw,
+        freePitch: cameraFreePitch,
+        distanceOffset: cameraDistanceOffset,
+        idleTimer: cameraFreeLookIdle,
+      };
+      stepCameraFreeLook(freeState, 0, {
+        lockedDeltaYaw: -e.movementX * scale,
+        lockedDeltaPitch: e.movementY * scale,
+      });
+      cameraFreeYaw = freeState.freeYaw;
+      cameraFreePitch = freeState.freePitch;
+      cameraDistanceOffset = freeState.distanceOffset;
+      cameraFreeLookIdle = freeState.idleTimer;
     }
   });
 
   canvas.addEventListener('pointerdown', e => {
+    if (e.button === 1) {
+      cameraFreeYaw = 0;
+      cameraFreePitch = 0;
+      cameraDistanceOffset = 0;
+      cameraFreeLookIdle = 0;
+      e.preventDefault();
+      return;
+    }
     if (isPointerLocked) return;
     if (e.button !== 2 && !(cameraMode === 3 && e.button === 0)) return;
     cameraPointerId = e.pointerId;
@@ -1946,10 +1989,24 @@ function renderUI() {
   });
   canvas.addEventListener('pointermove', e => {
     if (isPointerLocked || cameraPointerId !== e.pointerId) return;
+    const dx = e.clientX - cameraPointerX;
+    const dy = e.clientY - cameraPointerY;
+    if (dx === 0 && dy === 0) return;
     const scale = 0.004 * config.cameraSensitivity;
-    cameraFreeYaw -= (e.clientX - cameraPointerX) * scale;
-    cameraFreePitch = clamp(cameraFreePitch + (e.clientY - cameraPointerY) * scale, -1.25, 1.25);
-    cameraFreeLookIdle = 4.5;
+    const freeState: CameraFreeLookState = {
+      freeYaw: cameraFreeYaw,
+      freePitch: cameraFreePitch,
+      distanceOffset: cameraDistanceOffset,
+      idleTimer: cameraFreeLookIdle,
+    };
+    stepCameraFreeLook(freeState, 0, {
+      dragDeltaYaw: -dx * scale,
+      dragDeltaPitch: dy * scale,
+    });
+    cameraFreeYaw = freeState.freeYaw;
+    cameraFreePitch = freeState.freePitch;
+    cameraDistanceOffset = freeState.distanceOffset;
+    cameraFreeLookIdle = freeState.idleTimer;
     cameraPointerX = e.clientX;
     cameraPointerY = e.clientY;
   });
@@ -1960,11 +2017,23 @@ function renderUI() {
   canvas.addEventListener('pointerup', endCameraOrbit);
   canvas.addEventListener('pointercancel', endCameraOrbit);
   canvas.addEventListener('lostpointercapture', endCameraOrbit);
-  canvas.addEventListener('wheel', e => {
-    cameraDistanceOffset = clamp(cameraDistanceOffset + Math.sign(e.deltaY) * 0.65, -4.5, 8.0);
-    cameraFreeLookIdle = 4.5;
+  const handleCameraWheel = (e: WheelEvent) => {
+    if (!isPointerLocked && e.target !== canvas) return;
+    if (e.deltaY === 0) return;
+    const freeState: CameraFreeLookState = {
+      freeYaw: cameraFreeYaw,
+      freePitch: cameraFreePitch,
+      distanceOffset: cameraDistanceOffset,
+      idleTimer: cameraFreeLookIdle,
+    };
+    stepCameraFreeLook(freeState, 0, {
+      wheelDeltaDistance: Math.sign(e.deltaY) * 0.65,
+    });
+    cameraDistanceOffset = freeState.distanceOffset;
+    cameraFreeLookIdle = freeState.idleTimer;
     e.preventDefault();
-  }, { passive: false });
+  };
+  window.addEventListener('wheel', handleCameraWheel, { passive: false });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   // Diagnostics & Calibration modal events
@@ -2311,9 +2380,23 @@ function renderTechnicalTimeoutOverlay() {
       costSec: FAULT_REPAIR_META.right_motor_burnt.pitSec,
     },
     {
+      key: 'left_belt_slipped',
+      title: 'Left Cycle-Tube Belt',
+      desc: f.leftBeltSlipped ? (f.faultReasons.left_belt_slipped || FAULT_REPAIR_META.left_belt_slipped.symptom) : `Seated in corner pulley grooves · ${Math.round(subsystems.integrity.leftTrack)}% rubber`,
+      faulty: f.leftBeltSlipped,
+      costSec: FAULT_REPAIR_META.left_belt_slipped.pitSec,
+    },
+    {
+      key: 'right_belt_slipped',
+      title: 'Right Cycle-Tube Belt',
+      desc: f.rightBeltSlipped ? (f.faultReasons.right_belt_slipped || FAULT_REPAIR_META.right_belt_slipped.symptom) : `Seated in corner pulley grooves · ${Math.round(subsystems.integrity.rightTrack)}% rubber`,
+      faulty: f.rightBeltSlipped,
+      costSec: FAULT_REPAIR_META.right_belt_slipped.pitSec,
+    },
+    {
       key: 'enclosure_seal',
-      title: 'Waterproof Seal & Track Tension',
-      desc: sealCracked ? `Cracked housing (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress risk!` : `IP67 Sealed (${Math.round(subsystems.integrity.electronicsEnclosure)}%) · Tracks ${Math.round(Math.min(subsystems.integrity.leftTrack, subsystems.integrity.rightTrack))}%`,
+      title: 'Waterproof Seal & Belt Tension',
+      desc: sealCracked ? `Cracked housing (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress risk!` : `IP67 Sealed (${Math.round(subsystems.integrity.electronicsEnclosure)}%) · Belts ${Math.round(Math.min(subsystems.integrity.leftTrack, subsystems.integrity.rightTrack))}%`,
       faulty: sealCracked,
       costSec: 5,
     },
@@ -2375,8 +2458,17 @@ function renderTechnicalTimeoutOverlay() {
       techTimeoutRemaining = Math.max(0, techTimeoutRemaining - cost);
       if (key === 'enclosure_seal') {
         repairEnclosureSeal(subsystems);
+        beltTracking.leftDrift *= 0.25;
+        beltTracking.rightDrift *= 0.25;
       } else {
         repairComponentFault(subsystems, key);
+        if (key === 'left_belt_slipped') {
+          beltTracking.leftDrift = 0;
+          beltTracking.leftDerailed = false;
+        } else if (key === 'right_belt_slipped') {
+          beltTracking.rightDrift = 0;
+          beltTracking.rightDerailed = false;
+        }
       }
       saveCarriedHardware(hasAnyHardwareFault(subsystems) ? createCarryoverSnapshot(subsystems, roundNumber) : {
         ...createCarryoverSnapshot(subsystems, roundNumber),
@@ -2561,7 +2653,7 @@ function cycleCamera() {
 function toggleCutaway() {
   cutawayMode = !cutawayMode;
   trackCovers.forEach(c => (c.visible = !cutawayMode));
-  displayToast(cutawayMode ? 'TRACK ASSEMBLY CUTAWAY VIEW' : 'ROBOT EXTERIOR VIEW');
+  displayToast(cutawayMode ? "OPEN 'I'-CHASSIS CUTAWAY VIEW" : 'ROBOT EXTERIOR VIEW');
 }
 
 function setGraphicsQuality(q: string) {
@@ -2592,8 +2684,12 @@ function startRace() {
   updateHandPointsDisplay();
   techTimeoutRemaining = TECHNICAL_TIMEOUT_SECONDS;
   techTimeoutUsedThisRound = false;
+  beltTracking = createInitialBeltTrackingState();
+  lastFrameBeltShock = 0;
   subsystems = createInitialSubsystems();
   applyCarryoverSnapshot(subsystems, carriedHardware);
+  beltTracking.leftDerailed = subsystems.faults.leftBeltSlipped;
+  beltTracking.rightDerailed = subsystems.faults.rightBeltSlipped;
   syncRobotVisualHardwareState(performance.now() * 0.001);
   scoreState = createCompetitionScoreState(config.scoring);
 
@@ -2761,7 +2857,7 @@ window.addEventListener('keydown', e => {
   if (CAMERA_KEY_CODES.has(e.code)) {
     e.preventDefault();
     cameraKeys.add(e.code);
-    cameraFreeLookIdle = 4.5;
+    cameraFreeLookIdle = DEFAULT_CAMERA_RETURN_DELAY_SEC;
   }
   controller.handleKeyDown(e.code);
 
@@ -3087,6 +3183,7 @@ function stepPhysics(dt: number) {
       pose.vy = 0;
       pose.rollRate = 0;
       pose.pitchRate = 0;
+      lastFrameBeltShock = Math.max(lastFrameBeltShock, relSpeedMps * 1.45);
       const hpLoss = applyPendulumImpactDamage(subsystems, relSpeedMps);
       const pendPenalty = evaluatePendulumStrikeDamage(relSpeedMps, config.scoring);
       applyBatteryShock(subsystems, pendPenalty.batteryShockPct);
@@ -3243,6 +3340,7 @@ function stepPhysics(dt: number) {
     }, config.scoring);
 
     if (fallOutcome.significantFall) {
+      lastFrameBeltShock = Math.max(lastFrameBeltShock, fallOutcome.effectiveImpactMps * 1.15);
       const damageHazard: HazardType = landingPlace === 'sand_pit' ? 'sand' : landingPlace === 'water_basin' ? 'water' : 'none';
       const batShock = applyBatteryShock(subsystems, fallOutcome.batteryShockPct);
       const fallLoss = applyFallImpactDamage(subsystems, fallOutcome.effectiveImpactMps, damageHazard);
@@ -3296,6 +3394,42 @@ function stepPhysics(dt: number) {
     tone(140, 0.28, 0.10);
     const label = newFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ');
     displayToast(`🔧 HARDWARE FAULT: ${label} · PRESS [T] FOR 30s TECH PIT`);
+  }
+
+  // Step curved bicycle inner-tube belt lateral tracking & derailment simulation
+  beltTracking.leftDerailed = subsystems.faults.leftBeltSlipped;
+  beltTracking.rightDerailed = subsystems.faults.rightBeltSlipped;
+  const rightVecX = Math.cos(pose.yaw);
+  const rightVecZ = -Math.sin(pose.yaw);
+  const lateralSpeedMps = rightVecX * pose.vx + rightVecZ * pose.vz;
+  const beltStep = stepBeltTrackingState(
+    beltTracking,
+    {
+      leftTrackSpeed: driveResult.trackSpeedLeft,
+      rightTrackSpeed: driveResult.trackSpeedRight,
+      motorSlip: driveResult.motorSlip,
+      asymmetricRockDiffM: rockDiffH,
+      lateralSpeedMps,
+      impactImpulse: lastFrameBeltShock,
+      leftTrackIntegrity: subsystems.integrity.leftTrack,
+      rightTrackIntegrity: subsystems.integrity.rightTrack,
+      waterDepthM: waterBuoyancy.immersionDepth,
+    },
+    dt,
+  );
+  lastFrameBeltShock = 0;
+  for (const sideName of beltStep.newlyDerailed) {
+    if (sideName === 'left') {
+      subsystems.faults.leftBeltSlipped = true;
+      subsystems.faults.faultReasons.left_belt_slipped = 'Lateral snag pushed left cycle-tube belt off corner pulley wheels';
+    } else {
+      subsystems.faults.rightBeltSlipped = true;
+      subsystems.faults.faultReasons.right_belt_slipped = 'Lateral snag pushed right cycle-tube belt off corner pulley wheels';
+    }
+    if (raceState === 'racing') {
+      tone(155, 0.26, 0.10);
+      displayToast(`⚠️ ${sideName.toUpperCase()} CYCLE-TUBE BELT SLIPPED OFF WHEEL · PRESS [T] TO RESEAT`);
+    }
   }
 
   // Fall Detection & Slot Entry Reset on Narrow Elevated Pendulum Catwalk Bridge
@@ -3383,9 +3517,35 @@ function stepPhysics(dt: number) {
       if (faultId === 'circuit_burnt') subsystems.faults.circuitBurnt = true;
       if (faultId === 'left_motor_burnt') subsystems.faults.leftMotorBurnt = true;
       if (faultId === 'right_motor_burnt') subsystems.faults.rightMotorBurnt = true;
+      if (faultId === 'left_belt_slipped') {
+        subsystems.faults.leftBeltSlipped = true;
+        beltTracking.leftDerailed = true;
+        beltTracking.leftDrift = -1.05;
+      }
+      if (faultId === 'right_belt_slipped') {
+        subsystems.faults.rightBeltSlipped = true;
+        beltTracking.rightDerailed = true;
+        beltTracking.rightDrift = 1.05;
+      }
       subsystems.faults.faultReasons[faultId] = reason;
       syncRobotVisualHardwareState(performance.now() * 0.001);
       saveCarriedHardware(createCarryoverSnapshot(subsystems, roundNumber));
+    },
+    get beltTracking() { return beltTracking; },
+    get cameraFreeLook() {
+      return {
+        freeYaw: cameraFreeYaw,
+        freePitch: cameraFreePitch,
+        distanceOffset: cameraDistanceOffset,
+        idleTimer: cameraFreeLookIdle,
+        isPointerLocked,
+      };
+    },
+    setCameraFreeLookOffset: (yawDeltaRad: number, pitchDeltaRad = 0, distanceOffset = 0, resetIdle = true) => {
+      cameraFreeYaw = wrapSignedAngleRad(cameraFreeYaw + yawDeltaRad);
+      cameraFreePitch = clamp(cameraFreePitch + pitchDeltaRad, -1.25, 1.25);
+      cameraDistanceOffset = clamp(cameraDistanceOffset + distanceOffset, -4.2, 8.0);
+      if (resetIdle) cameraFreeLookIdle = DEFAULT_CAMERA_RETURN_DELAY_SEC;
     },
     triggerTechTimeout: () => openTechnicalTimeout('mid_race'),
     commitRoundAndNext: () => {
@@ -3446,23 +3606,42 @@ function stepPhysics(dt: number) {
     },
   };
 
-  // Animate track cleats and road wheels independently for left and right tracks
+  // Animate curved cycle-tube belts, cleats, and 4 corner pulley wheels independently for left and right sides
   for (let side = 0; side < tracks.length; side++) {
     const tr = tracks[side];
-    const beltSpeed = side === 0 ? driveResult.trackSpeedLeft : driveResult.trackSpeedRight;
-    tr.phase = (tr.phase + beltSpeed * dt + trackLoopLength) % trackLoopLength;
+    const isLeft = side === 0;
+    const beltSpeed = isLeft ? driveResult.trackSpeedLeft : driveResult.trackSpeedRight;
+    const derailed = isLeft ? subsystems.faults.leftBeltSlipped : subsystems.faults.rightBeltSlipped;
+    const drift = isLeft ? beltTracking.leftDrift : beltTracking.rightDrift;
+    const rubberIntegrity = isLeft ? subsystems.integrity.leftTrack : subsystems.integrity.rightTrack;
+    tr.phase = (tr.phase + beltSpeed * dt + CYCLE_TUBE_LOOP_LENGTH) % CYCLE_TUBE_LOOP_LENGTH;
+
+    const beltOptions: CycleTubeSampleOptions = {
+      sideSign: tr.sideSign,
+      derailed,
+      lateralDrift: drift,
+      upperSagM:
+        (derailed ? 0.095 : 0.044)
+        + Math.max(0, 100 - rubberIntegrity) * 0.00045
+        + Math.min(0.016, driveResult.motorSlip * 0.015),
+      lowerArchM: derailed ? 0.032 : 0.015,
+      whipPhase: nowSec * 14.0 + tr.phase * 3.5,
+      whipAmpM: derailed
+        ? 0.015
+        : Math.min(0.010, Math.abs(beltSpeed) * 0.0011 + driveResult.motorSlip * 0.006),
+    };
+    updateDynamicCycleTubeBeltGeometry(tr.beltGeo, beltOptions);
 
     for (let i = 0; i < tr.cleats.length; i++) {
-      const point = sampleTrackLoop((i / tr.cleats.length) * trackLoopLength + tr.phase);
+      const point = sampleCycleTubeLoop((i / tr.cleats.length) * CYCLE_TUBE_LOOP_LENGTH + tr.phase, beltOptions);
       const q = tr.cleats[i];
-      q.position.y = point.y;
-      q.position.z = point.z;
+      q.position.set(point.x, point.y, point.z);
       q.rotation.x = point.rotationX;
+      q.rotation.z = point.rollX;
     }
 
     for (const w of tr.wheelSpins) {
-      // Passive idlers turn only because the same belt pulls them; both
-      // end wheels share the belt's speed and never add drive force.
+      // Corner pulley wheels spin solidly on the 'I' axles even if a loose belt slips sideways
       w.rotation.x += beltSpeed * dt / DRIVE_SPROCKET_RADIUS_M;
     }
   }
@@ -3618,22 +3797,21 @@ function updateCamera(dt: number) {
   const yawKey = Number(cameraKeys.has('Numpad6')) - Number(cameraKeys.has('Numpad4'));
   const pitchKey = Number(cameraKeys.has('Numpad8')) - Number(cameraKeys.has('Numpad2'));
   const zoomKey = Number(cameraKeys.has('NumpadSubtract')) - Number(cameraKeys.has('NumpadAdd'));
-  const cameraIsMoving = yawKey !== 0 || pitchKey !== 0 || zoomKey !== 0;
-  if (cameraIsMoving) {
-    cameraFreeYaw -= yawKey * 1.35 * dt;
-    cameraFreePitch = clamp(cameraFreePitch + pitchKey * 0.9 * dt, -1.25, 1.25);
-    cameraDistanceOffset = clamp(cameraDistanceOffset + zoomKey * 3.0 * dt, -4.5, 8.0);
-    cameraFreeLookIdle = 4.5;
-  } else if (isPointerLocked) {
-    cameraFreeLookIdle = 999999;
-  } else if (cameraFreeLookIdle > 0) {
-    cameraFreeLookIdle = Math.max(0, cameraFreeLookIdle - dt);
-  } else {
-    const recenter = Math.exp(-dt * 1.35);
-    cameraFreeYaw *= recenter;
-    cameraFreePitch *= recenter;
-    cameraDistanceOffset *= recenter;
-  }
+  const freeState: CameraFreeLookState = {
+    freeYaw: cameraFreeYaw,
+    freePitch: cameraFreePitch,
+    distanceOffset: cameraDistanceOffset,
+    idleTimer: cameraFreeLookIdle,
+  };
+  stepCameraFreeLook(freeState, dt, {
+    keyDeltaYaw: -yawKey * 1.35 * dt,
+    keyDeltaPitch: pitchKey * 0.9 * dt,
+    keyDeltaDistance: zoomKey * 3.0 * dt,
+  });
+  cameraFreeYaw = freeState.freeYaw;
+  cameraFreePitch = freeState.freePitch;
+  cameraDistanceOffset = freeState.distanceOffset;
+  cameraFreeLookIdle = freeState.idleTimer;
 
   let homeYaw: number;
   let homePitch: number;
@@ -4013,7 +4191,8 @@ function animate() {
   requestAnimationFrame(animate);
 
   const now = performance.now();
-  const frameTime = clamp((now - lastFrameTime) / 1000, 0, 0.05);
+  const rawElapsedSec = clamp((now - lastFrameTime) / 1000, 0, 0.5);
+  const frameTime = Math.min(0.05, rawElapsedSec);
   lastFrameTime = now;
 
   accumulator += frameTime;
@@ -4075,7 +4254,7 @@ function animate() {
     dbg.pose = pose;
   }
 
-  updateCamera(frameTime);
+  updateCamera(rawElapsedSec);
   renderer.render(scene, camera);
   updateHUD(frameTime);
 }

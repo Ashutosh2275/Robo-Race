@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test src/drivePhysics.test.ts src/driveControls.test.ts src/vehicleDynamics.test.ts src/robotSubsystems.test.ts src/courseLayout.test.ts src/headingVerification.test.ts src/drivetrainConfig.test.ts src/scoringRules.test.ts src/courseGenerator.test.ts src/controllerCalibration.test.ts",
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test src/drivePhysics.test.ts src/driveControls.test.ts src/vehicleDynamics.test.ts src/robotSubsystems.test.ts src/courseLayout.test.ts src/headingVerification.test.ts src/drivetrainConfig.test.ts src/scoringRules.test.ts src/courseGenerator.test.ts src/controllerCalibration.test.ts src/cameraControl.test.ts src/cycleTubeBelt.test.ts",
     "verify": "node scripts/verify-gameplay.mjs"
   },
   "dependencies": {
