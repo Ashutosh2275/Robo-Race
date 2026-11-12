@@ -1314,3 +1314,68 @@ export function validateRouteClearance(colliders: CourseCollider[], robotWidth =
   }
   return { valid: issues.length === 0, issues };
 }
+
+export interface RibbonPoint2D {
+  x: number;
+  z: number;
+}
+
+export interface RibbonTangent2D {
+  tx: number;
+  tz: number;
+}
+
+/** Generate hairpin centerline samples with exact analytical unit tangents so ribbon ends stay flush with straight lanes. */
+export function buildHairpinRibbonPath(
+  hx: number,
+  hz: number,
+  a0: number,
+  a1: number,
+  arcSegs = 48,
+  radius = 3.375,
+): { points: RibbonPoint2D[]; tangents: RibbonTangent2D[] } {
+  const dirSign = Math.sign(a1 - a0) || 1;
+  const points: RibbonPoint2D[] = [];
+  const tangents: RibbonTangent2D[] = [];
+  for (let i = 0; i <= arcSegs; i++) {
+    const a = a0 + (a1 - a0) * (i / arcSegs);
+    points.push({ x: hx + radius * Math.cos(a), z: hz + radius * Math.sin(a) });
+    tangents.push({ tx: -Math.sin(a) * dirSign, tz: Math.cos(a) * dirSign });
+  }
+  return { points, tangents };
+}
+
+/** Compute the left/right edge coordinates of a route ribbon cross-section using explicit or finite-difference tangents. */
+export function computeRibbonSampleFrame(
+  points: RibbonPoint2D[],
+  index: number,
+  latOffset: number,
+  width: number,
+  tangents?: RibbonTangent2D[],
+): { xL: number; zL: number; xR: number; zR: number } {
+  const curr = points[index];
+  const prev = points[Math.max(0, index - 1)];
+  const next = points[Math.min(points.length - 1, index + 1)];
+  let tx: number;
+  let tz: number;
+  if (tangents?.[index]) {
+    tx = tangents[index].tx;
+    tz = tangents[index].tz;
+  } else {
+    tx = next.x - prev.x;
+    tz = next.z - prev.z;
+  }
+  const len = Math.hypot(tx, tz) || 1;
+  tx /= len;
+  tz /= len;
+  const rx = -tz;
+  const rz = tx;
+  const d1 = latOffset - width / 2;
+  const d2 = latOffset + width / 2;
+  return {
+    xL: curr.x + rx * d1,
+    zL: curr.z + rz * d1,
+    xR: curr.x + rx * d2,
+    zR: curr.z + rz * d2,
+  };
+}

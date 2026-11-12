@@ -6,6 +6,8 @@ import {
   GROUND_DECK_HEIGHT,
   HANGING_SAND_PIT_Y,
   MAP_SCALE,
+  buildHairpinRibbonPath,
+  computeRibbonSampleFrame,
   createDeterministicRNG,
   easeCushionedRamp,
   evaluateCourseHeight,
@@ -433,6 +435,7 @@ function makeRouteRibbon(
   yOff: number,
   thickness = 0.02,
   solidBase = false,
+  tangents?: { tx: number; tz: number }[],
 ) {
   if (points.length < 2) return;
   const positions: number[] = [];
@@ -442,21 +445,8 @@ function makeRouteRibbon(
   for (let i = 0; i < points.length; i++) {
     const curr = points[i];
     const prev = points[Math.max(0, i - 1)];
-    const next = points[Math.min(points.length - 1, i + 1)];
     if (i > 0) accDist += Math.hypot(curr.x - prev.x, curr.z - prev.z);
-    let tx = next.x - prev.x;
-    let tz = next.z - prev.z;
-    const len = Math.hypot(tx, tz) || 1;
-    tx /= len;
-    tz /= len;
-    const rx = -tz;
-    const rz = tx;
-    const d1 = latOffset - width / 2;
-    const d2 = latOffset + width / 2;
-    const xL = curr.x + rx * d1;
-    const zL = curr.z + rz * d1;
-    const xR = curr.x + rx * d2;
-    const zR = curr.z + rz * d2;
+    const { xL, zL, xR, zR } = computeRibbonSampleFrame(points, i, latOffset, width, tangents);
     const y = GROUND_DECK_HEIGHT + yOff;
     positions.push(xL, y, zL, xR, y, zR);
     if (solidBase) {
@@ -1827,15 +1817,11 @@ export function buildDynamicCourseGroup(
     [-17.50, -10.125, Math.PI / 2, Math.PI * 1.5],
   ];
   for (const [hx, hz, a0, a1] of hairpins) {
-    const pts: { x: number; z: number }[] = [];
-    for (let i = 0; i <= 24; i++) {
-      const a = a0 + (a1 - a0) * (i / 24);
-      pts.push({ x: hx + 3.375 * Math.cos(a), z: hz + 3.375 * Math.sin(a) });
-    }
-    makeRouteRibbon(courseGroup, pts, 0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006, 0.12, true);
-    makeRouteRibbon(courseGroup, pts, -(DRIVE_ROUTE_WIDTH / 2 - 0.10), 0.08, mats.laneStripeWhite, 0.016);
-    makeRouteRibbon(courseGroup, pts, DRIVE_ROUTE_WIDTH / 2 - 0.10, 0.08, mats.laneStripeWhite, 0.016);
-    makeRouteRibbon(courseGroup, pts, 0, 0.08, mats.yellow, 0.016);
+    const { points: pts, tangents: tans } = buildHairpinRibbonPath(hx, hz, a0, a1, 48);
+    makeRouteRibbon(courseGroup, pts, 0, DRIVE_ROUTE_WIDTH, mats.asphalt, 0.006, 0.12, true, tans);
+    makeRouteRibbon(courseGroup, pts, -(DRIVE_ROUTE_WIDTH / 2 - 0.10), 0.08, mats.laneStripeWhite, 0.016, 0.02, false, tans);
+    makeRouteRibbon(courseGroup, pts, DRIVE_ROUTE_WIDTH / 2 - 0.10, 0.08, mats.laneStripeWhite, 0.016, 0.02, false, tans);
+    makeRouteRibbon(courseGroup, pts, 0, 0.08, mats.yellow, 0.016, 0.02, false, tans);
 
     // Outer apex alternating red/white FIA rumble kerbs along curved turn rim (flush at r = 5.42m)
     const kerbCount = 12;

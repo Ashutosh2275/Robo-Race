@@ -33,6 +33,8 @@ import {
   HANGING_BRIDGE_CONFIG,
   HANGING_SAND_PIT_Y,
   hangingBridgeTrackHeightAt,
+  buildHairpinRibbonPath,
+  computeRibbonSampleFrame,
   MAP_SCALE,
   validateDriveRoute,
   validateObstacleSequence,
@@ -808,6 +810,30 @@ test('Lane 2 High-Incline Zigzag Challenge Ramp stalls straight climbs (spinning
     }
     assert.ok(maxSummitY >= HIGH_CLIMB_CONFIG.ySummit - 0.05, `zigzag must reach ${HIGH_CLIMB_CONFIG.ySummit}m summit (gripMult=${gripMult}), reached ${maxSummitY.toFixed(2)}`);
     assert.ok(zigState.x / MAP_SCALE <= 8.35, `robot must descend past High Climb exit onto Hump runway (gripMult=${gripMult}), ended at x=${(zigState.x / MAP_SCALE).toFixed(2)}`);
+  }
+});
+
+test('Hairpin turn ribbons join straight lane ends with exact horizontal tangents and zero edge seam gap', () => {
+  const hairpins: Array<[number, number, number, number, number, number]> = [
+    [17.5, 10.125, Math.PI / 2, -Math.PI / 2, 13.5, 6.75],
+    [-17.5, 3.375, Math.PI / 2, 1.5 * Math.PI, 6.75, 0.0],
+    [17.5, -3.375, Math.PI / 2, -Math.PI / 2, 0.0, -6.75],
+    [-17.5, -10.125, Math.PI / 2, 1.5 * Math.PI, -6.75, -13.5],
+  ];
+  for (const [hx, hz, a0, a1, zStart, zEnd] of hairpins) {
+    const { points, tangents } = buildHairpinRibbonPath(hx, hz, a0, a1, 48);
+    assert.equal(points.length, 49);
+    assert.equal(tangents.length, 49);
+    for (const [idx, expectedZ] of [[0, zStart], [48, zEnd]] as const) {
+      assert.ok(Math.abs(points[idx].x - hx) < 1e-9, `endpoint x must match straight lane edge ${hx}`);
+      assert.ok(Math.abs(points[idx].z - expectedZ) < 1e-9, `endpoint z must match straight lane ${expectedZ}`);
+      // Analytical tangent at hairpin joint must be horizontal (tz == 0, |tx| == 1)
+      assert.ok(Math.abs(tangents[idx].tz) < 1e-9, `endpoint tz must be 0, got ${tangents[idx].tz}`);
+      assert.ok(Math.abs(Math.abs(tangents[idx].tx) - 1) < 1e-9);
+      const frame = computeRibbonSampleFrame(points, idx, 0, DRIVE_ROUTE_WIDTH, tangents);
+      assert.ok(Math.abs(frame.xL - hx) < 1e-9 && Math.abs(frame.xR - hx) < 1e-9, 'both outer/inner ribbon corners must lie flush on x = +/-17.5');
+      assert.ok(Math.abs(Math.abs(frame.zL - frame.zR) - DRIVE_ROUTE_WIDTH) < 1e-9, 'joint cross-section width must match full lane width');
+    }
   }
 });
 
