@@ -59,6 +59,7 @@ export type SubsystemsState = {
   integrity: IntegrityState;
   faults: ComponentFaultState;
   activeHazard: HazardType;
+  fireExposureSec: number;
 };
 
 export const TECHNICAL_TIMEOUT_SECONDS = 30;
@@ -139,6 +140,7 @@ export function createInitialSubsystems(): SubsystemsState {
     },
     faults: createInitialFaults(),
     activeHazard: 'none',
+    fireExposureSec: 0,
   };
 }
 
@@ -419,10 +421,25 @@ export function stepSubsystems(
     sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - impactDamage * 0.5);
   }
 
-  // Thermal track rubber stress on extreme heat (non-fall hazard leaves chassis integrity untouched)
+  // Fire dwell exposure ramps realistically: quick crisp crossings singe lightly while stalling cooks chassis, belts & seals
   if (hazard === 'fire') {
-    sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - 2.5 * dt);
-    sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - 2.5 * dt);
+    sub.fireExposureSec = Math.min(15, (sub.fireExposureSec ?? 0) + dt);
+  } else {
+    sub.fireExposureSec = Math.max(0, (sub.fireExposureSec ?? 0) - dt * (hazard === 'water' ? 3.0 : 1.5));
+  }
+
+  // Thermal track rubber, drive wheel, seal & chassis heat damage during active fire immersion
+  if (hazard === 'fire') {
+    const heatFactor = 1.0 + Math.min(1.6, sub.fireExposureSec * 0.28);
+    const beltDmg = 3.2 * heatFactor * dt;
+    sub.integrity.leftTrack = Math.max(0, sub.integrity.leftTrack - beltDmg);
+    sub.integrity.rightTrack = Math.max(0, sub.integrity.rightTrack - beltDmg);
+    const chassisDmg = (1.6 + Math.min(11.0, sub.fireExposureSec * 1.9)) * dt;
+    sub.integrity.chassis = Math.max(0, sub.integrity.chassis - chassisDmg);
+    const wheelDmg = (1.2 + Math.min(6.0, sub.fireExposureSec * 1.0)) * dt;
+    sub.integrity.driveWheels = Math.max(0, sub.integrity.driveWheels - wheelDmg);
+    const sealDmg = (2.0 + Math.min(7.5, sub.fireExposureSec * 1.25)) * dt;
+    sub.integrity.electronicsEnclosure = Math.max(0, sub.integrity.electronicsEnclosure - sealDmg);
   }
 
   // 5. Realistic Component Burnout, Swelling & Short-Circuit Evaluation

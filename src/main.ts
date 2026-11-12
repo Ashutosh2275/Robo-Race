@@ -2223,8 +2223,16 @@ function showMenu() {
         ${activeFaults.map(id => `• ${FAULT_REPAIR_META[id].label} (${subsystems.faults.faultReasons[id] || FAULT_REPAIR_META[id].symptom})`).join('<br>')}
         ${sealCracked ? `<br>• Electronics Enclosure Seal Cracked (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress short risk` : ''}
         <br><span style="color:#f0bd53;">Starting Round ${String(roundNumber).padStart(2, '0')} opens a mandatory <b>30s Technical Timeout Pit Stop</b> for diagnostics &amp; swaps.</span>
+        <div style="margin-top:8px;">
+          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Round 01</button>
+        </div>
       </div>`
-    : '';
+    : (roundNumber > 1
+      ? `<div class="menu-section-head" style="margin-bottom:8px;">
+          <span class="menu-section-label">Round ${String(roundNumber).padStart(2, '0')} carryover active</span>
+          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Round 01</button>
+        </div>`
+      : '');
 
   o.innerHTML = `
     <div class="overlay overlay--menu">
@@ -2292,6 +2300,16 @@ function showMenu() {
     </div>
   `;
   $('#btnStartRace', o).addEventListener('click', startRace);
+  $('#btnMenuResetFresh', o)?.addEventListener('click', () => {
+    carriedHardware = null;
+    saveCarriedHardware(null);
+    roundNumber = 1;
+    subsystems = createInitialSubsystems();
+    beltTracking = createInitialBeltTrackingState();
+    syncRobotVisualHardwareState(performance.now() * 0.001);
+    showMenu();
+    displayToast('FRESH HARDWARE & ROUND 01 RESTORED');
+  });
   $('#btnMenuShuffle', o).addEventListener('click', () => {
     const tid = getActiveTrack().id;
     buildCourseForTrack(tid, nextCourseSeed());
@@ -3117,6 +3135,11 @@ function stepPhysics(dt: number) {
       lastHazardHintTime = elapsed;
       displayToast('OIL SLICK ZONE · LOW GRIP SKID HAZARD');
     }
+  } else if (surf.hazard === 'fire' && !pose.isFlipped && pose.isGrounded) {
+    if (elapsed - lastHazardHintTime > 2.2 || elapsed < lastHazardHintTime) {
+      lastHazardHintTime = elapsed;
+      displayToast('FIRE HEARTH · THERMAL CHASSIS & BELT DAMAGE!');
+    }
   } else if (surf.breakawayGrade !== undefined && driveResult.motorSlip > 0.50 && motionState.vx > 0.25 && (elapsed - lastHazardHintTime > 5.0 || elapsed < lastHazardHintTime)) {
     lastHazardHintTime = elapsed;
     displayToast('BELTS SPINNING STRAIGHT · ZIGZAG (W+A / W+D) OR GAIN SPEED!');
@@ -3471,7 +3494,13 @@ function stepPhysics(dt: number) {
     pose.vx = 0;
     pose.vz = 0;
     pose.yawRate = 0;
-    showFailure(subsystems.battery.percentage <= 0 ? 'LiPo battery depleted' : 'Chassis integrity depleted');
+    showFailure(
+      subsystems.battery.percentage <= 0
+        ? 'LiPo battery depleted'
+        : (subsystems.fireExposureSec > 0.25 && subsystems.activeHazard === 'fire'
+          ? 'Chassis & belts thermally destroyed in fire hearth'
+          : 'Chassis integrity depleted')
+    );
   }
 
   // Update Three.js Robot Rigidbody Position and Rotation (unified rigid structure)
@@ -3652,7 +3681,7 @@ function stepPhysics(dt: number) {
     if (p) {
       p.life = 0.55;
       p.mesh.visible = true;
-      p.mesh.position.set(pose.x + (Math.random() - 0.5) * 0.6, 0.16, pose.z + (Math.random() - 0.5) * 0.6);
+      p.mesh.position.set(pose.x + (Math.random() - 0.5) * 0.6, pose.y + 0.16, pose.z + (Math.random() - 0.5) * 0.6);
       p.mesh.scale.setScalar(0.6 + Math.random() * 0.8);
     }
   }
@@ -3975,7 +4004,8 @@ function updateHUD(dt: number) {
       && Math.abs(lz - hbSlot.laneZ) <= 2.35
       && (pose.y + TRACK_CONTACT_OFFSET) < GROUND_DECK_HEIGHT - 0.15;
     const outOfTrackWarning = raceState === 'racing' && scoreState.lastOutFraction >= 0.50;
-    const showBanner = pose.isFlipped || inSandPit || outOfTrackWarning || (rKeyPressed && rHoldDuration > 0.05);
+    const inFireHearth = raceState === 'racing' && subsystems.activeHazard === 'fire';
+    const showBanner = pose.isFlipped || inSandPit || inFireHearth || outOfTrackWarning || (rKeyPressed && rHoldDuration > 0.05);
     rolloverBanner.classList.toggle('hidden', !showBanner);
     if (showBanner) {
       if (rKeyPressed && rHoldDuration > 0.05) {
@@ -3989,6 +4019,9 @@ function updateHUD(dt: number) {
           const hpMsg = config.handPoints >= 999 ? '∞' : `${remainingHandPoints} LEFT`;
           rolloverBanner.textContent = `⚠️ ${inSandPit ? 'FALLEN IN SAND PIT' : 'ROBOT OVERTURNED'} · TAP [R] OR HAND POINTS TO RECOVER (${hpMsg})`;
         }
+      } else if (inFireHearth) {
+        const chassisPct = Math.round(subsystems.integrity.chassis);
+        rolloverBanner.textContent = `🔥 FIRE HEARTH OVERHEAT · EXIT FLAMES FAST · CHASSIS ${chassisPct}%`;
       } else if (outOfTrackWarning) {
         const outPct = Math.round(scoreState.lastOutFraction * 100);
         rolloverBanner.textContent = `⚠️ ${outPct}% OUTSIDE BOUNDARY LINES · RETURN INSIDE LANE (${scoreState.remainingLifelines}/${scoreState.totalLifelines} LIFELINES LEFT)`;

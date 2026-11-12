@@ -1739,8 +1739,8 @@ export function buildDynamicCourseGroup(
 
   // Weathered Concrete Perimeter Barriers, Faded Coping & Corner Floodlight Pylons
   for (const [id, x, z, w, d] of [
-    ['wall_north', 0, -17.82, 46, 0.32],
-    ['wall_south', 0, 17.82, 46, 0.32],
+    ['wall_north', 0, -17.82, 48.36, 0.32],
+    ['wall_south', 0, 17.82, 48.36, 0.32],
     ['wall_west', -24.02, 0, 0.32, 36],
     ['wall_east', 24.02, 0, 0.32, 36],
   ] as [string, number, number, number, number][]) {
@@ -1748,8 +1748,8 @@ export function buildDynamicCourseGroup(
     colliders.push({ id, x, z, hx: w / 2, hz: d / 2, y: ARENA_FLOOR_HEIGHT + 0.39, height: 0.78, rot: 0, walkable: false });
   }
   const wallTopY = ARENA_FLOOR_HEIGHT + 0.78;
-  makeBox(courseGroup, mats.yellow, new THREE.Vector3(0, wallTopY + 0.015, -17.82), new THREE.Vector3(46, 0.03, 0.34), 0, false);
-  makeBox(courseGroup, mats.yellow, new THREE.Vector3(0, wallTopY + 0.015, 17.82), new THREE.Vector3(46, 0.03, 0.34), 0, false);
+  makeBox(courseGroup, mats.yellow, new THREE.Vector3(0, wallTopY + 0.015, -17.82), new THREE.Vector3(48.36, 0.03, 0.34), 0, false);
+  makeBox(courseGroup, mats.yellow, new THREE.Vector3(0, wallTopY + 0.015, 17.82), new THREE.Vector3(48.36, 0.03, 0.34), 0, false);
   makeBox(courseGroup, mats.yellow, new THREE.Vector3(-24.02, wallTopY + 0.015, 0), new THREE.Vector3(0.34, 0.03, 36), 0, false);
   makeBox(courseGroup, mats.yellow, new THREE.Vector3(24.02, wallTopY + 0.015, 0), new THREE.Vector3(0.34, 0.03, 36), 0, false);
   for (const [lx, lz] of [[-23.6, -17.4], [23.6, -17.4], [-23.6, 17.4], [23.6, 17.4]]) {
@@ -1935,8 +1935,8 @@ export function buildDynamicCourseGroup(
           id: `slalom_${slot.index}_${idx}`,
           x: bx,
           z: bz,
-          hx: len / 2,
-          hz: span / 2,
+          hx: (len + 0.08) / 2,
+          hz: (span + 0.08) / 2,
           y: GROUND_DECK_HEIGHT + h / 2,
           height: h,
           rot: 0,
@@ -2032,14 +2032,25 @@ export function buildDynamicCourseGroup(
       const burnerU = [-1.52, -0.76, 0.0, 0.76, 1.52];
 
       for (const side of [-1, 1] as const) {
-        const bankZ = toCourseZ(slot, side * 1.88);
-        // Firebrick plinth base + main iron gas distribution rail
-        makeBox(courseGroup, fireMats.firebrickMat, new THREE.Vector3(cx, 0.095, bankZ), new THREE.Vector3(3.76, 0.09, 0.22));
+        const bankZ = toCourseZ(slot, side * 1.96);
+        // Firebrick plinth base + main iron gas distribution rail (guarded against wheel overlap)
+        makeBox(courseGroup, fireMats.firebrickMat, new THREE.Vector3(cx, 0.095, bankZ), new THREE.Vector3(3.76, 0.09, 0.20));
         makeCyl(courseGroup, fireMats.castIronMat, new THREE.Vector3(cx, 0.165, bankZ), 0.042, 3.68, 'x', 12);
+        colliders.push({
+          id: `fire_manifold_${slot.index}_${side}`,
+          x: cx,
+          z: bankZ,
+          hx: 1.90,
+          hz: 0.13,
+          y: 0.15,
+          height: 0.24,
+          rot: 0,
+          walkable: false,
+        });
 
         burnerU.forEach((bu, idx) => {
           const bx = toCourseX(slot, bu);
-          const nozzleZ = toCourseZ(slot, side * 1.79);
+          const nozzleZ = toCourseZ(slot, side * 1.88);
           // Cast-iron burner collar & brass diffuser cap angled slightly inward
           const collar = makeCyl(courseGroup, fireMats.castIronMat, new THREE.Vector3(bx, 0.185, nozzleZ), 0.068, 0.11, 'y', 12);
           collar.rotation.x = -side * 0.24 * slot.dir;
@@ -2527,8 +2538,20 @@ export function buildDynamicCourseGroup(
         for (const wingU of [-1, 1]) {
           const wingCenterU = wingU * ((goalMouthHalfU + pitchHalfU) * 0.5 + 0.04);
           const wingLen = pitchHalfU - goalMouthHalfU - 0.08;
-          makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(toCourseX(slot, wingCenterU), turfTopY + 0.09, zLine), new THREE.Vector3(wingLen, 0.18, 0.12));
-          makeBox(courseGroup, mats.yellow, new THREE.Vector3(toCourseX(slot, wingCenterU), turfTopY + 0.19, zLine), new THREE.Vector3(wingLen, 0.03, 0.13), 0, false);
+          const wingX = toCourseX(slot, wingCenterU);
+          makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(wingX, turfTopY + 0.09, zLine), new THREE.Vector3(wingLen, 0.18, 0.12));
+          makeBox(courseGroup, mats.yellow, new THREE.Vector3(wingX, turfTopY + 0.19, zLine), new THREE.Vector3(wingLen, 0.03, 0.13), 0, false);
+          colliders.push({
+            id: `football_curb_${slot.index}_${side}_${wingU}`,
+            x: wingX,
+            z: zLine,
+            hx: wingLen / 2,
+            hz: 0.065,
+            y: turfTopY + 0.105,
+            height: 0.21,
+            rot: 0,
+            walkable: false,
+          });
         }
       }
 
@@ -2780,7 +2803,7 @@ export function buildDynamicCourseGroup(
         }
 
         courseGroup.add(pylonGroup);
-        colliders.push({ id: `oil_tire_${slot.index}_${ci}`, x: tx, z: tz, hx: 0.36, hz: 0.36, y: GROUND_DECK_HEIGHT + 0.26, height: 0.52, rot: 0, walkable: false });
+        colliders.push({ id: `oil_tire_${slot.index}_${ci}`, x: tx, z: tz, hx: 0.37, hz: 0.37, y: GROUND_DECK_HEIGHT + 0.48, height: 0.96, rot: 0, walkable: false });
       });
 
       // 5. Roadside shoulder Chicane Ahead diamond warning sign (outside +/-2.20m lane shoulder)
@@ -2899,9 +2922,21 @@ export function buildDynamicCourseGroup(
           false,
         );
       }
-      // Side precast step parapet curbs
+      // Side precast step parapet curbs (outside navigable ±2.20m lane with solid colliders)
       for (const side of [-1, 1]) {
-        makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(cx, GROUND_DECK_HEIGHT + 0.16, lz + side * 2.22), new THREE.Vector3(7.4, 0.32, 0.12));
+        const curbZ = lz + side * 2.26;
+        makeBox(courseGroup, mats.concreteCurb, new THREE.Vector3(cx, GROUND_DECK_HEIGHT + 0.16, curbZ), new THREE.Vector3(7.4, 0.32, 0.12));
+        colliders.push({
+          id: `staircase_curb_${slot.index}_${side}`,
+          x: cx,
+          z: curbZ,
+          hx: 3.70,
+          hz: 0.06,
+          y: GROUND_DECK_HEIGHT + 0.16,
+          height: 0.32,
+          rot: 0,
+          walkable: false,
+        });
       }
     } else if (slot.type === 'camber_bank') {
       const uBreaks: number[] = [];
@@ -2948,6 +2983,17 @@ export function buildDynamicCourseGroup(
           const pz = toCourseZ(slot, side * 2.34);
           makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(gx, GROUND_DECK_HEIGHT + 0.10, pz), 0.16, 0.20, 'y', 10);
           makeBox(courseGroup, mats.metal, new THREE.Vector3(gx, GROUND_DECK_HEIGHT + 1.05, pz), new THREE.Vector3(0.14, 2.10, 0.14));
+          colliders.push({
+            id: `sliding_gate_post_${slot.index}_${gi}_${side}`,
+            x: gx,
+            z: pz,
+            hx: 0.12,
+            hz: 0.12,
+            y: GROUND_DECK_HEIGHT + 1.05,
+            height: 2.10,
+            rot: 0,
+            walkable: false,
+          });
         }
         makeBox(courseGroup, mats.metal, new THREE.Vector3(gx, railY + 0.06, lz), new THREE.Vector3(0.18, 0.16, 4.90));
         makeBox(courseGroup, mats.chrome, new THREE.Vector3(gx, railY - 0.06, lz), new THREE.Vector3(0.08, 0.06, 4.70));
@@ -3014,7 +3060,19 @@ export function buildDynamicCourseGroup(
         const localBallR = 0.40;
         const worldBallR = localBallR * MAP_SCALE;
         for (const side of [-1, 1]) {
-          makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, (pivotY + ARENA_FLOOR_HEIGHT) / 2, lz + side * 1.55), new THREE.Vector3(0.16, pivotY - ARENA_FLOOR_HEIGHT, 0.16));
+          const postZ = lz + side * 1.55;
+          makeBox(courseGroup, mats.metal, new THREE.Vector3(bx, (pivotY + ARENA_FLOOR_HEIGHT) / 2, postZ), new THREE.Vector3(0.16, pivotY - ARENA_FLOOR_HEIGHT, 0.16));
+          colliders.push({
+            id: `pendulum_gantry_${slot.index}_${bi}_${side}`,
+            x: bx,
+            z: postZ,
+            hx: 0.09,
+            hz: 0.09,
+            y: (pivotY + ARENA_FLOOR_HEIGHT) / 2,
+            height: pivotY - ARENA_FLOOR_HEIGHT,
+            rot: 0,
+            walkable: false,
+          });
         }
         makeBox(courseGroup, mats.orange, new THREE.Vector3(bx, pivotY, lz), new THREE.Vector3(0.20, 0.20, 3.30));
 

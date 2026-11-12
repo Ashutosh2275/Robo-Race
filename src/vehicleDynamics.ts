@@ -214,14 +214,15 @@ export function stepVehicle3D(
   const rawPitchDiff = Math.abs(rawFrontH - rawRearH);
 
   // 1. True cliff-edge detection (evaluated cleanly on raw corner probes vs center belly):
-  const isCliffStep = Math.abs(centerH - (rawLeftH + rawRightH) * 0.5) > 0.10;
-  const isCliffSideDrop = rawRollDiff >= 0.70 && isCliffStep;
-  const isCliffEndStep = Math.abs(centerH - (rawFrontH + rawRearH) * 0.5) > 0.24;
-  const isCliffEndDrop = rawPitchDiff >= 1.10 && isCliffEndStep;
+  const isCliffStep = Math.abs(centerH - (rawLeftH + rawRightH) * 0.5) > 0.22;
+  const isCliffSideDrop = rawRollDiff >= 0.75 && isCliffStep;
+  const isCliffEndStep = Math.abs(centerH - (rawFrontH + rawRearH) * 0.5) > 0.28;
+  const isCliffEndDrop = rawPitchDiff >= 1.15 && isCliffEndStep;
 
-  // 2. Multi-station continuous rigid track belt contact (7 stations along each track):
-  // Prevents narrow transverse obstacles (logs, pipes, steps, boulders) from falling between
-  // front/rear corner probes or sinking into the lower belt run on single-sided contact.
+  // 2. Multi-station full-width continuous track & wheel envelope contact:
+  // Samples 13 stations longitudinally AND across the 0.30m lateral width of each cycle-tube belt
+  // so narrow/diagonal bars (rumble washboard, logs, boulders, stair edges) lift the wheel cleanly
+  // without slicing into inner/outer tire rims or mid-span belt runs.
   let hFL = rawFL;
   let hFR = rawFR;
   let hRL = rawRL;
@@ -230,37 +231,51 @@ export function stepVehicle3D(
   let beltMidMaxR = (rawFR + rawRR) * 0.5;
   let beltSamplesL: number[] | null = null;
   let beltSamplesR: number[] | null = null;
+  const BELT_STATIONS = 12; // 13 stations (k = 0..12), ~0.14m spacing
   if (!isCliffSideDrop && !isCliffEndDrop) {
-    const sampleBelt = (rear: { x: number; z: number }, front: { x: number; z: number }, h0: number, h1: number) => {
-      const arr = [h0];
-      for (let k = 1; k <= 5; k++) {
-        const f = k / 6;
-        arr.push(heightAt(rear.x + (front.x - rear.x) * f, rear.z + (front.z - rear.z) * f));
+    const rightX = Math.cos(pose.yaw);
+    const rightZ = -Math.sin(pose.yaw);
+    const beltEdgeHalfW = 0.145;
+    const sampleBeltWidth = (sx: number, sz: number) => {
+      const hMid = heightAt(sx, sz);
+      const hIn = heightAt(sx - rightX * beltEdgeHalfW, sz - rightZ * beltEdgeHalfW);
+      const hOut = heightAt(sx + rightX * beltEdgeHalfW, sz + rightZ * beltEdgeHalfW);
+      let h = hMid;
+      // Only include drivable obstacle protrusions (<= 0.42m above belt centerline) so tall side walls do not pull robot upward
+      if (hIn > h && hIn - hMid <= 0.42) h = hIn;
+      if (hOut > h && hOut - hMid <= 0.42) h = hOut;
+      return h;
+    };
+    const sampleBelt = (rear: { x: number; z: number }, front: { x: number; z: number }) => {
+      const arr: number[] = [];
+      for (let k = 0; k <= BELT_STATIONS; k++) {
+        const f = k / BELT_STATIONS;
+        arr.push(sampleBeltWidth(rear.x + (front.x - rear.x) * f, rear.z + (front.z - rear.z) * f));
       }
-      arr.push(h1);
+      const h0 = arr[0];
+      const h1 = arr[BELT_STATIONS];
       const endMax = Math.max(h0, h1);
       let effRear = h0;
       let effFront = h1;
-      // Only activate interior convex obstacle tilt when a bump genuinely protrudes above BOTH belt ends
-      // (so downhill ramp/plateau shoulders never cantilever corners artificially into midair).
-      for (let k = 4; k <= 5; k++) {
+      for (let k = BELT_STATIONS - 3; k < BELT_STATIONS; k++) {
         if (arr[k] > endMax + 0.008) effFront = Math.max(effFront, arr[k]);
       }
-      for (let k = 1; k <= 2; k++) {
+      for (let k = 1; k <= 3; k++) {
         if (arr[k] > endMax + 0.008) effRear = Math.max(effRear, arr[k]);
       }
       let midRaise = 0;
-      for (let k = 1; k <= 5; k++) {
-        if (arr[k] <= endMax + 0.008) continue;
-        const f = k / 6;
+      for (let k = 1; k < BELT_STATIONS; k++) {
+        const f = k / BELT_STATIONS;
         const lineY = effRear + (effFront - effRear) * f;
-        if (arr[k] > lineY) midRaise = Math.max(midRaise, arr[k] - lineY);
+        if (arr[k] > lineY + 0.004) {
+          midRaise = Math.max(midRaise, arr[k] - lineY);
+        }
       }
-      return { rear: effRear + midRaise, front: effFront + midRaise, midH: arr[3], all: arr };
+      return { rear: effRear + midRaise, front: effFront + midRaise, midH: arr[BELT_STATIONS / 2], all: arr };
     };
 
-    const leftBelt = sampleBelt(patches.rearLeft, patches.frontLeft, rawRL, rawFL);
-    const rightBelt = sampleBelt(patches.rearRight, patches.frontRight, rawRR, rawFR);
+    const leftBelt = sampleBelt(patches.rearLeft, patches.frontLeft);
+    const rightBelt = sampleBelt(patches.rearRight, patches.frontRight);
     hRL = leftBelt.rear;
     hFL = leftBelt.front;
     hRR = rightBelt.rear;
@@ -357,6 +372,14 @@ export function stepVehicle3D(
     return;
   }
 
+  // Ground-normal contact pitch alignment: when the front or rear track presses into solid terrain
+  // (e.g., slamming onto a flat bay from a steep ramp), contact reaction aligns pitch faster without bobbing.
+  const pitchErr = groundPitch - pose.pitch;
+  const rollErr = groundRoll + turnBank - pose.roll;
+  const maxBeltLiftHint = Math.max(0, Math.abs(pitchErr) * (TRACK_LENGTH * 0.5));
+  const pitchStiff = (!isCliffEndDrop && maxBeltLiftHint > 0.04) ? 680.0 : 280.0;
+  const pitchDamp = (!isCliffEndDrop && maxBeltLiftHint > 0.04) ? 52.0 : 33.5;
+
   // Edge-drop tipping vs critically damped ground terrain tracking:
   if (sideDropActive) {
     const tipDir = rightH < leftH ? 1 : -1;
@@ -366,8 +389,7 @@ export function stepVehicle3D(
     pose.rollRate *= Math.exp(-dt * 0.35);
   } else {
     // Critically damped rigid track suspension (omega_n = 16.7 rad/s, zeta = 1.0)
-    const rollError = groundRoll + turnBank - pose.roll;
-    pose.rollRate += (rollError * 280.0 - pose.rollRate * 33.5) * dt;
+    pose.rollRate += (rollErr * 280.0 - pose.rollRate * 33.5) * dt;
   }
 
   if (endDropActive) {
@@ -376,51 +398,46 @@ export function stepVehicle3D(
     pose.pitchRate += tipDir * endAlpha * dt;
     pose.pitchRate *= Math.exp(-dt * 0.35);
   } else {
-    const pitchError = groundPitch - pose.pitch;
-    pose.pitchRate += (pitchError * 280.0 - pose.pitchRate * 33.5) * dt;
+    pose.pitchRate += (pitchErr * pitchStiff - pose.pitchRate * pitchDamp) * dt;
   }
 
   // Integrate pitch and roll
   pose.pitch += pose.pitchRate * dt;
   pose.roll += pose.rollRate * dt;
 
-  // Compute grounded height baseline strictly preserving smooth downhill ramp tracking
+  // Compute grounded height baseline enforcing strict non-penetration at every wheel, belt & spine station
   let targetY = effectiveGroundH - TRACK_CONTACT_OFFSET;
   if (!isCliffSideDrop && !isCliffEndDrop && beltSamplesL && beltSamplesR) {
     const halfPitchDrop = Math.sin(pose.pitch) * (TRACK_LENGTH * 0.5);
     const halfRollLift = Math.sin(pose.roll) * (TRACK_WIDTH * 0.5);
-    const endMaxL = Math.max(rawRL, rawFL);
-    const endMaxR = Math.max(rawRR, rawFR);
     let bumpClearLift = 0;
-    for (let k = 1; k <= 5; k++) {
-      const sU = (k / 6 - 0.5) * 2;
-      if (beltSamplesL[k] > endMaxL + 0.012) {
-        bumpClearLift = Math.max(bumpClearLift, beltSamplesL[k] - (effectiveGroundH - halfPitchDrop * sU - halfRollLift));
-      }
-      if (beltSamplesR[k] > endMaxR + 0.012) {
-        bumpClearLift = Math.max(bumpClearLift, beltSamplesR[k] - (effectiveGroundH - halfPitchDrop * sU + halfRollLift));
-      }
-    }
-    // Non-penetration at belt ends on twisted/raised obstacles rising above the center terrain,
-    // without triggering on smooth downhill slope drop-offs or symmetric Gate-08 ramp-exit touchdowns.
-    const minCornerH = Math.min(hFL, hFR, hRL, hRR);
-    const maxCornerH = Math.max(hFL, hFR, hRL, hRR);
-    const maxFrontCornerH = Math.max(hFL, hFR);
-    const isFrontOrTwistedClimb =
-      (maxFrontCornerH - centerH > 0.02 && minCornerH >= centerH - 0.015) ||
-      (cornerMaxPenetration > 0.018 && maxCornerH - centerH > centerH - minCornerH);
-    if (isFrontOrTwistedClimb) {
-      bumpClearLift = Math.max(
-        bumpClearLift,
-        hFL - (effectiveGroundH - halfPitchDrop - halfRollLift),
-        hFR - (effectiveGroundH - halfPitchDrop + halfRollLift),
-      );
-      if (cornerMaxPenetration > 0.018 || rollDifferential > 0.04) {
+    const isNearDropLip = isCliffSideDrop || isCliffEndDrop
+      || (centerH - Math.min(rawFL, rawFR, rawRL, rawRR) > 0.45 && Math.min(rawFL, rawFR, rawRL, rawRR) < -0.50);
+    if (!isNearDropLip) {
+      for (let k = 0; k <= BELT_STATIONS; k++) {
+        const sU = (k / BELT_STATIONS - 0.5) * 2;
+        const planeYL = effectiveGroundH - halfPitchDrop * sU - halfRollLift;
+        const planeYR = effectiveGroundH - halfPitchDrop * sU + halfRollLift;
         bumpClearLift = Math.max(
           bumpClearLift,
-          hRL - (effectiveGroundH + halfPitchDrop - halfRollLift),
-          hRR - (effectiveGroundH + halfPitchDrop + halfRollLift),
+          beltSamplesL[k] - planeYL,
+          beltSamplesR[k] - planeYR,
         );
+      }
+      // Protect central 'I'-frame spine belly (0.27m bottom vs 0.12m belt bottom -> 0.15m clearance) over drivable
+      // boulders/logs ONLY when at least one track rests near ground/obstacle level (never hold floating above bridge voids)
+      const trackSupportedNearCenter = Math.max(leftH, rightH) >= centerH - 0.38;
+      if (trackSupportedNearCenter) {
+        const sinYaw = Math.sin(pose.yaw);
+        const cosYaw = Math.cos(pose.yaw);
+        for (const sU of [-0.55, 0, 0.55]) {
+          const dz = sU * (TRACK_LENGTH * 0.5);
+          const hSpine = heightAt(pose.x + dz * sinYaw, pose.z + dz * cosYaw);
+          const planeYC = effectiveGroundH - halfPitchDrop * sU + 0.15;
+          if (hSpine - centerH <= 0.38 && hSpine - Math.min(leftH, rightH) <= 0.38) {
+            bumpClearLift = Math.max(bumpClearLift, hSpine - planeYC);
+          }
+        }
       }
     }
     targetY += bumpClearLift;

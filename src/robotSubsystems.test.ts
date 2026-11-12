@@ -147,3 +147,32 @@ test('cracked electronics enclosure shorts ESC circuit when entering deep water 
   assert.equal(s.faults.circuitBurnt, true);
   assert.ok(triggered.includes('circuit_burnt'));
 });
+
+test('fire hazard applies progressive thermal damage: fast crossings survive while lingering destroys chassis & belts', () => {
+  // Fast 1.0s pass across the fire hearth leaves chassis > 94% and belts intact
+  const quick = createInitialSubsystems();
+  for (let i = 0; i < 10; i++) {
+    stepSubsystems(quick, 1.0, 1.0, 0.1, 'fire', 0, 0.1);
+  }
+  assert.ok(quick.integrity.chassis >= 94, `Quick fire pass should preserve >=94% chassis, got ${quick.integrity.chassis}`);
+  assert.equal(isRobotDestroyed(quick), false);
+
+  // Prolonged stall (~12s) in intense fire progressively destroys chassis, belts, drive wheels & enclosure
+  const stalled = createInitialSubsystems();
+  for (let i = 0; i < 120; i++) {
+    stepSubsystems(stalled, 0.4, 0.4, 0.2, 'fire', 0, 0.1);
+  }
+  assert.ok(stalled.integrity.leftTrack < 65, 'Fire exposure must scorch left cycle-tube belt');
+  assert.ok(stalled.integrity.rightTrack < 65, 'Fire exposure must scorch right cycle-tube belt');
+  assert.ok(stalled.integrity.driveWheels < 75, 'Fire exposure must degrade corner drive wheels');
+  assert.ok(stalled.integrity.electronicsEnclosure < 75, 'Fire exposure must degrade enclosure seals');
+  assert.equal(isRobotDestroyed(stalled), true, 'Prolonged fire dwell must thermally destroy robot chassis');
+
+  // Exiting fire onto water quenches fireExposureSec fast
+  const cooled = createInitialSubsystems();
+  for (let i = 0; i < 30; i++) stepSubsystems(cooled, 0.8, 0.8, 0, 'fire', 0, 0.1);
+  const peakExposure = cooled.fireExposureSec;
+  assert.ok(peakExposure > 2.5);
+  for (let i = 0; i < 15; i++) stepSubsystems(cooled, 0.5, 0.5, 0, 'water', 0, 0.1);
+  assert.equal(cooled.fireExposureSec, 0, 'Water immersion must rapidly quench accumulated thermal exposure');
+});

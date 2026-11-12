@@ -6,6 +6,7 @@ import {
   DYNAMIC_WATER_LEVEL_Y,
   HURDLE_CATALOG,
   buildSpiralTowerColliders,
+  evaluateRumbleWashboardHeightAt,
   generateRandomizedCourse,
   sampleHangingBridgeRibbon,
   setActiveGeneratedCourse,
@@ -900,5 +901,108 @@ test('spiral tower colliders produce zero phantom barrier hits across full 540-d
       MAP_SCALE,
     );
     assert.ok(hitCenterCore && hitCenterCore.id.startsWith('spiral_core_'), 'Central column must remain a solid barrier on real impact');
+  }
+});
+
+test('evaluateRumbleWashboardHeightAt accurately profiles 8 diagonal speed breaker bars (+0.125m) matching 3D visual boxes', () => {
+  for (const dir of [1, -1]) {
+    // Road baseline outside bars must equal GROUND_DECK_HEIGHT
+    const baseH = evaluateRumbleWashboardHeightAt(-4.8, 0, dir);
+    assert.ok(Math.abs(baseH - GROUND_DECK_HEIGHT) < 1e-6);
+
+    // Each of the 8 staggered bars should reach +0.125m above GROUND_DECK_HEIGHT at its diagonal bar axis
+    for (let i = 0; i < 8; i++) {
+      const uBar = -3.5 + i;
+      const vBar = (i % 2 === 0 ? -1 : 1) * 0.55;
+      const peakH = evaluateRumbleWashboardHeightAt(uBar, vBar, dir);
+      assert.ok(
+        Math.abs(peakH - (GROUND_DECK_HEIGHT + 0.125)) < 0.005,
+        `Bar ${i} peak at u=${uBar}, v=${vBar} should reach +0.125m crest, got ${(peakH - GROUND_DECK_HEIGHT).toFixed(4)}m`,
+      );
+
+      // Width ends beyond bar half-span drop cleanly back to road
+      const outsideZ = evaluateRumbleWashboardHeightAt(uBar, vBar + (i % 2 === 0 ? -1.7 : 1.7), dir);
+      assert.ok(
+        Math.abs(outsideZ - GROUND_DECK_HEIGHT) < 1e-6,
+        `Outside bar ${i} along lateral lane must drop to flat ground, got ${outsideZ}`,
+      );
+    }
+  }
+});
+
+test('fire_hearth obstacle registers fire surface hazard across raised refractory hearth slab', () => {
+  const course = generateRandomizedCourse('track_a', 42);
+  const fireSlot = course.slots.find(s => s.type === 'fire_hearth');
+  assert.ok(fireSlot, 'track_a must contain fire_hearth');
+
+  setActiveGeneratedCourse(course);
+  try {
+    const lx = fireSlot.centerX;
+    const lz = fireSlot.laneZ;
+    const hCenter = evaluateCourseHeight(lx, lz, GROUND_DECK_HEIGHT);
+    assert.ok(hCenter >= GROUND_DECK_HEIGHT + 0.10, `Hearth deck must be raised (+0.14m), got ${hCenter}`);
+    const surf = evaluateCourseSurface(lx, lz, hCenter);
+    assert.equal(surf.hazard, 'fire', 'Hearth surface must register fire hazard');
+  } finally {
+    setActiveGeneratedCourse(null);
+  }
+});
+
+test('stepVehicle3D drives across diagonal rumble_washboard bars without belt/wheel edge penetration', () => {
+  const dt = 1 / 120;
+  const hAt = (wx: number, wz: number) => evaluateRumbleWashboardHeightAt(wx / MAP_SCALE, wz / MAP_SCALE, 1);
+
+  for (const yaw of [Math.PI / 2, Math.PI / 2 + 0.18, Math.PI / 2 - 0.18]) {
+    const pose: VehiclePose = {
+      x: -4.8 * MAP_SCALE,
+      z: 0,
+      y: GROUND_DECK_HEIGHT - TRACK_CONTACT_OFFSET,
+      vx: Math.sin(yaw) * 3.8,
+      vy: 0,
+      vz: Math.cos(yaw) * 3.8,
+      pitch: 0,
+      yaw,
+      roll: 0,
+      pitchRate: 0,
+      yawRate: 0,
+      rollRate: 0,
+      isFlipped: false,
+      isGrounded: true,
+      flippedTimer: 0,
+    };
+    const sinY = Math.sin(yaw);
+    const cosY = Math.cos(yaw);
+    const rightX = cosY;
+    const rightZ = -sinY;
+
+    for (let step = 0; step < 420; step++) {
+      pose.x += pose.vx * dt;
+      pose.z += pose.vz * dt;
+      stepVehicle3D(pose, hAt, 3.8, 0, dt, 9.81, false);
+      assert.equal(pose.isFlipped, false, `Must not flip across washboard bars (yaw=${yaw}, step=${step})`);
+
+      // Check every point along left/right 0.30m wide cycle-tube belts (13 stations x 3 lateral edges)
+      const halfLen = 0.85;
+      const halfW = 0.79;
+      for (let k = 0; k <= 12; k++) {
+        const sU = (k / 12 - 0.5) * 2;
+        const dU = sU * halfLen;
+        for (const sideSign of [-1, 1]) {
+          const trackCenterY =
+            pose.y + TRACK_CONTACT_OFFSET
+            - Math.sin(pose.pitch) * dU
+            + Math.sin(pose.roll) * (sideSign * halfW);
+          for (const latOff of [-0.145, 0, 0.145]) {
+            const px = pose.x + dU * sinY + rightX * (sideSign * halfW + latOff);
+            const pz = pose.z + dU * cosY + rightZ * (sideSign * halfW + latOff);
+            const groundY = hAt(px, pz);
+            assert.ok(
+              trackCenterY >= groundY - 0.015,
+              `Belt penetrated diagonal bar at k=${k}, side=${sideSign}, lat=${latOff}: beltY=${trackCenterY.toFixed(4)} < groundY=${groundY.toFixed(4)}`,
+            );
+          }
+        }
+      }
+    }
   }
 });

@@ -748,6 +748,35 @@ export function evaluateCamberBankHeightAt(u: number, v: number): number {
   return GROUND_DECK_HEIGHT + 0.88 * bell * crossFrac;
 }
 
+/** Pure height evaluator matching the 8 staggered diagonal speed-breaker bars in Chevron Rumble Wash. */
+export function evaluateRumbleWashboardHeightAt(u: number, v: number, dir: 1 | -1): number {
+  const halfX = 0.17;
+  const halfZ = 1.375;
+  const bevel = 0.04;
+  const barTopLift = 0.125;
+  let maxLift = 0;
+
+  for (let i = 0; i < 8; i++) {
+    const barU = -3.5 + i * 1.0;
+    const barV = i % 2 === 0 ? -0.55 : 0.55;
+    const rotY = dir * 0.22 * (i % 2 === 0 ? 1 : -1);
+    const dx = dir * (u - barU);
+    const dz = dir * (v - barV);
+    const c = Math.cos(rotY);
+    const s = Math.sin(rotY);
+    const lx = Math.abs(dx * c - dz * s);
+    const lz = Math.abs(dx * s + dz * c);
+
+    if (lx <= halfX + bevel && lz <= halfZ + 0.02) {
+      const uFrac = lx <= halfX ? 1 : Math.max(0, 1 - (lx - halfX) / bevel);
+      const zFrac = lz <= halfZ ? 1 : Math.max(0, 1 - (lz - halfZ) / 0.02);
+      const lift = barTopLift * uFrac * zFrac;
+      if (lift > maxLift) maxLift = lift;
+    }
+  }
+  return GROUND_DECK_HEIGHT + maxLift;
+}
+
 // ---------------------------------------------------------------------------
 function evalSlotLocal(
   slot: HurdleSlot,
@@ -826,11 +855,11 @@ function evalSlotLocal(
         for (const st of slot.rockStones) {
           const du = u - st.u;
           const dv = v - st.v;
-          const rx = st.scaleX * 0.72;
-          const rz = st.scaleZ * 0.72;
+          const rx = st.scaleX * 0.64;
+          const rz = st.scaleZ * 0.64;
           const d2 = (du * du) / (rx * rx + 1e-6) + (dv * dv) / (rz * rz + 1e-6);
           if (d2 < 1.0) {
-            const mound = Math.cos(Math.sqrt(d2) * Math.PI * 0.5) * st.scaleY * 0.65;
+            const mound = Math.cos(Math.sqrt(d2) * Math.PI * 0.5) * st.scaleY * 0.74;
             if (mound > rockMax) rockMax = mound;
           }
         }
@@ -847,14 +876,14 @@ function evalSlotLocal(
       if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
       const logCenters = [-3.6, -2.15, -0.7, 0.75, 2.2, 3.65];
       let logLift = 0;
-      const logRadius = 0.24;
+      const logRadius = 0.248;
       for (let i = 0; i < logCenters.length; i++) {
         const spanType = i % 3; // 0: left half [-1.875..+0.375], 1: right half [-0.375..+1.875], 2: center [-1.60..+1.60]
         const covered = spanType === 0
-          ? (v >= -1.89 && v <= 0.39)
+          ? (v >= -1.90 && v <= 0.40)
           : spanType === 1
-            ? (v >= -0.39 && v <= 1.89)
-            : Math.abs(v) <= 1.62;
+            ? (v >= -0.40 && v <= 1.90)
+            : Math.abs(v) <= 1.63;
         if (!covered) continue;
         const dist = Math.abs(u - logCenters[i]);
         if (dist < logRadius) {
@@ -872,14 +901,14 @@ function evalSlotLocal(
 
     case 'rumble_washboard': {
       if (Math.abs(v) > halfW) return { matched: false, height: ARENA_FLOOR_HEIGHT, rockOffset: 0 };
-      if (Math.abs(u) <= 3.7) {
-        const phase = u * 2.35 + Math.sign(v || 1) * 0.65;
-        const rib = Math.max(0, Math.sin(phase)) * 0.14;
+      if (Math.abs(u) <= 4.1) {
+        const h = evaluateRumbleWashboardHeightAt(u, v, slot.dir);
+        const rib = Math.max(0, h - GROUND_DECK_HEIGHT);
         return {
           matched: true,
-          height: GROUND_DECK_HEIGHT + rib,
-          rockOffset: rib * 0.5,
-          surface: { grip: 0.88, rollingResistance: 0.65, hazard: 'none' },
+          height: h,
+          rockOffset: rib * 0.6,
+          surface: { grip: 0.90, rollingResistance: 0.58, hazard: 'none' },
         };
       }
       return { matched: true, height: GROUND_DECK_HEIGHT, rockOffset: 0 };

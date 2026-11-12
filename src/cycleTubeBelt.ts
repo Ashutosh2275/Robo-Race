@@ -186,13 +186,15 @@ export function stepBeltTrackingState(
   const avgSpeed = 0.5 * Math.abs(input.leftTrackSpeed + input.rightTrackSpeed);
   const diffCmd = input.leftTrackSpeed - input.rightTrackSpeed;
   const pivotSpin = Math.abs(diffCmd);
+  const steerDir = Math.abs(diffCmd) >= 0.08 ? Math.sign(diffCmd) : 0;
+  const rockSnag = Math.max(0, Math.abs(input.asymmetricRockDiffM) - 0.14);
 
-  // Lateral scrub factor increases with high differential speed, side slide, wet/muddy belts, and low integrity
-  const wetFactor = input.waterDepthM > 0.08 ? 1.35 : 1.0;
+  // Lateral scrub factor increases with genuine side-skid, severe asymmetric rock climb, or harsh waterlogged belts
+  const wetFactor = input.waterDepthM > 0.08 ? 1.25 : 1.0;
   const scrubForce =
-    Math.max(0, Math.abs(input.lateralSpeedMps) - 1.35) * 0.24 +
-    Math.max(0, pivotSpin - 4.2) * 0.14 +
-    Math.max(0, Math.abs(input.asymmetricRockDiffM) - 0.10) * 1.15;
+    Math.max(0, Math.abs(input.lateralSpeedMps) - 1.8) * 0.24 +
+    Math.max(0, pivotSpin - 11.2) * 0.10 +
+    rockSnag * 1.45;
 
   const updateSide = (side: 'left' | 'right', trackSpeed: number, integrity: number, sideShockBias: number) => {
     const isDerailed = side === 'left' ? state.leftDerailed : state.rightDerailed;
@@ -205,13 +207,17 @@ export function stepBeltTrackingState(
     const selfCenterRate = avgSpeed > 0.2 && scrubForce < 0.08 ? 0.55 : 0.12;
     drift *= Math.exp(-safeDt * selfCenterRate);
 
-    // Cumulative lateral force from cornering scrub, rock tilt, motor slip & sharp impacts
-    const steerPush = (side === 'left' ? 1 : -1) * Math.sign(diffCmd || 1) * (scrubForce + input.motorSlip * 0.18);
-    const impactPush = input.impactImpulse > 4.0 ? sideShockBias * (input.impactImpulse - 4.0) * 0.11 : 0;
+    // Cumulative lateral force from active cornering scrub, rock snags & sharp impacts (zero directional bias in straight motion)
+    const isMoving = avgSpeed > 0.25 || Math.abs(diffCmd) > 0.25;
+    const slipActiveDir = steerDir !== 0 ? steerDir : (rockSnag > 0 ? 1 : 0);
+    const activeScrub = isMoving ? steerDir * scrubForce + slipActiveDir * input.motorSlip * 0.05 : 0;
+    const rockClimbBias = isMoving && steerDir === 0 ? rockSnag * 1.45 : 0;
+    const steerPush = (side === 'left' ? 1 : -1) * (activeScrub + rockClimbBias);
+    const impactPush = input.impactImpulse > 5.0 ? sideShockBias * (input.impactImpulse - 5.0) * 0.14 : 0;
 
     drift += (steerPush * wetFactor * integrityFactor * safeDt) + impactPush * integrityFactor;
 
-    // Slight natural damping when no shock occurred
+    // Slight natural damping when stationary without shock
     if (trackSpeed === 0 && input.impactImpulse <= 0) {
       drift *= Math.exp(-safeDt * 0.35);
     }

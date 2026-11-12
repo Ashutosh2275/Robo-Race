@@ -70,3 +70,45 @@ test('normal driving keeps crowned cycle-tube belts seated while harsh impacts/s
   assert.equal(sawDerail, true, 'extreme lateral scrub and hard asymmetric rock shock should push belt out of place');
   assert.equal(stressed.leftDerailed || stressed.rightDerailed, true);
 });
+
+test('prolonged full-lock turning on flat tarmac and straight wheelspin do not spuriously derail belts', () => {
+  // 1. Full-lock spin in place (5.34 vs -5.34 m/s) over 4 seconds on flat ground
+  const pivotState = createInitialBeltTrackingState();
+  for (let i = 0; i < 240; i++) {
+    const res = stepBeltTrackingState(pivotState, {
+      leftTrackSpeed: 5.34,
+      rightTrackSpeed: -5.34,
+      motorSlip: 0.25,
+      asymmetricRockDiffM: 0,
+      lateralSpeedMps: 0.5,
+      impactImpulse: 0,
+      leftTrackIntegrity: 100,
+      rightTrackIntegrity: 100,
+      waterDepthM: 0,
+    }, 1 / 60);
+    assert.equal(res.newlyDerailed.length, 0, `Flat full-lock turning must not derail at step ${i}`);
+  }
+  assert.equal(pivotState.leftDerailed, false);
+  assert.equal(pivotState.rightDerailed, false);
+
+  // 2. Straight wheelspin on slick ground produces zero directional bias or derailment
+  const spinState = createInitialBeltTrackingState();
+  for (let i = 0; i < 240; i++) {
+    const res = stepBeltTrackingState(spinState, {
+      leftTrackSpeed: 2.0,
+      rightTrackSpeed: 2.0,
+      motorSlip: 0.85,
+      asymmetricRockDiffM: 0,
+      lateralSpeedMps: 0,
+      impactImpulse: 0,
+      leftTrackIntegrity: 100,
+      rightTrackIntegrity: 100,
+      waterDepthM: 0,
+    }, 1 / 60);
+    assert.equal(res.newlyDerailed.length, 0);
+  }
+  assert.equal(spinState.leftDerailed, false);
+  assert.equal(spinState.rightDerailed, false);
+  assert.ok(Math.abs(spinState.leftDrift) < 0.05, `Straight slip must have zero drift bias, got ${spinState.leftDrift}`);
+  assert.ok(Math.abs(spinState.rightDrift) < 0.05, `Straight slip must have zero drift bias, got ${spinState.rightDrift}`);
+});
