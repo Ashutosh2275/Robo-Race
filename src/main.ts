@@ -12,10 +12,9 @@ import {
   TRACK_WIDTH,
   TRACK_LENGTH,
   TRACK_CONTACT_OFFSET,
-  ROBOT_COLLISION_HEIGHT,
   getFootprintAabbHalfExtents,
   getContactPatches,
-  vehicleBarrierPenetration,
+  evaluateBarrierCollision,
   getTurntableOmega,
   evaluateWaterBuoyancy,
 } from './vehicleDynamics';
@@ -2843,26 +2842,9 @@ let lastFrameTime = performance.now();
 
 let lastBarrierCollision: string | null = null;
 function collidesWithBarrier(x: number, z: number, y: number) {
-  lastBarrierCollision = null;
-  const robotBottom = y + TRACK_CONTACT_OFFSET;
-  const robotTop = y + ROBOT_COLLISION_HEIGHT;
-  for (const c of colliders) {
-    if (c.walkable) continue;
-    // Vertical clearance check with safe tolerance so tilt / pitching never phases through fixed barriers
-    if (c.y + c.height / 2 < robotBottom - 0.20 || c.y - c.height / 2 > robotTop + 0.20) continue;
-    const hit = vehicleBarrierPenetration(x, z, pose.yaw, {
-      x: c.x * MAP_SCALE,
-      z: c.z * MAP_SCALE,
-      hx: c.hx * MAP_SCALE,
-      hz: c.hz * MAP_SCALE,
-      rot: c.rot,
-    });
-    if (hit) {
-      lastBarrierCollision = c.id;
-      return hit;
-    }
-  }
-  return null;
+  const hit = evaluateBarrierCollision(x, z, pose.yaw, y, colliders, MAP_SCALE);
+  lastBarrierCollision = hit ? hit.id : null;
+  return hit ? { nx: hit.nx, nz: hit.nz, depth: hit.depth } : null;
 }
 
 // Debug hooks for automated verification & visual capture
@@ -3440,7 +3422,7 @@ function stepPhysics(dt: number) {
     getControllerDiagnostics: () => controller.getDiagnostics(),
     getControllerProfile: () => controller.getCurrentProfile(),
     toggleCalibrationModal: (open?: boolean) => toggleDiagnosticsModal(open),
-    lastBarrierCollision,
+    get lastBarrierCollision() { return lastBarrierCollision; },
     turntableOmega: turntableCurrentOmega,
     waterBuoyancy,
     scoring: {

@@ -5,6 +5,7 @@ import {
   DYNAMIC_WATER_BED_Y,
   DYNAMIC_WATER_LEVEL_Y,
   HURDLE_CATALOG,
+  buildSpiralTowerColliders,
   generateRandomizedCourse,
   sampleHangingBridgeRibbon,
   setActiveGeneratedCourse,
@@ -32,6 +33,7 @@ import {
 } from './robotSubsystems.ts';
 import {
   TRACK_CONTACT_OFFSET,
+  evaluateBarrierCollision,
   evaluateWaterBuoyancy,
   stepVehicle3D,
   type VehiclePose,
@@ -814,5 +816,89 @@ test('roller_logs tracks stay cleanly above staggered and center logs across all
     assert.ok(sawRoll, 'Staggered half-logs must articulate left/right suspension roll');
   } finally {
     setActiveGeneratedCourse(null);
+  }
+});
+
+test('spiral tower colliders produce zero phantom barrier hits across full 540-degree climb and summit', () => {
+  const spiralCourses = [];
+  for (let s = 1; s <= 40 && spiralCourses.length < 2; s++) {
+    const c = generateRandomizedCourse('track_b', s * 9973);
+    const sp = c.slots.find(sl => sl.type === 'spiral_tower');
+    if (sp) spiralCourses.push({ c, sp });
+  }
+  assert.ok(spiralCourses.length >= 1, 'Expected at least one spiral_tower course');
+
+  for (const { sp } of spiralCourses) {
+    const { colliders: spColliders } = buildSpiralTowerColliders(sp);
+    const spU = -4.20;
+    const yTop = 3.20;
+
+    // 1. Continuous 540° helical sweep across inner-to-outer drivable track corridor:
+    //    r >= 1.60 tangent-aligned (inner edge 0.84m > 0.78m column) and r in [1.75..2.90] with +-0.35 rad steering
+    const helixChecks: Array<{ r: number; yaws: number[] }> = [
+      { r: 1.60, yaws: [0] },
+      { r: 1.75, yaws: [-0.35, 0, 0.35] },
+      { r: 2.00, yaws: [-0.35, 0, 0.35] },
+      { r: 2.15, yaws: [-0.35, 0, 0.35] },
+      { r: 2.45, yaws: [-0.35, 0, 0.35] },
+      { r: 2.70, yaws: [-0.35, 0, 0.35] },
+      { r: 2.90, yaws: [-0.35, 0, 0.35] },
+    ];
+    for (const { r, yaws } of helixChecks) {
+      for (let deg = 0; deg <= 540; deg += 5) {
+        const t = deg / 540;
+        const beta = t * 3 * Math.PI;
+        const u = spU - Math.cos(beta) * r;
+        const v = -Math.sin(beta) * r;
+        const h = GROUND_DECK_HEIGHT + t * (yTop - GROUND_DECK_HEIGHT);
+        const lx = sp.centerX + sp.dir * u;
+        const lz = sp.laneZ + sp.dir * v;
+        const baseYaw = Math.atan2(sp.dir * Math.sin(beta), sp.dir * (-Math.cos(beta)));
+        for (const dyaw of yaws) {
+          const hit = evaluateBarrierCollision(lx * MAP_SCALE, lz * MAP_SCALE, baseYaw + dyaw, h - 0.12, spColliders, MAP_SCALE);
+          assert.equal(
+            hit,
+            null,
+            `Unexpected phantom barrier '${hit?.id}' on spiral helix at r=${r}, deg=${deg}, dyaw=${dyaw}`,
+          );
+        }
+      }
+    }
+
+    // 2. Summit apron (u >= -0.90 full width, plus South exit transition u in [-2.5..-0.9] for v >= 0.8), turntable & descent viaduct sweep
+    for (let u = -0.90; u <= 11.8; u += 0.4) {
+      for (const v of [-1.0, 0, 1.0]) {
+        let h = yTop;
+        if (u >= 4.4) {
+          const dt = Math.max(0, Math.min(1, (u - 4.4) / 7.4));
+          h = yTop + (GROUND_DECK_HEIGHT - yTop) * dt * dt * (3 - 2 * dt);
+        }
+        const lx = sp.centerX + sp.dir * u;
+        const lz = sp.laneZ + sp.dir * v;
+        const yaw = sp.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        const hit = evaluateBarrierCollision(lx * MAP_SCALE, lz * MAP_SCALE, yaw, h - 0.12, spColliders, MAP_SCALE);
+        assert.equal(hit, null, `Unexpected phantom barrier '${hit?.id}' on summit/descent at u=${u}, v=${v}`);
+      }
+    }
+    for (let u = -2.5; u < -0.90; u += 0.4) {
+      for (const v of [0.8, 1.0]) {
+        const lx = sp.centerX + sp.dir * u;
+        const lz = sp.laneZ + sp.dir * v;
+        const yaw = sp.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        const hit = evaluateBarrierCollision(lx * MAP_SCALE, lz * MAP_SCALE, yaw, yTop - 0.12, spColliders, MAP_SCALE);
+        assert.equal(hit, null, `Unexpected phantom barrier '${hit?.id}' on summit exit apron at u=${u}, v=${v}`);
+      }
+    }
+
+    // 3. True central steel pylon (r=0.78m) still blocks direct impact while staying inscribed inside 0.78m
+    const hitCenterCore = evaluateBarrierCollision(
+      (sp.centerX + sp.dir * (spU - 1.30)) * MAP_SCALE,
+      sp.laneZ * MAP_SCALE,
+      Math.PI / 2,
+      0.50 - 0.12,
+      spColliders,
+      MAP_SCALE,
+    );
+    assert.ok(hitCenterCore && hitCenterCore.id.startsWith('spiral_core_'), 'Central column must remain a solid barrier on real impact');
   }
 });

@@ -14,6 +14,7 @@ import {
 import {
   DYNAMIC_WATER_BED_Y,
   DYNAMIC_WATER_LEVEL_Y,
+  buildSpiralTowerColliders,
   evaluateCamberBankHeightAt,
   evaluateMogulHeightAt,
   evaluateStaircaseHeightAt,
@@ -3162,49 +3163,17 @@ export function buildDynamicCourseGroup(
 
       // Smooth monolithic central structural column (top flush at summit level, zero jagged gaps)
       const pylonH = yTop - ARENA_FLOOR_HEIGHT;
-      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.14, lz), 0.96, 0.28, 'y', 32);
+      makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + 0.03, lz), 0.79, 0.06, 'y', 32);
       makeCyl(courseGroup, mats.metal, new THREE.Vector3(spX, ARENA_FLOOR_HEIGHT + pylonH * 0.5, lz), 0.78, pylonH, 'y', 36);
-      for (let k = 0; k < 8; k++) {
-        const ka = (k * Math.PI) / 4;
-        const kx = spX + Math.cos(ka) * 0.80;
-        const kz = lz + Math.sin(ka) * 0.80;
-        colliders.push({ id: `spiral_core_${slot.index}_${k}`, x: kx, z: kz, hx: 0.34, hz: 0.10, y: ARENA_FLOOR_HEIGHT + pylonH / 2, height: pylonH, rot: -ka + Math.PI / 2, walkable: false });
-      }
+      const spiralLayout = buildSpiralTowerColliders(slot);
+      colliders.push(...spiralLayout.colliders);
 
       // 1. Continuous Glass-Smooth 540-degree Helical Ribbon (zero staircase steps, zero brackets, zero barricades)
       makeContinuousSpiralHelixMesh(courseGroup, slot, spU, rInner, rOuter, GROUND_DECK_HEIGHT, yTop, 0.22, polishedDeck, 108);
 
-      // Clean continuous architectural plinth collider beneath low Turn 1 overhang tucked flush inside outer rim
-      for (let s = 2; s <= 24; s++) {
-        const t0 = s / 54;
-        const t1 = (s + 1) / 54;
-        const beta0 = t0 * 3 * Math.PI;
-        const beta1 = t1 * 3 * Math.PI;
-        const midBeta = (beta0 + beta1) * 0.5;
-        const yMid = GROUND_DECK_HEIGHT + ((t0 + t1) * 0.5) * (yTop - GROUND_DECK_HEIGHT);
-        if (yMid <= ARENA_FLOOR_HEIGHT + 0.14) continue;
-        const rSkirt = rOuter - 0.16;
-        const rx = toCourseX(slot, spU - Math.cos(midBeta) * rSkirt);
-        const rz = toCourseZ(slot, -Math.sin(midBeta) * rSkirt);
-        const o0x = toCourseX(slot, spU - Math.cos(beta0) * rSkirt);
-        const o0z = toCourseZ(slot, -Math.sin(beta0) * rSkirt);
-        const o1x = toCourseX(slot, spU - Math.cos(beta1) * rSkirt);
-        const o1z = toCourseZ(slot, -Math.sin(beta1) * rSkirt);
-        const oLen = Math.hypot(o1x - o0x, o1z - o0z) + 0.04;
-        const oAng = Math.atan2(-(o1z - o0z), o1x - o0x);
-        const skirtH = Math.max(0.08, yMid - 0.22 - ARENA_FLOOR_HEIGHT);
-        makeBox(courseGroup, mats.concretePier, new THREE.Vector3(rx, ARENA_FLOOR_HEIGHT + skirtH * 0.5, rz), new THREE.Vector3(oLen, skirtH, 0.14), oAng);
-        colliders.push({
-          id: `spiral_skirt_${slot.index}_${s}`,
-          x: rx,
-          z: rz,
-          hx: oLen * 0.5,
-          hz: 0.09,
-          y: ARENA_FLOOR_HEIGHT + skirtH * 0.5,
-          height: skirtH + 0.06,
-          rot: oAng,
-          walkable: false,
-        });
+      // Clean continuous architectural plinth beneath Turn 1 overhang strictly below deck soffit
+      for (const seg of spiralLayout.skirtSegments) {
+        makeBox(courseGroup, mats.concretePier, new THREE.Vector3(seg.x, ARENA_FLOOR_HEIGHT + seg.skirtH * 0.5, seg.z), new THREE.Vector3(seg.oLen, seg.skirtH, 0.14), seg.oAng);
       }
 
       // 2. Monolithic Flush Polished Summit Apron fitted cleanly from beta=3pi summit seam into circular turntable pocket
@@ -3241,7 +3210,6 @@ export function buildDynamicCourseGroup(
 
       // 3. Flush Polished Rotating Rooftop Turntable (zero overlapping boards, zero rim barricades)
       makeCyl(courseGroup, mats.concretePier, new THREE.Vector3(ttX, (yTop + ARENA_FLOOR_HEIGHT) / 2 - 0.1, lz), 0.72, yTop - ARENA_FLOOR_HEIGHT - 0.18, 'y', 28);
-      colliders.push({ id: `spiral_tt_pier_${slot.index}`, x: ttX, z: lz, hx: 0.72, hz: 0.72, y: ARENA_FLOOR_HEIGHT + 1.5, height: 3.0, rot: 0, walkable: false });
       const ttGroup = new THREE.Group();
       ttGroup.position.set(ttX, yTop, lz);
       courseGroup.add(ttGroup);

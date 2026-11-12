@@ -10,6 +10,7 @@ import {
   easeCushionedRamp,
   registerDynamicCourseHooks,
   type CheckpointGate,
+  type CourseCollider,
   type SurfaceProperties,
   type TrackId,
 } from './courseLayout.ts';
@@ -1166,7 +1167,7 @@ function evalSlotLocal(
         return { matched: true, height: yTop, rockOffset: 0, surface: { grip: 1.08, rollingResistance: 0.28, hazard: 'none' } };
       }
       // Helix climb (540 deg = 1.5 turns starting at West tangent du=-rMid, dv=0 climbing North -> East -> South -> West -> Summit)
-      if (dist <= rOuter + 0.22 && dist >= rInner - 0.18) {
+      if (dist <= rOuter + 0.22 && dist >= 0.76) {
         let beta = Math.atan2(-v, -dx);
         if (beta < 0) beta += 2 * Math.PI;
         let totalBeta: number;
@@ -1355,4 +1356,103 @@ export function classifyDynamicFallOrigin(
     }
   }
   return 'track_edge';
+}
+
+export type SpiralSkirtSegment = {
+  index: number;
+  x: number;
+  z: number;
+  oLen: number;
+  oAng: number;
+  skirtH: number;
+};
+
+/**
+ * Generates exact non-walkable structural colliders (`spiral_core`, `spiral_skirt`, `spiral_tt_pier`)
+ * and matching Turn 1 plinth visual segments for a `spiral_tower` slot.
+ * Core and pier segments remain strictly inscribed inside their visible cylindrical piers,
+ * and under-deck supports carry `underDeck: true` so elevated spiral/rooftop traffic never clips them.
+ */
+export function buildSpiralTowerColliders(slot: HurdleSlot): {
+  colliders: CourseCollider[];
+  skirtSegments: SpiralSkirtSegment[];
+} {
+  const spU = -4.20;
+  const spX = slot.centerX + slot.dir * spU;
+  const lz = slot.laneZ;
+  const rOuter = 3.30;
+  const yTop = 3.20;
+  const ttU = 2.20;
+  const ttX = slot.centerX + slot.dir * ttU;
+  const colliders: CourseCollider[] = [];
+  const skirtSegments: SpiralSkirtSegment[] = [];
+
+  const pylonH = yTop - ARENA_FLOOR_HEIGHT;
+  const coreColH = pylonH - 0.04;
+  for (let k = 0; k < 12; k++) {
+    const ka = (k * Math.PI) / 6;
+    const kx = spX + Math.cos(ka) * 0.72;
+    const kz = lz + Math.sin(ka) * 0.72;
+    colliders.push({
+      id: `spiral_core_${slot.index}_${k}`,
+      x: kx,
+      z: kz,
+      hx: 0.20,
+      hz: 0.03,
+      y: ARENA_FLOOR_HEIGHT + coreColH * 0.5,
+      height: coreColH,
+      rot: -ka + Math.PI / 2,
+      walkable: false,
+    });
+  }
+
+  for (let s = 2; s <= 24; s++) {
+    const t0 = s / 54;
+    const t1 = (s + 1) / 54;
+    const beta0 = t0 * 3 * Math.PI;
+    const beta1 = t1 * 3 * Math.PI;
+    const midBeta = (beta0 + beta1) * 0.5;
+    const yMid = GROUND_DECK_HEIGHT + ((t0 + t1) * 0.5) * (yTop - GROUND_DECK_HEIGHT);
+    if (yMid <= ARENA_FLOOR_HEIGHT + 0.26) continue;
+    const rSkirt = rOuter - 0.16;
+    const rx = slot.centerX + slot.dir * (spU - Math.cos(midBeta) * rSkirt);
+    const rz = lz + slot.dir * (-Math.sin(midBeta) * rSkirt);
+    const o0x = slot.centerX + slot.dir * (spU - Math.cos(beta0) * rSkirt);
+    const o0z = lz + slot.dir * (-Math.sin(beta0) * rSkirt);
+    const o1x = slot.centerX + slot.dir * (spU - Math.cos(beta1) * rSkirt);
+    const o1z = lz + slot.dir * (-Math.sin(beta1) * rSkirt);
+    const oLen = Math.hypot(o1x - o0x, o1z - o0z) + 0.04;
+    const oAng = Math.atan2(-(o1z - o0z), o1x - o0x);
+    const skirtH = yMid - 0.22 - ARENA_FLOOR_HEIGHT;
+    skirtSegments.push({ index: s, x: rx, z: rz, oLen, oAng, skirtH });
+    colliders.push({
+      id: `spiral_skirt_${slot.index}_${s}`,
+      x: rx,
+      z: rz,
+      hx: oLen * 0.5,
+      hz: 0.08,
+      y: ARENA_FLOOR_HEIGHT + skirtH * 0.5,
+      height: skirtH,
+      rot: oAng,
+      walkable: false,
+      underDeck: true,
+    });
+  }
+
+  for (let pk = 0; pk < 4; pk++) {
+    colliders.push({
+      id: `spiral_tt_pier_${slot.index}_${pk}`,
+      x: ttX,
+      z: lz,
+      hx: 0.66,
+      hz: 0.27,
+      y: ARENA_FLOOR_HEIGHT + 1.5,
+      height: 3.0,
+      rot: (pk * Math.PI) / 4,
+      walkable: false,
+      underDeck: true,
+    });
+  }
+
+  return { colliders, skirtSegments };
 }

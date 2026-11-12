@@ -14,6 +14,7 @@ import {
   ROBOT_HALF_LENGTH,
   getFootprintAabbHalfExtents,
   vehicleBarrierPenetration,
+  evaluateBarrierCollision,
   getTurntableOmega,
   applyTurntableSurfaceInteraction,
   evaluateWaterBuoyancy,
@@ -430,4 +431,29 @@ test('open_rover water mode enters deep pool floor submerged rather than floatin
   assert.ok(sub.effectiveGrip >= 0.44);
   assert.ok(sub.waterDragX < 0);
   assert.ok(sub.paddleThrustX > 1.0, `forward spinning tracks should swim forward (+X) inside water, got ${sub.paddleThrustX}`);
+});
+
+test('evaluateBarrierCollision clears underDeck plinths when riding atop deck while blocking ground intrusion', () => {
+  const plinth = {
+    id: 'spiral_skirt_test',
+    x: 0,
+    z: 0,
+    hx: 0.4,
+    hz: 0.1,
+    y: 0.10,
+    height: 0.86, // top = 0.53 (soffit of a +0.75m ramp deck), bottom = -0.33
+    rot: 0,
+    walkable: false,
+    underDeck: true,
+  };
+  const scale = 1.3;
+  // On deck at +0.75m (and even with minor 0.03m suspension dip), robot clears underDeck support completely
+  const onDeckY = 0.75 - TRACK_CONTACT_OFFSET;
+  assert.equal(evaluateBarrierCollision(0, 0, 0, onDeckY, [plinth], scale), null);
+  assert.equal(evaluateBarrierCollision(0, 0, 0, onDeckY - 0.18, [plinth], scale), null);
+
+  // On ground floor (-0.33m), robot trying to clip underneath plinth IS stopped
+  const onFloorY = -0.33 - TRACK_CONTACT_OFFSET;
+  const groundHit = evaluateBarrierCollision(0, 0, 0, onFloorY, [plinth], scale);
+  assert.ok(groundHit && groundHit.id === 'spiral_skirt_test');
 });

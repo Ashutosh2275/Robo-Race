@@ -21,6 +21,8 @@ export type CourseCollider = {
   height: number;
   rot: number;
   walkable: boolean;
+  /** True when the collider supports an elevated deck/ramp from below so top-side vehicles clear it cleanly. */
+  underDeck?: boolean;
 };
 
 export type CheckpointGate = {

@@ -57,6 +57,55 @@ export const ROLLOVER_CRITICAL_ANGLE = 1.25; // ~72 degrees; beyond this, rollov
 
 export type StaticBarrierFootprint = { x: number; z: number; hx: number; hz: number; rot?: number };
 
+export type VerticalBarrierCollider = {
+  id: string;
+  x: number;
+  z: number;
+  hx: number;
+  hz: number;
+  y: number;
+  height: number;
+  rot?: number;
+  walkable: boolean;
+  underDeck?: boolean;
+};
+
+/**
+ * Evaluates all non-walkable course colliders against the robot's 3D pose.
+ * Standard barriers use a 0.20 m lower clearance tolerance so pitched/tilted
+ * vehicles cannot clip curbs, whereas under-deck supports (`underDeck: true`)
+ * yield once the robot tracks ride on or above the supported ramp/deck surface.
+ */
+export function evaluateBarrierCollision(
+  x: number,
+  z: number,
+  yaw: number,
+  y: number,
+  colliders: readonly VerticalBarrierCollider[],
+  mapScale: number,
+): { id: string; nx: number; nz: number; depth: number } | null {
+  const robotBottom = y + TRACK_CONTACT_OFFSET;
+  const robotTop = y + ROBOT_COLLISION_HEIGHT;
+  for (const c of colliders) {
+    if (c.walkable) continue;
+    const colliderTop = c.y + c.height / 2;
+    const colliderBottom = c.y - c.height / 2;
+    const lowerMargin = c.underDeck ? -0.04 : 0.20;
+    if (colliderTop < robotBottom - lowerMargin || colliderBottom > robotTop + 0.20) continue;
+    const hit = vehicleBarrierPenetration(x, z, yaw, {
+      x: c.x * mapScale,
+      z: c.z * mapScale,
+      hx: c.hx * mapScale,
+      hz: c.hz * mapScale,
+      rot: c.rot,
+    });
+    if (hit) {
+      return { id: c.id, ...hit };
+    }
+  }
+  return null;
+}
+
 /**
  * Separating-axis collision test between the robot's oriented footprint and
  * a rotated rectangular barrier. Returns the smallest safe depenetration
