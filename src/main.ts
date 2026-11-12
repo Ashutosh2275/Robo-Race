@@ -2557,36 +2557,122 @@ function commitEndOfRoundCarryover() {
 
 function showResults() {
   const totalAdj = elapsed + penaltyTime;
-  if (!bestTime || totalAdj < bestTime) {
+  const isNewRecord = !bestTime || totalAdj < bestTime;
+  const priorBest = bestTime;
+  if (isNewRecord) {
     bestTime = totalAdj;
     localStorage.setItem('robo-race-best-v2', String(bestTime));
   }
   commitEndOfRoundCarryover();
   const activeFaults = getActiveFaultList(subsystems);
   const dmgNotice = (activeFaults.length > 0 || subsystems.integrity.electronicsEnclosure < 65)
-    ? `<p style="padding:8px 10px;border-radius:8px;background:rgba(168,42,32,0.22);border:1px solid rgba(255,119,112,0.38);color:#ffc4be;font-size:11.5px;">
-        <b>Hardware Carried to Round ${String(roundNumber + 1).padStart(2, '0')}:</b>
-        ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ') || 'Enclosure Seal Weakened'}<br>
-        Use the 30s Technical Timeout in the next round to swap burnt/swollen parts.
-       </p>`
+    ? `<div class="results-fault-alert">
+        <div style="font-weight:800;letter-spacing:0.04em;">⚠ HARDWARE CARRIED TO ROUND ${String(roundNumber + 1).padStart(2, '0')}</div>
+        <div style="margin-top:2px;">${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ') || 'Electronics Enclosure Seal Weakened'}</div>
+        <div class="fault-alert-tip">Starting Round ${String(roundNumber + 1).padStart(2, '0')} unlocks a mandatory <b>30s Technical Timeout Pit Stop</b>.</div>
+       </div>`
     : '';
+
+  const batPct = Math.max(0, Math.min(100, Math.round(subsystems.battery.percentage)));
+  const chassisPct = Math.max(0, Math.min(100, Math.round(subsystems.integrity.chassis)));
+  const gatesCleared = checkpointMeshes.length;
+
   const o = $<HTMLDivElement>('#overlay');
   o.innerHTML = `
-    <div class="overlay">
-      <div class="card">
-        <div class="eyebrow">ROUND ${String(roundNumber).padStart(2, '0')} COMPLETE · SCORE ${scoreState.score} PTS · ${checkpointMeshes.length} / ${checkpointMeshes.length} GATES</div>
-        <h1>Race Finished!</h1>
-        <p class="result-time">${formatTime(elapsed)} <span style="font-size:14px;color:#aeb8a9">+ ${penaltyTime.toFixed(1)}s assist</span></p>
-        <p>Competition Score: <b style="color:${scoreState.score >= 0 ? '#6ee787' : '#ff7770'}">${scoreState.score} PTS</b>
-           <span style="font-size:12px;color:#aeb8a9">(+${scoreState.pointsEarned} obstacles · -${scoreState.penaltyPoints} penalties)</span><br>
-           Line Buffers Left: <b>${scoreState.remainingLifelines} / ${scoreState.totalLifelines}</b> · Out-of-Line Penalties: <b>${scoreState.boundaryViolations}</b> · Height Falls: <b>${scoreState.fallCount}</b><br>
-           Adjusted Total: <b style="color:#f0bd53">${formatTime(totalAdj)}</b> · Record: <b style="color:#f0bd53">${formatTime(bestTime)}</b><br>
-           Battery Remaining: ${subsystems.battery.percentage.toFixed(0)}% · Chassis Integrity: ${subsystems.integrity.chassis.toFixed(0)}%
-        </p>
+    <div class="overlay overlay--results">
+      <div class="results-card" role="dialog" aria-labelledby="resultsTitle">
+        <div class="results-header-bar">
+          <div class="results-eyebrow-chip">
+            <span class="results-badge-dot"></span>
+            <span>ROUND ${String(roundNumber).padStart(2, '0')} COMPLETE · ${gatesCleared}/${gatesCleared} GATES</span>
+          </div>
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#829285;">PROVING GROUND</span>
+        </div>
+
+        <h1 class="results-title" id="resultsTitle">Race Finished!</h1>
+
+        <div class="results-hero-box">
+          <div class="results-time-row">
+            <div class="results-time-val">${formatTime(elapsed)}</div>
+            <div class="results-assist-tag">${penaltyTime > 0 ? `+${penaltyTime.toFixed(1)}s ASSIST` : 'ZERO ASSIST · CLEAN RUN'}</div>
+          </div>
+          <div class="results-record-bar">
+            <span>Official Total: <b style="color:#f0bd53;">${formatTime(totalAdj)}</b></span>
+            <span class="results-record-badge ${isNewRecord ? 'is-new' : ''}">
+              ${isNewRecord ? '🏆 NEW RECORD!' : `RECORD: ${formatTime(priorBest)}`}
+            </span>
+          </div>
+        </div>
+
+        <div class="results-metrics-grid">
+          <div class="results-metric-card">
+            <span class="results-metric-label">Competition Score</span>
+            <div class="results-metric-num ${scoreState.score >= 0 ? 'score-pos' : 'score-neg'}">
+              ${scoreState.score} <small>PTS</small>
+            </div>
+            <span class="results-metric-sub">+${scoreState.pointsEarned} obstacles · -${scoreState.penaltyPoints} penalties</span>
+          </div>
+
+          <div class="results-metric-card">
+            <span class="results-metric-label">Lane Buffers</span>
+            <div class="results-metric-num">
+              ${scoreState.remainingLifelines} <small>/ ${scoreState.totalLifelines}</small>
+            </div>
+            <span class="results-metric-sub">${scoreState.boundaryViolations} out-of-line penalties</span>
+          </div>
+
+          <div class="results-metric-card">
+            <span class="results-metric-label">Height Stability</span>
+            <div class="results-metric-num ${scoreState.fallCount === 0 ? 'score-pos' : 'score-warn'}">
+              ${scoreState.fallCount} <small>FALLS</small>
+            </div>
+            <span class="results-metric-sub">${scoreState.fallCount === 0 ? 'Zero height drops' : `${scoreState.fallCount} cliff recovery falls`}</span>
+          </div>
+
+          <div class="results-metric-card">
+            <span class="results-metric-label">Total Adjusted Time</span>
+            <div class="results-metric-num text-gold">
+              ${formatTime(totalAdj)}
+            </div>
+            <span class="results-metric-sub">Raw course: ${formatTime(elapsed)}</span>
+          </div>
+        </div>
+
+        <div class="results-hw-box">
+          <div class="results-hw-title">
+            <span>Hardware Health Status</span>
+            <span>Retained</span>
+          </div>
+          <div class="results-hw-row">
+            <span class="results-hw-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="11" x2="23" y2="13"/></svg>
+              Battery
+            </span>
+            <div class="results-hw-bar">
+              <div class="results-hw-fill results-hw-fill--bat" style="width: ${batPct}%;"></div>
+            </div>
+            <span class="results-hw-val">${batPct}%</span>
+          </div>
+          <div class="results-hw-row">
+            <span class="results-hw-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Chassis
+            </span>
+            <div class="results-hw-bar">
+              <div class="results-hw-fill results-hw-fill--chassis" style="width: ${chassisPct}%;"></div>
+            </div>
+            <span class="results-hw-val">${chassisPct}%</span>
+          </div>
+        </div>
+
         ${dmgNotice}
-        <button class="action" id="btnAgain">START ROUND ${String(roundNumber + 1).padStart(2, '0')}</button>
-        <div class="subactions">
-          <button class="iconbtn" id="btnMenu">MAIN MENU</button>
+
+        <div class="results-cta-group">
+          <button class="results-cta-main" id="btnAgain" type="button">
+            <span>START ROUND ${String(roundNumber + 1).padStart(2, '0')}</span>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
+          </button>
+          <button class="results-cta-ghost" id="btnMenu" type="button">MAIN MENU</button>
         </div>
       </div>
     </div>
@@ -2604,17 +2690,65 @@ function showResults() {
 function showFailure(reason: string) {
   commitEndOfRoundCarryover();
   const activeFaults = getActiveFaultList(subsystems);
+  const batPct = Math.max(0, Math.min(100, Math.round(subsystems.battery.percentage)));
+  const chassisPct = Math.max(0, Math.min(100, Math.round(subsystems.integrity.chassis)));
   const o = $<HTMLDivElement>('#overlay');
   o.innerHTML = `
-    <div class="overlay">
-      <div class="card">
-        <div class="eyebrow" style="color:#ff7770">ROUND ${String(roundNumber).padStart(2, '0')} FAILED · ROBOT DISABLED</div>
-        <h1>Run ended.</h1>
-        <p>${reason}. ${activeFaults.length > 0 ? `Detected: ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(', ')}. ` : ''}Damaged hardware carries into Round ${String(roundNumber + 1).padStart(2, '0')} for 30s Technical Timeout service.</p>
-        <p>Competition Score: <b>${scoreState.score} PTS</b> · Height Falls: <b>${scoreState.fallCount}</b><br>
-           Time: <b>${formatTime(elapsed)}</b> · Battery: ${subsystems.battery.percentage.toFixed(0)}% · Health: ${subsystems.integrity.chassis.toFixed(0)}%</p>
-        <button class="action" id="btnRestartFailed">NEXT ROUND · 30s PIT BAY</button>
-        <div class="subactions"><button class="iconbtn" id="btnFailedMenu">MAIN MENU</button></div>
+    <div class="overlay overlay--results">
+      <div class="results-card results-card--failed" role="dialog" aria-labelledby="failTitle">
+        <div class="results-header-bar">
+          <div class="results-eyebrow-chip">
+            <span class="results-badge-dot"></span>
+            <span>ROUND ${String(roundNumber).padStart(2, '0')} FAILED · ROBOT DISABLED</span>
+          </div>
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#ff8a8a;">CRITICAL FAULT</span>
+        </div>
+
+        <h1 class="results-title" id="failTitle">Run Ended.</h1>
+
+        <div class="results-fault-alert">
+          <div style="font-weight:800;letter-spacing:0.04em;">FAILURE CAUSE: ${reason.toUpperCase()}</div>
+          ${activeFaults.length > 0 ? `<div style="margin-top:2px;">Hardware faults: ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ')}</div>` : ''}
+          <div class="fault-alert-tip">Hardware carries into Round ${String(roundNumber + 1).padStart(2, '0')} for 30s Technical Timeout service.</div>
+        </div>
+
+        <div class="results-metrics-grid">
+          <div class="results-metric-card">
+            <span class="results-metric-label">Competition Score</span>
+            <div class="results-metric-num score-warn">${scoreState.score} <small>PTS</small></div>
+            <span class="results-metric-sub">Earned before disablement</span>
+          </div>
+          <div class="results-metric-card">
+            <span class="results-metric-label">Course Duration</span>
+            <div class="results-metric-num text-gold">${formatTime(elapsed)}</div>
+            <span class="results-metric-sub">Elapsed time</span>
+          </div>
+          <div class="results-metric-card">
+            <span class="results-metric-label">Height Falls</span>
+            <div class="results-metric-num score-warn">${scoreState.fallCount} <small>FALLS</small></div>
+            <span class="results-metric-sub">Terrain drops</span>
+          </div>
+          <div class="results-metric-card">
+            <span class="results-metric-label">Battery Level</span>
+            <div class="results-metric-num">${batPct}%</div>
+            <span class="results-metric-sub">Remaining charge</span>
+          </div>
+        </div>
+
+        <div class="results-hw-box">
+          <div class="results-hw-title"><span>Chassis Integrity</span><span>${chassisPct}%</span></div>
+          <div class="results-hw-bar">
+            <div class="results-hw-fill results-hw-fill--chassis" style="width: ${chassisPct}%; background: ${chassisPct <= 20 ? '#ff5252' : '#ffb74d'};"></div>
+          </div>
+        </div>
+
+        <div class="results-cta-group">
+          <button class="results-cta-main" id="btnRestartFailed" type="button" style="background: linear-gradient(135deg, #ff7b72 0%, #d83a30 100%); color: #fff;">
+            <span>NEXT ROUND · 30s PIT BAY</span>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
+          </button>
+          <button class="results-cta-ghost" id="btnFailedMenu" type="button">MAIN MENU</button>
+        </div>
       </div>
     </div>
   `;
