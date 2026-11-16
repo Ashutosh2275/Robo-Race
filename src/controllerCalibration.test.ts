@@ -4,6 +4,10 @@ import {
   UniversalController,
   classifyHardwareDevice,
   normalizeCalibratedAxis,
+  formatGamepadButtonLabel,
+  formatTransmitterTriggerLabel,
+  formatControlsGuideHTML,
+  formatMenuKeysHTML,
   type BindableAction,
 } from './universalController.ts';
 
@@ -491,3 +495,81 @@ test('Triple-pass exhaustive verification matrix across all 5 controller types, 
     }
   });
 });
+
+test('Dynamic active controller HUD guide formats exact controls for Keyboard, Gamepad, and Transmitters', () => {
+  withMockEnvironment(({ setPads }) => {
+    const ctrl = new UniversalController();
+
+    // 1. Keyboard guide
+    const kbGuide = formatControlsGuideHTML('keyboard');
+    assert.ok(kbGuide.includes('KEYBOARD'));
+    assert.ok(kbGuide.includes('<kbd>W</kbd><kbd>S</kbd> DRIVE'));
+    assert.ok(kbGuide.includes('<kbd>SPACE</kbd> BRAKE'));
+    assert.ok(kbGuide.includes('<kbd>T</kbd> 30s TECH PIT'));
+    assert.ok(kbGuide.includes('<kbd>R</kbd> RECOVER'));
+    assert.ok(kbGuide.includes('<kbd>K</kbd> SKIP GATE'));
+    assert.ok(kbGuide.includes('<kbd>ESC</kbd> MENU'));
+
+    // 2. Standard Gamepad guide (Xbox / PlayStation)
+    setPads([
+      makeGamepad({
+        id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 02e0)',
+        mapping: 'standard',
+        axes: [0, 0, 0, 0],
+      }),
+    ]);
+    ctrl.poll();
+    const gpProfile = ctrl.getCurrentProfile();
+    const gpGuide = formatControlsGuideHTML('gamepad', gpProfile);
+    assert.ok(gpGuide.includes('<kbd>L-STICK</kbd> / <kbd>RT·LT</kbd> DRIVE'));
+    assert.ok(gpGuide.includes('<kbd>A</kbd> BRAKE'));
+    assert.ok(gpGuide.includes('<kbd>B</kbd> RECOVER'));
+    assert.ok(gpGuide.includes('<kbd>Y</kbd> 30s TECH PIT'));
+    assert.ok(gpGuide.includes('<kbd>RB</kbd> SKIP GATE'));
+    assert.ok(gpGuide.includes('<kbd>X</kbd> CAM'));
+    assert.ok(gpGuide.includes('<kbd>START</kbd> MENU'));
+    assert.ok(gpGuide.includes('<kbd>F2</kbd> CALIB'));
+
+    // 3. Transmitter guide (RadioMaster Boxer / EdgeTX)
+    setPads([
+      makeGamepad({
+        id: 'RadioMaster Boxer Joystick',
+        mapping: '',
+        axes: [0, 0, 0, 0, 0, 0, 0, 0],
+      }),
+    ]);
+    ctrl.poll();
+    const txProfile = ctrl.getCurrentProfile();
+    const txGuideSingle = formatControlsGuideHTML('transmitter', txProfile, 'single_stick');
+    assert.ok(txGuideSingle.includes('<kbd>CH1·CH2 STICKS</kbd> DRIVE'));
+    assert.ok(txGuideSingle.includes('<kbd>SwA</kbd> BRAKE'));
+    assert.ok(txGuideSingle.includes('<kbd>SwB</kbd> RECOVER'));
+    assert.ok(txGuideSingle.includes('<kbd>SwD</kbd> 30s TECH PIT'));
+    assert.ok(txGuideSingle.includes('<kbd>SwF</kbd> SKIP GATE'));
+    assert.ok(txGuideSingle.includes('<kbd>F2</kbd> CALIB STUDIO'));
+
+    const txGuideTank = formatControlsGuideHTML('transmitter', txProfile, 'tank_dual_stick');
+    assert.ok(txGuideTank.includes('<kbd>DUAL STICKS TANK</kbd> DRIVE'));
+
+    // 4. Custom Switch / Axis binding test
+    txProfile.bindings.techTimeout = { kind: 'axis', index: 5, threshold: 0.4, direction: 'high' };
+    const customTxGuide = formatControlsGuideHTML('transmitter', txProfile);
+    assert.ok(customTxGuide.includes('<kbd>CH6 ▲</kbd> 30s TECH PIT'));
+
+    // 5. Menu keys footer formats
+    const kbMenu = formatMenuKeysHTML('keyboard');
+    assert.ok(kbMenu.includes('<kbd>WASD</kbd> Drive'));
+    assert.ok(kbMenu.includes('<kbd>T</kbd> 30s Tech Pit'));
+
+    const gpMenu = formatMenuKeysHTML('gamepad', gpProfile);
+    assert.ok(gpMenu.includes('<kbd>L-Stick/RT</kbd> Drive'));
+    assert.ok(gpMenu.includes('<kbd>A</kbd> Brake'));
+    assert.ok(gpMenu.includes('<kbd>Y</kbd> 30s Pit'));
+
+    const txMenu = formatMenuKeysHTML('transmitter', txProfile);
+    assert.ok(txMenu.includes('<kbd>CH1/CH2</kbd> Drive'));
+    assert.ok(txMenu.includes('<kbd>SwA</kbd> Brake'));
+    assert.ok(txMenu.includes('<kbd>CH6 ▲</kbd> 30s Pit'));
+  });
+});
+

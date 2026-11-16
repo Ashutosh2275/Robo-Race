@@ -75,6 +75,10 @@ import {
   type ControllerConfig,
   type ControllerMode,
   type InputTriggerBinding,
+  formatGamepadButtonLabel,
+  formatTransmitterTriggerLabel,
+  formatControlsGuideHTML,
+  formatMenuKeysHTML,
 } from './universalController';
 import {
   MAP_SCALE,
@@ -1492,14 +1496,16 @@ function renderUI() {
     </div>
     <div class="controls">
       <span id="hudInputBadge" class="input-source-pill">⌨ KEYBOARD</span>
-      KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
+      <span id="hudControlsGuide" class="hud-controls-guide">
+        KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
+      </span>
     </div>
     <div id="floatingSkipContainer" class="floating-skip-container hidden">
       <button id="btnSkipCheckpoint" class="floating-skip-btn" title="Skip to next checkpoint gate (Hotkey: K)">
         <div class="skip-header-row">
           <span class="skip-status-dot"></span>
           <span class="skip-category">TACTICAL ASSIST</span>
-          <kbd class="skip-key-badge">K</kbd>
+          <kbd class="skip-key-badge" id="skipKeyBadge">K</kbd>
         </div>
         <div class="skip-main-row">
           <span class="skip-icon">⏭</span>
@@ -2040,6 +2046,12 @@ function renderUI() {
   controller.onDeviceEvent((event, detail) => {
     syncSettingsControlsFromController();
     if (diagnosticsModalOpen) syncDiagnosticsUI();
+    const menuFooter = document.querySelector<HTMLElement>('#menuKeysFooter');
+    if (menuFooter) {
+      const diag = controller.getDiagnostics();
+      const prof = controller.getCurrentProfile();
+      menuFooter.innerHTML = formatMenuKeysHTML(diag.source, prof);
+    }
     if (event === 'connected') displayToast(`🔌 USB DETECTED: ${detail.slice(0, 38)}`);
     else if (event === 'switched') displayToast(`🎛 CONTROLLER ACTIVE: ${detail.slice(0, 36)}`);
     else if (event === 'calibrated') displayToast(`✓ ${detail.slice(0, 44).toUpperCase()}`);
@@ -2290,7 +2302,7 @@ function showMenu() {
           </button>
         </div>
 
-        <footer class="menu-keys">
+        <footer class="menu-keys" id="menuKeysFooter">
           <span><kbd>WASD</kbd> Drive</span>
           <span><kbd>T</kbd> 30s Tech Pit</span>
           <span><kbd>R</kbd> Recover</span>
@@ -2299,6 +2311,12 @@ function showMenu() {
       </div>
     </div>
   `;
+  const menuFooter = o.querySelector<HTMLElement>('#menuKeysFooter');
+  if (menuFooter) {
+    const diag = controller.getDiagnostics();
+    const prof = controller.getCurrentProfile();
+    menuFooter.innerHTML = formatMenuKeysHTML(diag.source, prof);
+  }
   $('#btnStartRace', o).addEventListener('click', startRace);
   $('#btnMenuResetFresh', o)?.addEventListener('click', () => {
     carriedHardware = null;
@@ -4163,13 +4181,18 @@ function updateHUD(dt: number) {
     }
   }
 
-  // Live active input source pill on bottom bar (never calls poll() during race so edge triggers are preserved)
+  // Live active input source pill and dynamic controls guide on bottom bar
   const hudBadge = document.querySelector<HTMLElement>('#hudInputBadge');
+  const hudGuide = document.querySelector<HTMLElement>('#hudControlsGuide');
+  const skipBadge = document.querySelector<HTMLElement>('#skipKeyBadge');
   if (hudBadge) {
     if (raceState !== 'racing' && !diagnosticsModalOpen) {
       controller.poll();
     }
     const dNow = controller.getDiagnostics();
+    const curProfile = controller.getCurrentProfile();
+    const ctrlConfig = controller.getConfig();
+
     if (dNow.source === 'transmitter') {
       hudBadge.className = 'input-source-pill tx';
       hudBadge.textContent = `📡 TX: ${dNow.profileName.slice(0, 22).toUpperCase()}`;
@@ -4182,6 +4205,19 @@ function updateHUD(dt: number) {
     } else {
       hudBadge.className = 'input-source-pill';
       hudBadge.textContent = dNow.connectedDevices.length > 0 ? '⌨ KEYBOARD (USB STANDBY)' : '⌨ KEYBOARD';
+    }
+
+    if (hudGuide) {
+      hudGuide.innerHTML = formatControlsGuideHTML(dNow.source, curProfile, ctrlConfig.mode);
+    }
+    if (skipBadge) {
+      if (dNow.source === 'transmitter') {
+        skipBadge.textContent = formatTransmitterTriggerLabel(curProfile.bindings?.skipGate);
+      } else if (dNow.source === 'gamepad') {
+        skipBadge.textContent = formatGamepadButtonLabel(curProfile.bindings?.skipGate);
+      } else {
+        skipBadge.textContent = 'K';
+      }
     }
   }
 

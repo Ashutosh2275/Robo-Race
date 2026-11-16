@@ -1263,3 +1263,108 @@ export class UniversalController {
     };
   }
 }
+
+export function formatGamepadButtonLabel(binding?: InputTriggerBinding): string {
+  if (!binding || binding.kind === 'none') return 'UNBOUND';
+  if (binding.kind === 'button') {
+    const xboxButtons: Record<number, string> = {
+      0: 'A',
+      1: 'B',
+      2: 'X',
+      3: 'Y',
+      4: 'LB',
+      5: 'RB',
+      6: 'LT',
+      7: 'RT',
+      8: 'VIEW',
+      9: 'START',
+      10: 'LS-CLICK',
+      11: 'RS-CLICK',
+      12: 'D-UP',
+      13: 'D-DOWN',
+      14: 'D-LEFT',
+      15: 'D-RIGHT',
+    };
+    return xboxButtons[binding.index] ?? `BTN ${binding.index}`;
+  }
+  const dirSymbol = binding.direction === 'high' ? '▲' : '▼';
+  return `AXIS ${binding.index} ${dirSymbol}`;
+}
+
+export function formatTransmitterTriggerLabel(binding?: InputTriggerBinding): string {
+  if (!binding || binding.kind === 'none') return 'UNBOUND';
+  if (binding.kind === 'button') {
+    const txSwitches: Record<number, string> = {
+      0: 'SwA',
+      1: 'SwB',
+      2: 'SwC',
+      3: 'SwD',
+      4: 'SwE',
+      5: 'SwF',
+      6: 'SwG',
+      7: 'SwH',
+    };
+    return txSwitches[binding.index] ?? `BTN ${binding.index}`;
+  }
+  const dirSymbol = binding.direction === 'high' ? '▲' : '▼';
+  return `CH${binding.index + 1} ${dirSymbol}`;
+}
+
+export function formatControlsGuideHTML(
+  source: 'keyboard' | 'gamepad' | 'transmitter' | 'touch' | 'mouse' | 'neutral' | string,
+  profile?: DeviceProfile,
+  controlMode: 'single_stick' | 'tank_dual_stick' = 'single_stick'
+): string {
+  const bnd = profile?.bindings;
+  if (source === 'transmitter') {
+    const brakeKey = formatTransmitterTriggerLabel(bnd?.brake);
+    const recKey = formatTransmitterTriggerLabel(bnd?.recover);
+    const pitKey = formatTransmitterTriggerLabel(bnd?.techTimeout);
+    const skipKey = formatTransmitterTriggerLabel(bnd?.skipGate);
+    const camKey = formatTransmitterTriggerLabel(bnd?.changeCamera);
+    const driveHint = controlMode === 'tank_dual_stick' ? 'DUAL STICKS TANK' : 'CH1·CH2 STICKS';
+
+    return `<kbd>${driveHint}</kbd> DRIVE &nbsp; <kbd>${brakeKey}</kbd> BRAKE &nbsp; <kbd>${recKey}</kbd> RECOVER &nbsp; <kbd>${pitKey}</kbd> 30s TECH PIT &nbsp; <kbd>${skipKey}</kbd> SKIP GATE &nbsp; <kbd>${camKey}</kbd> CAM &nbsp; <kbd>F2</kbd> CALIB STUDIO &nbsp; <kbd>ESC</kbd> MENU`;
+  }
+
+  if (source === 'gamepad') {
+    const brakeKey = formatGamepadButtonLabel(bnd?.brake);
+    const recKey = formatGamepadButtonLabel(bnd?.recover);
+    const pitKey = formatGamepadButtonLabel(bnd?.techTimeout);
+    const skipKey = formatGamepadButtonLabel(bnd?.skipGate);
+    const camKey = formatGamepadButtonLabel(bnd?.changeCamera);
+    const pauseKey = formatGamepadButtonLabel(bnd?.togglePause);
+
+    return `<kbd>L-STICK</kbd> / <kbd>RT·LT</kbd> DRIVE &nbsp; <kbd>L-STICK ◄►</kbd> STEER &nbsp; <kbd>${brakeKey}</kbd> BRAKE &nbsp; <kbd>${recKey}</kbd> RECOVER &nbsp; <kbd>${pitKey}</kbd> 30s TECH PIT &nbsp; <kbd>${skipKey}</kbd> SKIP GATE &nbsp; <kbd>${camKey}</kbd> CAM &nbsp; <kbd>${pauseKey}</kbd> MENU &nbsp; <kbd>F2</kbd> CALIB`;
+  }
+
+  if (source === 'touch') {
+    return `<kbd>ON-SCREEN JOYSTICKS</kbd> TANK DRIVE &nbsp; <kbd>RECOVER</kbd> RESET &nbsp; <kbd>30s PIT</kbd> TECH PIT &nbsp; <kbd>CAMERA</kbd> CAM`;
+  }
+
+  // Default: Keyboard
+  return `KEYBOARD &nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK`;
+}
+
+export function formatMenuKeysHTML(
+  source: 'keyboard' | 'gamepad' | 'transmitter' | 'touch' | 'mouse' | 'neutral' | string,
+  profile?: DeviceProfile
+): string {
+  const bnd = profile?.bindings;
+  if (source === 'transmitter') {
+    const brakeKey = formatTransmitterTriggerLabel(bnd?.brake);
+    const recKey = formatTransmitterTriggerLabel(bnd?.recover);
+    const pitKey = formatTransmitterTriggerLabel(bnd?.techTimeout);
+    const skipKey = formatTransmitterTriggerLabel(bnd?.skipGate);
+    return `<span><kbd>CH1/CH2</kbd> Drive</span><span><kbd>${brakeKey}</kbd> Brake</span><span><kbd>${pitKey}</kbd> 30s Pit</span><span><kbd>${recKey}</kbd> Recover</span><span><kbd>${skipKey}</kbd> Skip</span><span><kbd>F2</kbd> Studio</span>`;
+  }
+  if (source === 'gamepad') {
+    const brakeKey = formatGamepadButtonLabel(bnd?.brake);
+    const recKey = formatGamepadButtonLabel(bnd?.recover);
+    const pitKey = formatGamepadButtonLabel(bnd?.techTimeout);
+    const skipKey = formatGamepadButtonLabel(bnd?.skipGate);
+    return `<span><kbd>L-Stick/RT</kbd> Drive</span><span><kbd>${brakeKey}</kbd> Brake</span><span><kbd>${pitKey}</kbd> 30s Pit</span><span><kbd>${recKey}</kbd> Recover</span><span><kbd>${skipKey}</kbd> Skip</span><span><kbd>F2</kbd> Studio</span>`;
+  }
+  return `<span><kbd>WASD</kbd> Drive</span><span><kbd>T</kbd> 30s Tech Pit</span><span><kbd>R</kbd> Recover</span><span><kbd>K</kbd> Skip</span><span><kbd>F2</kbd> Calib Studio</span>`;
+}
+
