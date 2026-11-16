@@ -176,3 +176,55 @@ test('fire hazard applies progressive thermal damage: fast crossings survive whi
   for (let i = 0; i < 15; i++) stepSubsystems(cooled, 0.5, 0.5, 0, 'water', 0, 0.1);
   assert.equal(cooled.fireExposureSec, 0, 'Water immersion must rapidly quench accumulated thermal exposure');
 });
+
+test('severe landing impact shock dislodges XT60 battery bus causing 0V blackout and zero motor drive', () => {
+  const s = createInitialSubsystems();
+  // Severe landing shock (impactDamage >= 24)
+  const triggered = stepSubsystems(s, 1.0, 1.0, 0, 'none', 26.0, 0.1);
+  assert.ok(triggered.includes('battery_unplugged'), 'Should trigger battery_unplugged fault');
+  assert.equal(s.faults.batteryUnplugged, true);
+  assert.equal(s.battery.voltage, 0);
+  assert.equal(s.battery.powerWatts, 0);
+
+  // Drive modifiers must cut all drive power to 0
+  const mods = getEffectiveDrivetrainModifiers(s);
+  assert.equal(mods.circuitCutoutActive, true);
+  assert.equal(mods.leftMotorMultiplier, 0);
+  assert.equal(mods.rightMotorMultiplier, 0);
+
+  // Snapshot carryover retains battery_unplugged
+  const snap = createCarryoverSnapshot(s, 2);
+  const restored = createInitialSubsystems();
+  applyCarryoverSnapshot(restored, snap);
+  assert.equal(restored.faults.batteryUnplugged, true);
+  assert.equal(restored.battery.voltage, 0);
+
+  // 30s Technical Timeout repair takes 4 seconds and restores nominal 16.2V bus
+  repairComponentFault(restored, 'battery_unplugged');
+  assert.equal(restored.faults.batteryUnplugged, false);
+  assert.ok(restored.battery.voltage >= 16.0);
+  const fixedMods = getEffectiveDrivetrainModifiers(restored);
+  assert.equal(fixedMods.circuitCutoutActive, false);
+  assert.equal(fixedMods.leftMotorMultiplier, 1.0);
+  assert.equal(fixedMods.rightMotorMultiplier, 1.0);
+});
+
+test('diagonal motor engine correctly decouples power when motor burns or cycle-tube belt derails', () => {
+  const sFL = createInitialSubsystems();
+  sFL.faults.leftMotorBurnt = true; // Front-Left active motor burnt
+  const modsFL = getEffectiveDrivetrainModifiers(sFL);
+  assert.ok(modsFL.leftMotorMultiplier <= 0.35, 'Left motor burnout must cut left track torque by ~66%');
+  assert.equal(modsFL.rightMotorMultiplier, 1.0, 'Right track must retain 100% torque from intact RR motor');
+
+  const sRR = createInitialSubsystems();
+  sRR.faults.rightMotorBurnt = true; // Rear-Right active motor burnt
+  const modsRR = getEffectiveDrivetrainModifiers(sRR);
+  assert.ok(modsRR.rightMotorMultiplier <= 0.35, 'Right motor burnout must cut right track torque by ~66%');
+  assert.equal(modsRR.leftMotorMultiplier, 1.0, 'Left track must retain 100% torque from intact FL motor');
+
+  const sBelt = createInitialSubsystems();
+  sBelt.faults.leftBeltSlipped = true; // Cycle-tube belt popped off corner pulleys
+  const modsBelt = getEffectiveDrivetrainModifiers(sBelt);
+  assert.ok(modsBelt.leftMotorMultiplier <= 0.55, 'Belt slip must decouple rear dummy idler wheel and drop drive transfer');
+  assert.equal(modsBelt.rightMotorMultiplier, 1.0);
+});

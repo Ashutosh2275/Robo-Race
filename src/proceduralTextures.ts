@@ -557,44 +557,141 @@ export function createMineralPbrMaps(baseHex: string, speckColors: string[], rep
 }
 
 /**
- * Generates weathered rubber chevron track belt texture + deep tread lug bump map.
+ * Generates weathered cycle-tube rubber track belt with continuous lanyard-style
+ * "Leonid_op" white strap watermark printed longitudinally along the ribbon.
  */
 export function createRubberTrackPbrMaps(): PbrMapSet {
-  const size = 256;
+  const size = 512;
   const col = document.createElement('canvas');
   const bmp = document.createElement('canvas');
   col.width = col.height = bmp.width = bmp.height = size;
   const cx = col.getContext('2d')!;
   const bx = bmp.getContext('2d')!;
 
-  cx.fillStyle = '#171918';
+  // Base vulcanized cycle-tube rubber
+  cx.fillStyle = '#141615';
   cx.fillRect(0, 0, size, size);
-  bx.fillStyle = '#505050';
+  bx.fillStyle = '#606060';
   bx.fillRect(0, 0, size, size);
 
-  cx.strokeStyle = '#292c2a';
-  cx.lineWidth = 8;
+  // Subtle rubber texture grain
+  for (let i = 0; i < 400; i++) {
+    const rx = (i * 37) % size;
+    const ry = (i * 79) % size;
+    cx.fillStyle = i % 2 === 0 ? 'rgba(25, 30, 27, 0.25)' : 'rgba(8, 10, 9, 0.35)';
+    cx.fillRect(rx, ry, 2, 2);
+  }
+
+  // Tread chevrons on inner and outer margins
+  cx.strokeStyle = '#252926';
+  cx.lineWidth = 6;
   cx.lineCap = 'round';
-  bx.strokeStyle = '#e5e5e5';
-  bx.lineWidth = 9;
+  bx.strokeStyle = '#a0a0a0';
+  bx.lineWidth = 7;
   bx.lineCap = 'round';
-  for (let y = 12; y < size; y += 26) {
+  for (let y = 16; y < size; y += 32) {
     cx.beginPath();
-    cx.moveTo(28, y);
-    cx.lineTo(128, y + 14);
-    cx.lineTo(228, y);
+    cx.moveTo(10, y);
+    cx.lineTo(52, y + 10);
+    cx.lineTo(10, y + 20);
     cx.stroke();
 
     bx.beginPath();
-    bx.moveTo(28, y);
-    bx.lineTo(128, y + 14);
-    bx.lineTo(228, y);
+    bx.moveTo(10, y);
+    bx.lineTo(52, y + 10);
+    bx.lineTo(10, y + 20);
+    bx.stroke();
+
+    cx.beginPath();
+    cx.moveTo(size - 10, y);
+    cx.lineTo(size - 52, y + 10);
+    cx.lineTo(size - 10, y + 20);
+    cx.stroke();
+
+    bx.beginPath();
+    bx.moveTo(size - 10, y);
+    bx.lineTo(size - 52, y + 10);
+    bx.lineTo(size - 10, y + 20);
     bx.stroke();
   }
 
+  // Draw continuous lanyard ID straps along the belt length:
+  // Lane 1: X=145 (cambered outer tread face), Lane 2: X=345 (outer sidewall)
+  const strapLanes = [145, 345];
+  for (const laneX of strapLanes) {
+    // Strap background ribbon channel
+    cx.fillStyle = '#101211';
+    cx.fillRect(laneX - 38, 0, 76, size);
+    bx.fillStyle = '#484848';
+    bx.fillRect(laneX - 38, 0, 76, size);
+
+    // Stitched edge pinstripes
+    cx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    cx.lineWidth = 2.5;
+    cx.beginPath();
+    cx.moveTo(laneX - 34, 0);
+    cx.lineTo(laneX - 34, size);
+    cx.moveTo(laneX + 34, 0);
+    cx.lineTo(laneX + 34, size);
+    cx.stroke();
+
+    bx.strokeStyle = '#ffffff';
+    bx.lineWidth = 2.5;
+    bx.beginPath();
+    bx.moveTo(laneX - 34, 0);
+    bx.lineTo(laneX - 34, size);
+    bx.moveTo(laneX + 34, 0);
+    bx.lineTo(laneX + 34, size);
+    bx.stroke();
+
+    // High-contrast, crisp pure white continuous lanyard text "Leonid_op"
+    // Repeating along Y in an unbroken ID card strap pattern
+    cx.save();
+    bx.save();
+    cx.fillStyle = '#ffffff';
+    cx.font = 'bold 22px Inter, system-ui, -apple-system, sans-serif';
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+
+    bx.fillStyle = '#ffffff';
+    bx.font = 'bold 22px Inter, system-ui, -apple-system, sans-serif';
+    bx.textAlign = 'center';
+    bx.textBaseline = 'middle';
+
+    // In each 512px tile, repeat the lanyard block 3 times (seamless wrapping)
+    const blockHeight = size / 3;
+    for (let b = 0; b < 3; b++) {
+      const centerY = b * blockHeight + blockHeight / 2;
+      cx.save();
+      bx.save();
+      cx.translate(laneX, centerY);
+      bx.translate(laneX, centerY);
+      // Rotate -90 degrees so text runs longitudinally along the strap ribbon
+      cx.rotate(-Math.PI / 2);
+      bx.rotate(-Math.PI / 2);
+
+      cx.fillText('Leonid_op', 0, 0);
+      bx.fillText('Leonid_op', 0, 0);
+
+      // Separator dots on both sides of the name
+      cx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      cx.fillText('•', -64, 0);
+      cx.fillText('•', 64, 0);
+      bx.fillStyle = '#ffffff';
+      bx.fillText('•', -64, 0);
+      bx.fillText('•', 64, 0);
+
+      cx.restore();
+      bx.restore();
+    }
+
+    cx.restore();
+    bx.restore();
+  }
+
   return {
-    map: finalizeTexture(col, true, 4, 4),
-    bumpMap: finalizeTexture(bmp, false, 4, 4),
+    map: finalizeTexture(col, true, 1, 4),
+    bumpMap: finalizeTexture(bmp, false, 1, 4),
   };
 }
 

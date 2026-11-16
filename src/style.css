@@ -1102,11 +1102,11 @@
 
 .results-card {
   position: relative;
-  width: min(530px, calc(100vw - 28px));
-  max-height: calc(100vh - 36px);
+  width: min(580px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
   overflow-y: auto;
-  border-radius: 20px;
-  padding: 26px 28px 22px;
+  border-radius: 18px;
+  padding: 18px 22px 18px;
   background: linear-gradient(160deg, rgba(28, 38, 31, 0.85) 0%, rgba(15, 21, 17, 0.92) 50%, rgba(10, 14, 12, 0.97) 100%);
   border: 1px solid rgba(240, 189, 83, 0.32);
   box-shadow:
@@ -1527,6 +1527,196 @@
     grid-template-columns: 1fr;
     gap: 6px;
   }
+}
+
+/* Watermark & Author Attribution */
+.author-watermark-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(240, 189, 83, 0.12);
+  border: 1px solid rgba(240, 189, 83, 0.35);
+  color: #f0bd53;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-left: 6px;
+  box-shadow: 0 0 10px rgba(240, 189, 83, 0.15);
+}
+
+.brand-author-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #f0bd53;
+  margin-left: 6px;
+  text-transform: uppercase;
+  opacity: 0.92;
+}
+
+.menu-author-banner {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #f0bd53;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+/* Technical Diagnostics & Required Maintenance Card in Results/Failure */
+.results-tech-diag-card {
+  margin-top: 12px;
+  background: rgba(14, 18, 16, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 12px 14px;
+  backdrop-filter: blur(8px);
+}
+
+.results-tech-diag-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+}
+
+.tech-diag-eyebrow {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #829285;
+}
+
+.tech-diag-title {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #eff3ea;
+  letter-spacing: 0.02em;
+}
+
+.tech-diag-pit-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.tech-diag-pit-tag.ready {
+  background: rgba(110, 231, 135, 0.14);
+  color: #6ee787;
+  border: 1px solid rgba(110, 231, 135, 0.35);
+}
+
+.tech-diag-pit-tag.used {
+  background: rgba(240, 189, 83, 0.14);
+  color: #f0bd53;
+  border: 1px solid rgba(240, 189, 83, 0.35);
+}
+
+.results-diag-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 540px) {
+  .results-diag-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.results-diag-item {
+  background: rgba(22, 28, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+
+.results-diag-item.is-bad {
+  background: rgba(255, 82, 82, 0.10);
+  border-color: rgba(255, 82, 82, 0.35);
+}
+
+.diag-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.diag-item-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #eff3ea;
+}
+
+.diag-item-status {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.diag-item-status.st-ok {
+  background: rgba(110, 231, 135, 0.15);
+  color: #6ee787;
+}
+
+.diag-item-status.st-bad {
+  background: rgba(255, 82, 82, 0.22);
+  color: #ff7b72;
+}
+
+.diag-item-role {
+  font-size: 9px;
+  color: #829285;
+  margin-top: 1px;
+}
+
+.diag-item-detail {
+  font-size: 10px;
+  color: #b5c2b4;
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+.results-diag-recs {
+  background: rgba(10, 14, 12, 0.55);
+  border-left: 3px solid #f0bd53;
+  padding: 6px 10px;
+  border-radius: 0 6px 6px 0;
+}
+
+.diag-rec-heading {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #f0bd53;
+}
+
+.diag-rec-list {
+  margin: 3px 0 0;
+  padding-left: 14px;
+  font-size: 10px;
+  color: #c9d5c8;
+  line-height: 1.4;
+}
+
+.diag-rec-list li {
+  margin-bottom: 2px;
 }
 
 

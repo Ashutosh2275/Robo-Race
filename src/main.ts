@@ -858,17 +858,37 @@ for (const strapZ of [-0.21, 0.09]) {
   batteryStrapMeshes.push(box(chassis, mats.black, V(0, 0.50, strapZ), V(0.36, 0.155, 0.045)));
 }
 
-// 2. Dual Geared 600RPM Drive Motors mounted symmetrically on Rear Cross-Arm
+// 2. Diagonal Motor Engine Architecture
+// Left track powered by Front-Left active 600RPM motor (Z=+0.58), rear-left has passive dummy wheel/hub
+// Right track powered by Rear-Right active 600RPM motor (Z=-0.58), front-right has passive dummy wheel/hub
 const motorStatorMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial] = [
-  new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
-  new THREE.MeshStandardMaterial({ color: '#915538', metalness: 0.72, roughness: 0.44 }),
+  new THREE.MeshStandardMaterial({ color: '#b06542', metalness: 0.74, roughness: 0.40 }), // Left Front Motor
+  new THREE.MeshStandardMaterial({ color: '#b06542', metalness: 0.74, roughness: 0.40 }), // Right Rear Motor
 ];
-for (const side of [-1, 1]) {
-  const mx = side * 0.46;
-  const stMat = motorStatorMats[side < 0 ? 0 : 1];
-  cyl(chassis, mats.metal, V(mx, 0.34, -0.58), 0.105, 0.28, 'x');
-  cyl(chassis, stMat, V(mx, 0.34, -0.58), 0.09, 0.19, 'x');
-  cyl(chassis, mats.black, V(mx - side * 0.145, 0.34, -0.58), 0.082, 0.03, 'x');
+
+for (const side of [-1, 1] as const) {
+  for (const end of [-1, 1] as const) {
+    const mx = side * 0.46;
+    const mz = end * 0.58;
+    const isMotor = (side === -1 && end > 0) || (side === 1 && end < 0);
+
+    if (isMotor) {
+      // Active 600RPM Geared Drive Motor
+      const stMat = motorStatorMats[side < 0 ? 0 : 1];
+      cyl(chassis, mats.metal, V(mx, 0.34, mz), 0.105, 0.28, 'x');
+      cyl(chassis, stMat, V(mx, 0.34, mz), 0.09, 0.19, 'x');
+      cyl(chassis, mats.black, V(mx - side * 0.145, 0.34, mz), 0.082, 0.03, 'x');
+      cyl(chassis, mats.chrome, V(mx + side * 0.13, 0.34, mz), 0.034, 0.06, 'x');
+      // Silicone motor power wires linking to ESC
+      cyl(chassis, mats.red, V(mx * 0.58, 0.44, mz * 0.65), 0.012, 0.22, 'z');
+      cyl(chassis, mats.black, V(mx * 0.68, 0.44, mz * 0.65), 0.012, 0.22, 'z');
+    } else {
+      // Passive Dummy Idler Hub / Bearing Tube (driven via cycle-tube belt)
+      cyl(chassis, mats.metal, V(mx, 0.34, mz), 0.076, 0.22, 'x');
+      cyl(chassis, mats.chrome, V(mx, 0.34, mz), 0.054, 0.24, 'x');
+      cyl(chassis, mats.black, V(mx - side * 0.105, 0.34, mz), 0.045, 0.04, 'x');
+    }
+  }
 }
 
 // 3. Dual ESCs with extruded heat sinks & diagnostic PCB fault beacon on forward spine
@@ -905,7 +925,8 @@ cyl(chassis, mats.black, V(0.12, 0.71, -0.42), 0.011, 0.44, 'y');
 // 5. Braided silicone power cables and XT60 bus along center spine
 cyl(chassis, mats.red, V(-0.035, 0.52, 0.16), 0.013, 0.26, 'z');
 cyl(chassis, mats.black, V(0.035, 0.52, 0.16), 0.013, 0.26, 'z');
-box(chassis, mats.metal, V(0, 0.52, 0.24), V(0.055, 0.035, 0.065));
+const xt60Mat = new THREE.MeshStandardMaterial({ color: '#c48e28', roughness: 0.42, metalness: 0.5 });
+const xt60Mesh = box(chassis, xt60Mat, V(0, 0.52, 0.24), V(0.055, 0.035, 0.065));
 
 // 6. Warm Tungsten-Halogen Armored Projector Headlights integrated on Front Cross-Arm
 for (const side of [-1, 1]) {
@@ -1015,6 +1036,7 @@ const tracks: {
   group: THREE.Group;
   sideSign: -1 | 1;
   beltGeo: THREE.BufferGeometry;
+  beltMat: THREE.MeshStandardMaterial;
   cleats: THREE.Mesh[];
   wheelSpins: THREE.Group[];
   phase: number;
@@ -1026,22 +1048,37 @@ for (const side of [-1, 1] as const) {
   trackGroup.position.x = x;
   robotBody.add(trackGroup);
 
-  // Dynamic curved bicycle inner-tube belt looping around the two corner wheels on this side
+  // Dynamic curved cycle-tube belt looping around corner wheels with Leonid_op lanyard strap watermark
   const beltGeo = createDynamicCycleTubeBeltGeometry(side);
-  const belt = new THREE.Mesh(beltGeo, mats.rubber);
+  const beltMat = mats.rubber.clone();
+  beltMat.map = rubberMaps.map.clone();
+  beltMat.map.wrapS = THREE.RepeatWrapping;
+  beltMat.map.wrapT = THREE.RepeatWrapping;
+  if (rubberMaps.bumpMap) {
+    beltMat.bumpMap = rubberMaps.bumpMap.clone();
+    beltMat.bumpMap.wrapS = THREE.RepeatWrapping;
+    beltMat.bumpMap.wrapT = THREE.RepeatWrapping;
+  }
+  const belt = new THREE.Mesh(beltGeo, beltMat);
   belt.castShadow = true;
   belt.receiveShadow = true;
   trackGroup.add(belt);
 
   // Two open flanged pulley wheels per side positioned at the outer corners of the 'I'
+  // Diagonal motor engine: Left Front (side -1, end 1) and Right Rear (side 1, end -1) are motor driven!
+  // Left Rear (side -1, end -1) and Right Front (side 1, end 1) are passive dummy idler wheels driven via the cycle-tube belt!
   const wheelSpins: THREE.Group[] = [];
   for (const end of [-1, 1]) {
-    const isPowered = end < 0; // Rear corner wheels driven by the twin 600RPM rear cross-arm motors
+    const isPowered = (side === -1 && end > 0) || (side === 1 && end < 0);
     const spin = new THREE.Group();
     spin.position.set(0, 0.32, end * CYCLE_TUBE_WHEEL_Z);
     trackGroup.add(spin);
     const wheel = cyl(spin, mats.wheel, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M - 0.004, 0.30, 'x', 24);
-    wheel.userData = { role: isPowered ? 'motor-driven corner pulley' : 'passive front corner pulley' };
+    wheel.userData = {
+      role: isPowered
+        ? `motor-driven corner sprocket (diagonal motor: ${side < 0 ? 'front-left' : 'rear-right'})`
+        : `passive dummy idler wheel (driven via cycle-tube belt)`
+    };
     // Inner traction drum + open-hub toroidal pulley retention flanges so spokes & lugs remain visible
     cyl(spin, mats.black, V(0, 0, 0), DRIVE_SPROCKET_RADIUS_M + 0.002, 0.25, 'x', 24);
     for (const fx of [-0.156, 0.156]) {
@@ -1073,7 +1110,7 @@ for (const side of [-1, 1] as const) {
     cleats.push(q);
   }
 
-  tracks.push({ group: trackGroup, sideSign: side, beltGeo, cleats, wheelSpins, phase: 0 });
+  tracks.push({ group: trackGroup, sideSign: side, beltGeo, beltMat, cleats, wheelSpins, phase: 0 });
 }
 
 // Contact shadow beneath robot (placed in scene, follows vehicle on ground)
@@ -1259,6 +1296,17 @@ function syncRobotVisualHardwareState(timeSec: number) {
     batteryWrapMat.color.set('#273b50');
     batteryWrapMat.roughness = 0.72;
     batteryStrapMeshes.forEach(s => s.scale.set(1, 1, 1));
+  }
+
+  // XT60 main battery bus connector physical displacement if disconnected by impact
+  if (f.batteryUnplugged) {
+    xt60Mesh.position.set(0.042, 0.56, 0.27);
+    xt60Mesh.rotation.set(0.35, 0.45, 0.22);
+    xt60Mat.color.set('#523c15');
+  } else {
+    xt60Mesh.position.set(0, 0.52, 0.24);
+    xt60Mesh.rotation.set(0, 0, 0);
+    xt60Mat.color.set('#c48e28');
   }
 
   // 2. Motor stator charring (-1 side index 0 = left, +1 side index 1 = right)
@@ -1468,9 +1516,9 @@ function toggleDiagnosticsModal(show?: boolean) {
 function renderUI() {
   ui.innerHTML = `
     <div class="topbar">
-      <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span></div>
+      <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span> <span class="brand-author-tag">· BUILT BY Leonid_op</span></div>
       <div class="hud">
-        <div class="pill" id="pillRound"><small>ROUND</small><strong id="roundNum">01</strong></div>
+        <div class="pill" id="pillRound"><small>MODE</small><strong id="roundNum">CHALLENGE</strong></div>
         <div class="pill"><small>SCORE</small><strong id="score">0</strong></div>
         <div class="pill" id="pillLifelines"><small>LINE BUFFERS</small><strong id="lifelines">🛡️ 3 / 3</strong></div>
         <div class="pill"><small>TIME</small><strong id="time">00:00.00</strong></div>
@@ -1499,6 +1547,7 @@ function renderUI() {
       <span id="hudControlsGuide" class="hud-controls-guide">
         KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
       </span>
+      <span class="author-watermark-pill" title="Robo Race Proving Ground · Built by Leonid_op">⚡ BUILT BY Leonid_op</span>
     </div>
     <div id="floatingSkipContainer" class="floating-skip-container hidden">
       <button id="btnSkipCheckpoint" class="floating-skip-btn" title="Skip to next checkpoint gate (Hotkey: K)">
@@ -2231,18 +2280,18 @@ function showMenu() {
   const sealCracked = subsystems.integrity.electronicsEnclosure < 65;
   const faultBannerHtml = (activeFaults.length > 0 || sealCracked)
     ? `<div class="menu-fault-alert" id="menuFaultAlert">
-        <b>⚠ PREVIOUS ROUND HARDWARE FAULT${activeFaults.length > 1 ? 'S' : ''} CARRIED OVER</b><br>
+        <b>⚠ HARDWARE FAULT${activeFaults.length > 1 ? 'S' : ''} DETECTED</b><br>
         ${activeFaults.map(id => `• ${FAULT_REPAIR_META[id].label} (${subsystems.faults.faultReasons[id] || FAULT_REPAIR_META[id].symptom})`).join('<br>')}
         ${sealCracked ? `<br>• Electronics Enclosure Seal Cracked (${Math.round(subsystems.integrity.electronicsEnclosure)}%) — water ingress short risk` : ''}
-        <br><span style="color:#f0bd53;">Starting Round ${String(roundNumber).padStart(2, '0')} opens a mandatory <b>30s Technical Timeout Pit Stop</b> for diagnostics &amp; swaps.</span>
+        <br><span style="color:#f0bd53;">Deploying opens a mandatory <b>30s Technical Timeout Pit Stop</b> for diagnostics &amp; swaps.</span>
         <div style="margin-top:8px;">
-          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Round 01</button>
+          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Hardware</button>
         </div>
       </div>`
-    : (roundNumber > 1
+    : (roundNumber > 1 && hasAnyHardwareFault(subsystems)
       ? `<div class="menu-section-head" style="margin-bottom:8px;">
-          <span class="menu-section-label">Round ${String(roundNumber).padStart(2, '0')} carryover active</span>
-          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Round 01</button>
+          <span class="menu-section-label">Hardware Carryover Active</span>
+          <button type="button" class="menu-shuffle-btn" id="btnMenuResetFresh">Reset Fresh Hardware</button>
         </div>`
       : '');
 
@@ -2250,7 +2299,7 @@ function showMenu() {
     <div class="overlay overlay--menu">
       <div class="menu-card" role="dialog" aria-labelledby="menuTitle">
         <header class="menu-head">
-          <div class="menu-round-chip">Round ${String(roundNumber).padStart(2, '0')} · 30s Technical Timeout Rule</div>
+          <div class="menu-round-chip">Single Chance Challenge · 30s Technical Timeout Rule</div>
           <h1 class="menu-title" id="menuTitle">Robo Race 3D</h1>
           <p class="menu-lead">Dynamic ${runtimeCourse.checkpoints.length}-gate randomized robotics proving ground.</p>
         </header>
@@ -2284,7 +2333,7 @@ function showMenu() {
 
         <button class="menu-cta" id="btnStartRace" type="button">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
-          <span>${hasAnyHardwareFault(subsystems) ? `Inspect & Start Round ${String(roundNumber).padStart(2, '0')}` : `Start Round ${String(roundNumber).padStart(2, '0')}`}</span>
+          <span>${hasAnyHardwareFault(subsystems) ? 'Inspect &amp; Start Round' : 'Start Round'}</span>
         </button>
 
         <div class="menu-actions">
@@ -2308,7 +2357,10 @@ function showMenu() {
           <span><kbd>R</kbd> Recover</span>
           <span><kbd>K</kbd> Skip</span>
         </footer>
+
+        <div class="menu-author-banner">⚡ BUILT BY Leonid_op</div>
       </div>
+    </div>
     </div>
   `;
   const menuFooter = o.querySelector<HTMLElement>('#menuKeysFooter');
@@ -2388,43 +2440,50 @@ function renderTechnicalTimeoutOverlay() {
     costSec: number;
   }> = [
     {
+      key: 'battery_unplugged',
+      title: '4S LiPo Power Bus (XT60 Connector)',
+      desc: f.batteryUnplugged ? (f.faultReasons.battery_unplugged || FAULT_REPAIR_META.battery_unplugged.symptom) : `XT60 locked · ${subsystems.battery.voltage.toFixed(1)}V nominal power delivery`,
+      faulty: f.batteryUnplugged,
+      costSec: FAULT_REPAIR_META.battery_unplugged.pitSec,
+    },
+    {
       key: 'battery_swollen',
-      title: '4S LiPo Battery Pack',
+      title: '4S LiPo Battery Pack (Cells)',
       desc: f.batterySwollen ? (f.faultReasons.battery_swollen || FAULT_REPAIR_META.battery_swollen.symptom) : `Nominal ${subsystems.battery.voltage.toFixed(1)}V · ${Math.round(subsystems.battery.temperature)}°C`,
       faulty: f.batterySwollen,
       costSec: FAULT_REPAIR_META.battery_swollen.pitSec,
     },
     {
       key: 'circuit_burnt',
-      title: 'Main ESC & Power Circuit',
+      title: 'Main ESC & Power Distribution',
       desc: f.circuitBurnt ? (f.faultReasons.circuit_burnt || FAULT_REPAIR_META.circuit_burnt.symptom) : `Bus clean · ${Math.round(subsystems.esc.temperature)}°C · 100% delivery`,
       faulty: f.circuitBurnt,
       costSec: FAULT_REPAIR_META.circuit_burnt.pitSec,
     },
     {
       key: 'left_motor_burnt',
-      title: 'Left 600 RPM Drive Motor',
-      desc: f.leftMotorBurnt ? (f.faultReasons.left_motor_burnt || FAULT_REPAIR_META.left_motor_burnt.symptom) : `Windings intact · ${Math.round(subsystems.motors.leftTemp)}°C`,
+      title: 'Front-Left 600 RPM Drive Motor (Active Engine)',
+      desc: f.leftMotorBurnt ? (f.faultReasons.left_motor_burnt || FAULT_REPAIR_META.left_motor_burnt.symptom) : `Active diagonal motor · ${Math.round(subsystems.motors.leftTemp)}°C`,
       faulty: f.leftMotorBurnt,
       costSec: FAULT_REPAIR_META.left_motor_burnt.pitSec,
     },
     {
       key: 'right_motor_burnt',
-      title: 'Right 600 RPM Drive Motor',
-      desc: f.rightMotorBurnt ? (f.faultReasons.right_motor_burnt || FAULT_REPAIR_META.right_motor_burnt.symptom) : `Windings intact · ${Math.round(subsystems.motors.rightTemp)}°C`,
+      title: 'Rear-Right 600 RPM Drive Motor (Active Engine)',
+      desc: f.rightMotorBurnt ? (f.faultReasons.right_motor_burnt || FAULT_REPAIR_META.right_motor_burnt.symptom) : `Active diagonal motor · ${Math.round(subsystems.motors.rightTemp)}°C`,
       faulty: f.rightMotorBurnt,
       costSec: FAULT_REPAIR_META.right_motor_burnt.pitSec,
     },
     {
       key: 'left_belt_slipped',
-      title: 'Left Cycle-Tube Belt',
+      title: 'Left Cycle-Tube Belt (Front Motor → Rear Dummy)',
       desc: f.leftBeltSlipped ? (f.faultReasons.left_belt_slipped || FAULT_REPAIR_META.left_belt_slipped.symptom) : `Seated in corner pulley grooves · ${Math.round(subsystems.integrity.leftTrack)}% rubber`,
       faulty: f.leftBeltSlipped,
       costSec: FAULT_REPAIR_META.left_belt_slipped.pitSec,
     },
     {
       key: 'right_belt_slipped',
-      title: 'Right Cycle-Tube Belt',
+      title: 'Right Cycle-Tube Belt (Rear Motor → Front Dummy)',
       desc: f.rightBeltSlipped ? (f.faultReasons.right_belt_slipped || FAULT_REPAIR_META.right_belt_slipped.symptom) : `Seated in corner pulley grooves · ${Math.round(subsystems.integrity.rightTrack)}% rubber`,
       faulty: f.rightBeltSlipped,
       costSec: FAULT_REPAIR_META.right_belt_slipped.pitSec,
@@ -2448,7 +2507,7 @@ function renderTechnicalTimeoutOverlay() {
       <div class="pit-card" role="dialog" aria-labelledby="pitTitle">
         <div class="pit-head">
           <div>
-            <div class="eyebrow">ROUND ${String(roundNumber).padStart(2, '0')} · ${techTimeoutContext === 'pre_round' ? 'PRE-HEAT HARDWARE INSPECTION' : 'MID-RACE TECHNICAL TIMEOUT'}</div>
+            <div class="eyebrow">CHALLENGE · SINGLE CHANCE · ${techTimeoutContext === 'pre_round' ? 'PRE-HEAT HARDWARE INSPECTION' : 'MID-RACE TECHNICAL TIMEOUT'}</div>
             <h2 id="pitTitle" style="margin:4px 0 2px;font-size:20px;color:#eff3ea;">Pit Bench Service</h2>
             <p style="margin:0;font-size:11.5px;color:#9ea99c;">Swap burnt/swollen hardware before the 30s timeout clock expires.</p>
           </div>
@@ -2547,12 +2606,12 @@ function showPaused() {
   o.innerHTML = `
     <div class="overlay">
       <div class="card">
-        <div class="eyebrow">RACE PAUSED · ROUND ${String(roundNumber).padStart(2, '0')}</div>
+        <div class="eyebrow">RACE PAUSED · PROVING GROUND</div>
         <h1>Take a breath.</h1>
-        <p>Timer and vehicle state are safely paused. Resume your run or reset.</p>
+        <p>Timer and vehicle state are safely paused. Resume your run or start a fresh random challenge.</p>
         <button class="action" id="btnResume">RESUME RACE</button>
         <div class="subactions">
-          <button class="iconbtn" id="btnRestart">NEXT ROUND (CARRY HARDWARE)</button>
+          <button class="iconbtn" id="btnRestart">START ROUND (RANDOM TRACK)</button>
           <button class="iconbtn" id="btnMainMenu">MAIN MENU</button>
         </div>
       </div>
@@ -2573,6 +2632,117 @@ function commitEndOfRoundCarryover() {
   saveCarriedHardware(nextSnap);
 }
 
+function generateTechnicalDiagnosticsReportHtml(): string {
+  const f = subsystems.faults;
+  const seal = Math.round(subsystems.integrity.electronicsEnclosure);
+  const leftBeltRubber = Math.round(subsystems.integrity.leftTrack);
+  const rightBeltRubber = Math.round(subsystems.integrity.rightTrack);
+  const flTemp = Math.round(subsystems.motors.leftTemp);
+  const rrTemp = Math.round(subsystems.motors.rightTemp);
+  const batV = subsystems.battery.voltage.toFixed(1);
+  const batPct = Math.round(subsystems.battery.percentage);
+
+  const diagItems = [
+    {
+      name: 'Front-Left 600RPM Drive Motor',
+      role: 'Active Engine · Primary Left Drive',
+      status: f.leftMotorBurnt ? 'BURNT OUT' : 'NOMINAL',
+      detail: f.leftMotorBurnt ? (f.faultReasons.left_motor_burnt || 'Stator windings charred') : `${flTemp}°C · 100% torque`,
+      bad: f.leftMotorBurnt,
+    },
+    {
+      name: 'Rear-Right 600RPM Drive Motor',
+      role: 'Active Engine · Primary Right Drive',
+      status: f.rightMotorBurnt ? 'BURNT OUT' : 'NOMINAL',
+      detail: f.rightMotorBurnt ? (f.faultReasons.right_motor_burnt || 'Stator windings charred') : `${rrTemp}°C · 100% torque`,
+      bad: f.rightMotorBurnt,
+    },
+    {
+      name: 'Left Cycle-Tube Belt',
+      role: 'Front Motor → Rear Dummy Hub Coupling',
+      status: f.leftBeltSlipped ? 'DERAILED' : 'TRACKING',
+      detail: f.leftBeltSlipped ? (f.faultReasons.left_belt_slipped || 'Belt popped off corner pulleys') : `${leftBeltRubber}% rubber · aligned`,
+      bad: f.leftBeltSlipped,
+    },
+    {
+      name: 'Right Cycle-Tube Belt',
+      role: 'Rear Motor → Front Dummy Hub Coupling',
+      status: f.rightBeltSlipped ? 'DERAILED' : 'TRACKING',
+      detail: f.rightBeltSlipped ? (f.faultReasons.right_belt_slipped || 'Belt popped off corner pulleys') : `${rightBeltRubber}% rubber · aligned`,
+      bad: f.rightBeltSlipped,
+    },
+    {
+      name: '4S LiPo Power Bus (XT60)',
+      role: '16.4V Central Mechatronics Feed',
+      status: f.batteryUnplugged ? 'UNPLUGGED' : f.batterySwollen ? 'CELLS PUFFED' : 'LOCKED',
+      detail: f.batteryUnplugged ? 'XT60 dislodged · 0V blackout' : f.batterySwollen ? `Cells swollen · ${batV}V sag` : `${batV}V · ${batPct}% remaining`,
+      bad: f.batteryUnplugged || f.batterySwollen,
+    },
+    {
+      name: 'Main ESC & Waterproof Enclosure',
+      role: 'Drive MOSFETs & Sealed Enclosure',
+      status: f.circuitBurnt ? 'BURNT / SHORT' : seal < 65 ? 'SEAL CRACKED' : 'SEALED',
+      detail: f.circuitBurnt ? (f.faultReasons.circuit_burnt || 'MOSFET stage shorted') : `${seal}% enclosure seal`,
+      bad: f.circuitBurnt || seal < 65,
+    },
+  ];
+
+  // Dynamic recommendations based on hurdles and faults
+  const recommendations: string[] = [];
+  if (f.batteryUnplugged) {
+    recommendations.push('⚡ XT60 Dislodgement: Reconnect locking collar. Dampen chassis shock on steep ramp descents.');
+  }
+  if (f.leftBeltSlipped || f.rightBeltSlipped) {
+    recommendations.push('🔄 Belt Derailment: Re-seat cycle-tube belt in pulley track. Clear debris from rock crawls & washboards.');
+  }
+  if (f.leftMotorBurnt || f.rightMotorBurnt) {
+    recommendations.push('🔥 Motor Overload: Replace charred stator winding. Modulate throttle to prevent stall heating.');
+  }
+  if (f.circuitBurnt) {
+    recommendations.push('⚡ ESC Short Circuit: Swap motor driver PCB and verify IP67 seal integrity before water crossings.');
+  }
+  if (subsystems.integrity.chassis < 75) {
+    recommendations.push('🛠️ Chassis Stress: Re-torque cross-arms and inspect corner motor brackets.');
+  }
+  if (recommendations.length === 0) {
+    recommendations.push('✅ Mechatronics Ready: All diagonal motor couplings & 4S power circuits nominal for single chance run.');
+  }
+
+  return `
+    <div class="results-tech-diag-card">
+      <div class="results-tech-diag-head">
+        <div>
+          <div class="tech-diag-eyebrow">MECHATRONICS TELEMETRY &amp; SHOP DIAGNOSIS</div>
+          <h3 class="tech-diag-title">Technical Diagnostics &amp; Required Maintenance</h3>
+        </div>
+        <div class="tech-diag-pit-tag ${techTimeoutUsedThisRound ? 'used' : 'ready'}">
+          ${techTimeoutUsedThisRound ? '30s PIT BENCH USED' : `${Math.max(0, techTimeoutRemaining).toFixed(1)}s TIMEOUT BUDGET`}
+        </div>
+      </div>
+
+      <div class="results-diag-grid">
+        ${diagItems.map(item => `
+          <div class="results-diag-item ${item.bad ? 'is-bad' : ''}">
+            <div class="diag-item-top">
+              <span class="diag-item-name">${item.name}</span>
+              <span class="diag-item-status ${item.bad ? 'st-bad' : 'st-ok'}">${item.status}</span>
+            </div>
+            <div class="diag-item-role">${item.role}</div>
+            <div class="diag-item-detail">${item.detail}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="results-diag-recs">
+        <div class="diag-rec-heading">HURDLE IMPACT RECOMMENDATIONS:</div>
+        <ul class="diag-rec-list">
+          ${recommendations.map(r => `<li>${r}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
 function showResults() {
   const totalAdj = elapsed + penaltyTime;
   const isNewRecord = !bestTime || totalAdj < bestTime;
@@ -2585,9 +2755,9 @@ function showResults() {
   const activeFaults = getActiveFaultList(subsystems);
   const dmgNotice = (activeFaults.length > 0 || subsystems.integrity.electronicsEnclosure < 65)
     ? `<div class="results-fault-alert">
-        <div style="font-weight:800;letter-spacing:0.04em;">⚠ HARDWARE CARRIED TO ROUND ${String(roundNumber + 1).padStart(2, '0')}</div>
+        <div style="font-weight:800;letter-spacing:0.04em;">⚠ HARDWARE FAULTS DETECTED</div>
         <div style="margin-top:2px;">${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ') || 'Electronics Enclosure Seal Weakened'}</div>
-        <div class="fault-alert-tip">Starting Round ${String(roundNumber + 1).padStart(2, '0')} unlocks a mandatory <b>30s Technical Timeout Pit Stop</b>.</div>
+        <div class="fault-alert-tip">Starting next run opens a mandatory <b>30s Technical Timeout Pit Stop</b> for diagnostics &amp; repairs.</div>
        </div>`
     : '';
 
@@ -2602,7 +2772,7 @@ function showResults() {
         <div class="results-header-bar">
           <div class="results-eyebrow-chip">
             <span class="results-badge-dot"></span>
-            <span>ROUND ${String(roundNumber).padStart(2, '0')} COMPLETE · ${gatesCleared}/${gatesCleared} GATES</span>
+            <span>CHALLENGE COMPLETE · ${gatesCleared}/${gatesCleared} GATES</span>
           </div>
           <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#829285;">PROVING GROUND</span>
         </div>
@@ -2685,9 +2855,11 @@ function showResults() {
 
         ${dmgNotice}
 
+        ${generateTechnicalDiagnosticsReportHtml()}
+
         <div class="results-cta-group">
           <button class="results-cta-main" id="btnAgain" type="button">
-            <span>START ROUND ${String(roundNumber + 1).padStart(2, '0')}</span>
+            <span>START ROUND</span>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
           </button>
           <button class="results-cta-ghost" id="btnMenu" type="button">MAIN MENU</button>
@@ -2717,7 +2889,7 @@ function showFailure(reason: string) {
         <div class="results-header-bar">
           <div class="results-eyebrow-chip">
             <span class="results-badge-dot"></span>
-            <span>ROUND ${String(roundNumber).padStart(2, '0')} FAILED · ROBOT DISABLED</span>
+            <span>CHALLENGE FAILED · ROBOT DISABLED</span>
           </div>
           <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#ff8a8a;">CRITICAL FAULT</span>
         </div>
@@ -2727,7 +2899,7 @@ function showFailure(reason: string) {
         <div class="results-fault-alert">
           <div style="font-weight:800;letter-spacing:0.04em;">FAILURE CAUSE: ${reason.toUpperCase()}</div>
           ${activeFaults.length > 0 ? `<div style="margin-top:2px;">Hardware faults: ${activeFaults.map(id => FAULT_REPAIR_META[id].label).join(' · ')}</div>` : ''}
-          <div class="fault-alert-tip">Hardware carries into Round ${String(roundNumber + 1).padStart(2, '0')} for 30s Technical Timeout service.</div>
+          <div class="fault-alert-tip">Hardware carries into next run for 30s Technical Timeout service.</div>
         </div>
 
         <div class="results-metrics-grid">
@@ -2760,9 +2932,11 @@ function showFailure(reason: string) {
           </div>
         </div>
 
+        ${generateTechnicalDiagnosticsReportHtml()}
+
         <div class="results-cta-group">
           <button class="results-cta-main" id="btnRestartFailed" type="button" style="background: linear-gradient(135deg, #ff7b72 0%, #d83a30 100%); color: #fff;">
-            <span>NEXT ROUND · 30s PIT BAY</span>
+            <span>START ROUND · 30s PIT BAY</span>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
           </button>
           <button class="results-cta-ghost" id="btnFailedMenu" type="button">MAIN MENU</button>
@@ -3821,9 +3995,25 @@ function stepPhysics(dt: number) {
       q.rotation.z = point.rollX;
     }
 
-    for (const w of tr.wheelSpins) {
-      // Corner pulley wheels spin solidly on the 'I' axles even if a loose belt slips sideways
-      w.rotation.x += beltSpeed * dt / DRIVE_SPROCKET_RADIUS_M;
+    // Scroll the cycle-tube belt texture with phase so the Leonid_op lanyard text cycles smoothly
+    if (tr.beltMat?.map) {
+      tr.beltMat.map.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH) * 4.0;
+      if (tr.beltMat.bumpMap) tr.beltMat.bumpMap.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH) * 4.0;
+    }
+
+    for (let wi = 0; wi < tr.wheelSpins.length; wi++) {
+      const w = tr.wheelSpins[wi];
+      // Corner 0 is rear (end = -1), corner 1 is front (end = +1)
+      // Left side: corner 1 (front) is powered. Right side: corner 0 (rear) is powered.
+      const isMotorWheel = (tr.sideSign === -1 && wi === 1) || (tr.sideSign === 1 && wi === 0);
+      if (isMotorWheel) {
+        // Active motor wheel spins with motor output
+        w.rotation.x += beltSpeed * dt / DRIVE_SPROCKET_RADIUS_M;
+      } else {
+        // Dummy idler wheel is driven via cycle-tube belt; if belt is derailed, dummy wheel decouples!
+        const beltCoupling = derailed ? 0.12 : 1.0;
+        w.rotation.x += beltSpeed * beltCoupling * dt / DRIVE_SPROCKET_RADIUS_M;
+      }
     }
   }
 
@@ -4074,7 +4264,7 @@ function updateHUD(dt: number) {
   const hlt = $<HTMLElement>('#hlt');
   const rolloverBanner = $<HTMLElement>('#rolloverAlert');
 
-  if (roundEl) roundEl.textContent = String(roundNumber).padStart(2, '0');
+  if (roundEl) roundEl.textContent = 'CHALLENGE';
   if (pitHudEl) {
     pitHudEl.textContent = techTimeoutUsedThisRound ? 'USED' : `${Math.max(0, techTimeoutRemaining).toFixed(1)}s`;
   }
@@ -4157,13 +4347,24 @@ function updateHUD(dt: number) {
       && (pose.y + TRACK_CONTACT_OFFSET) < GROUND_DECK_HEIGHT - 0.15;
     const outOfTrackWarning = raceState === 'racing' && scoreState.lastOutFraction >= 0.50;
     const inFireHearth = raceState === 'racing' && subsystems.activeHazard === 'fire';
-    const showBanner = pose.isFlipped || inSandPit || inFireHearth || outOfTrackWarning || (rKeyPressed && rHoldDuration > 0.05);
+    const hasFault = raceState === 'racing' && hasAnyHardwareFault(subsystems);
+    const showBanner = pose.isFlipped || inSandPit || inFireHearth || outOfTrackWarning || hasFault || (rKeyPressed && rHoldDuration > 0.05);
     rolloverBanner.classList.toggle('hidden', !showBanner);
     if (showBanner) {
       if (rKeyPressed && rHoldDuration > 0.05) {
         const pct = Math.min(100, Math.round((rHoldDuration / R_HOLD_RESTART_THRESHOLD) * 100));
         const rem = Math.max(0, R_HOLD_RESTART_THRESHOLD - rHoldDuration).toFixed(1);
         rolloverBanner.textContent = `🔄 RESTARTING GAME IN ${rem}s [${pct}%]... KEEP HOLDING [R]`;
+      } else if (hasFault && subsystems.faults.batteryUnplugged) {
+        rolloverBanner.textContent = '⚡ ERROR: 4S LIPO UNPLUGGED (XT60 DISLODGED) · 0V POWER LOSS · PRESS [T] (30s TECH PIT)';
+      } else if (hasFault && (subsystems.faults.leftBeltSlipped || subsystems.faults.rightBeltSlipped)) {
+        rolloverBanner.textContent = '⚠️ ERROR: CYCLE-TUBE BELT DERAILED · TRACTION LOST · PRESS [T] (30s TECH PIT)';
+      } else if (hasFault && (subsystems.faults.leftMotorBurnt || subsystems.faults.rightMotorBurnt)) {
+        rolloverBanner.textContent = '🔥 ERROR: 600RPM MOTOR BURNT OUT · OVERLOAD DAMAGE · PRESS [T] (30s TECH PIT)';
+      } else if (hasFault && subsystems.faults.circuitBurnt) {
+        rolloverBanner.textContent = '⚡ ERROR: MAIN ESC CIRCUIT BURNT · MOTOR POWER CUT · PRESS [T] (30s TECH PIT)';
+      } else if (hasFault && subsystems.faults.batterySwollen) {
+        rolloverBanner.textContent = '⚠️ ERROR: 4S LIPO CELLS PUFFED · HIGH VOLTAGE SAG · PRESS [T] (30s TECH PIT)';
       } else if (pose.isFlipped || inSandPit) {
         if (config.handPoints < 999 && remainingHandPoints <= 0) {
           rolloverBanner.textContent = `⚠️ ${inSandPit ? 'TRAPPED IN SAND PIT' : 'ROBOT OVERTURNED'} · OUT OF HAND POINTS · HOLD [R] TO RESTART`;
@@ -4470,6 +4671,8 @@ window.addEventListener('resize', () => {
 
 // Render UI & Start animation
 renderUI();
+(window as unknown as Record<string, any>).__testShowResults = showResults;
+(window as unknown as Record<string, any>).__testShowFailure = showFailure;
 syncRobotVisualHardwareState(0);
 camera.fov = config.cameraFov;
 camera.updateProjectionMatrix();

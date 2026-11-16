@@ -36,6 +36,7 @@ export type HazardType = 'none' | 'fire' | 'water' | 'oil' | 'sand';
 
 export type HardwareFaultId =
   | 'battery_swollen'
+  | 'battery_unplugged'
   | 'circuit_burnt'
   | 'left_motor_burnt'
   | 'right_motor_burnt'
@@ -44,6 +45,7 @@ export type HardwareFaultId =
 
 export type ComponentFaultState = {
   batterySwollen: boolean;
+  batteryUnplugged: boolean;
   circuitBurnt: boolean;
   leftMotorBurnt: boolean;
   rightMotorBurnt: boolean;
@@ -67,6 +69,7 @@ export const TECHNICAL_TIMEOUT_SECONDS = 30;
 export function createInitialFaults(): ComponentFaultState {
   return {
     batterySwollen: false,
+    batteryUnplugged: false,
     circuitBurnt: false,
     leftMotorBurnt: false,
     rightMotorBurnt: false,
@@ -80,6 +83,7 @@ export function hasAnyHardwareFault(sub: SubsystemsState): boolean {
   const f = sub.faults;
   return (
     f.batterySwollen
+    || f.batteryUnplugged
     || f.circuitBurnt
     || f.leftMotorBurnt
     || f.rightMotorBurnt
@@ -92,6 +96,7 @@ export function hasAnyHardwareFault(sub: SubsystemsState): boolean {
 export function getActiveFaultList(sub: SubsystemsState): HardwareFaultId[] {
   const out: HardwareFaultId[] = [];
   if (sub.faults.batterySwollen) out.push('battery_swollen');
+  if (sub.faults.batteryUnplugged) out.push('battery_unplugged');
   if (sub.faults.circuitBurnt) out.push('circuit_burnt');
   if (sub.faults.leftMotorBurnt) out.push('left_motor_burnt');
   if (sub.faults.rightMotorBurnt) out.push('right_motor_burnt');
@@ -161,6 +166,16 @@ export function getEffectiveDrivetrainModifiers(
   elapsedSec = 0
 ): DrivetrainModifiers {
   const f = sub.faults;
+  if (f.batteryUnplugged) {
+    return {
+      leftMotorMultiplier: 0,
+      rightMotorMultiplier: 0,
+      maxSpeedMultiplier: 0,
+      accelerationMultiplier: 0,
+      circuitCutoutActive: true,
+    };
+  }
+
   const leftMotorMultiplier = (f.leftMotorBurnt ? 0.34 : 1.0) * (f.leftBeltSlipped ? 0.42 : 1.0);
   const rightMotorMultiplier = (f.rightMotorBurnt ? 0.34 : 1.0) * (f.rightBeltSlipped ? 0.42 : 1.0);
   const batteryCap = f.batterySwollen ? 0.72 : 1.0;
@@ -192,6 +207,11 @@ export function getEffectiveDrivetrainModifiers(
 
 /** Repair time cost (seconds deducted from the 30s technical timeout pit budget). */
 export const FAULT_REPAIR_META: Record<HardwareFaultId, { label: string; symptom: string; pitSec: number }> = {
+  battery_unplugged: {
+    label: '4S LiPo XT60 Power Bus Dislodged',
+    symptom: 'Heavy impact unplugged XT60 main connector · complete 0V power blackout (0% drive)',
+    pitSec: 4,
+  },
   battery_swollen: {
     label: '4S LiPo Cell Pack Swollen',
     symptom: 'Puffed pouches venting gas · severe voltage sag (-28% power ceiling)',
@@ -203,23 +223,23 @@ export const FAULT_REPAIR_META: Record<HardwareFaultId, { label: string; symptom
     pitSec: 8,
   },
   left_motor_burnt: {
-    label: 'Left 600RPM Motor Winding Burnt',
-    symptom: 'Charred stator coils · -66% left track torque (veers strongly left)',
+    label: 'Front-Left 600RPM Drive Motor Burnt',
+    symptom: 'Charred stator coils on front active motor · -66% left track torque (veers left)',
     pitSec: 7,
   },
   right_motor_burnt: {
-    label: 'Right 600RPM Motor Winding Burnt',
-    symptom: 'Charred stator coils · -66% right track torque (veers strongly right)',
+    label: 'Rear-Right 600RPM Drive Motor Burnt',
+    symptom: 'Charred stator coils on rear active motor · -66% right track torque (veers right)',
     pitSec: 7,
   },
   left_belt_slipped: {
-    label: 'Left Cycle-Tube Belt Off Wheel',
-    symptom: 'Curved inner-tube belt slipped off pulley groove · severe traction loss',
+    label: 'Left Cycle-Tube Belt Off Pulley',
+    symptom: 'Curved inner-tube belt derailed off corner pulleys · dummy rear wheel decoupled',
     pitSec: 4,
   },
   right_belt_slipped: {
-    label: 'Right Cycle-Tube Belt Off Wheel',
-    symptom: 'Curved inner-tube belt slipped off pulley groove · severe traction loss',
+    label: 'Right Cycle-Tube Belt Off Pulley',
+    symptom: 'Curved inner-tube belt derailed off corner pulleys · dummy front wheel decoupled',
     pitSec: 4,
   },
 };
@@ -239,6 +259,7 @@ export function createCarryoverSnapshot(sub: SubsystemsState, nextRoundNumber: n
     roundNumber: nextRoundNumber,
     faults: {
       batterySwollen: sub.faults.batterySwollen,
+      batteryUnplugged: sub.faults.batteryUnplugged,
       circuitBurnt: sub.faults.circuitBurnt,
       leftMotorBurnt: sub.faults.leftMotorBurnt,
       rightMotorBurnt: sub.faults.rightMotorBurnt,
@@ -258,6 +279,7 @@ export function applyCarryoverSnapshot(sub: SubsystemsState, snap: HardwareCarry
   if (!snap) return;
   sub.faults = {
     batterySwollen: !!snap.faults?.batterySwollen,
+    batteryUnplugged: !!snap.faults?.batteryUnplugged,
     circuitBurnt: !!snap.faults?.circuitBurnt,
     leftMotorBurnt: !!snap.faults?.leftMotorBurnt,
     rightMotorBurnt: !!snap.faults?.rightMotorBurnt,
@@ -266,7 +288,11 @@ export function applyCarryoverSnapshot(sub: SubsystemsState, snap: HardwareCarry
     faultReasons: { ...(snap.faults?.faultReasons ?? {}) },
   };
   sub.battery.health = Math.max(40, Math.min(100, snap.batteryHealth ?? 98));
-  if (sub.faults.batterySwollen) {
+  if (sub.faults.batteryUnplugged) {
+    sub.battery.voltage = 0;
+    sub.battery.powerWatts = 0;
+    sub.battery.currentAmps = 0;
+  } else if (sub.faults.batterySwollen) {
     sub.battery.voltage = 14.2;
     sub.battery.temperature = AMBIENT_TEMP + 12;
   }
@@ -280,7 +306,13 @@ export function applyCarryoverSnapshot(sub: SubsystemsState, snap: HardwareCarry
 }
 
 export function repairComponentFault(sub: SubsystemsState, faultId: HardwareFaultId): void {
-  if (faultId === 'battery_swollen') {
+  if (faultId === 'battery_unplugged') {
+    sub.faults.batteryUnplugged = false;
+    delete sub.faults.faultReasons.battery_unplugged;
+    sub.battery.voltage = 16.2;
+    sub.battery.powerWatts = 19.6;
+    sub.battery.currentAmps = 1.2;
+  } else if (faultId === 'battery_swollen') {
     sub.faults.batterySwollen = false;
     delete sub.faults.faultReasons.battery_swollen;
     sub.battery.chargeMah = sub.battery.capacityMah;
@@ -341,6 +373,15 @@ export function stepSubsystems(
 ) {
   sub.activeHazard = hazard;
 
+  if (sub.faults.batteryUnplugged) {
+    sub.battery.voltage = 0;
+    sub.battery.currentAmps = 0;
+    sub.battery.powerWatts = 0;
+    sub.motors.leftTorque = 0;
+    sub.motors.rightTorque = 0;
+    return [];
+  }
+
   // 1. Current demand calculation
   const absL = Math.abs(leftCmd);
   const absR = Math.abs(rightCmd);
@@ -358,7 +399,13 @@ export function stepSubsystems(
   sub.battery.percentage = Math.max(0, Math.min(100, (sub.battery.chargeMah / sub.battery.capacityMah) * 100));
   // Generic simulated voltage curve; chemistry, cell count and real voltage limits
   // have not been identified from the reference photographs.
-  sub.battery.voltage = 13.0 + (sub.battery.percentage / 100) * 3.8;
+  if (sub.faults.batteryUnplugged) {
+    sub.battery.voltage = 0;
+    sub.battery.powerWatts = 0;
+    sub.battery.currentAmps = 0;
+  } else {
+    sub.battery.voltage = 13.0 + (sub.battery.percentage / 100) * 3.8;
+  }
 
   if (totalCurrent > 0.1) {
     sub.battery.estimatedRuntimeSec = (sub.battery.chargeMah / 1000) / totalCurrent * 3600;
@@ -444,6 +491,14 @@ export function stepSubsystems(
 
   // 5. Realistic Component Burnout, Swelling & Short-Circuit Evaluation
   const triggeredFaults: HardwareFaultId[] = [];
+  if (!sub.faults.batteryUnplugged && (impactDamage >= 24 || (impactDamage >= 16 && sub.integrity.chassis < 75))) {
+    sub.faults.batteryUnplugged = true;
+    sub.faults.faultReasons.battery_unplugged = 'Severe obstacle impact shock dislodged XT60 battery bus';
+    sub.battery.voltage = 0;
+    sub.battery.powerWatts = 0;
+    sub.battery.currentAmps = 0;
+    triggeredFaults.push('battery_unplugged');
+  }
   if (!sub.faults.batterySwollen && (sub.battery.temperature >= 62.0 || (sub.battery.percentage <= 18.0 && totalCurrent >= 40.0))) {
     sub.faults.batterySwollen = true;
     sub.faults.faultReasons.battery_swollen = hazard === 'fire'
