@@ -1529,43 +1529,118 @@
   }
 }
 
-/* Watermark & Author Attribution */
-.author-watermark-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(240, 189, 83, 0.12);
-  border: 1px solid rgba(240, 189, 83, 0.35);
-  color: #f0bd53;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-left: 6px;
-  box-shadow: 0 0 10px rgba(240, 189, 83, 0.15);
+/* ==========================================================================
+   Eye-Catching Creator Attribution & Header Watermark Badge
+   ========================================================================== */
+.brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  font-size: 13px;
 }
 
-.brand-author-tag {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.brand-logo b {
+  color: #f0b84e;
+  text-shadow: 0 0 12px rgba(240, 184, 78, 0.7);
+}
+
+.brand-sub {
+  color: #aab4a8;
+  font-weight: 700;
+}
+
+.brand-author-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: linear-gradient(135deg, rgba(240, 189, 83, 0.24) 0%, rgba(255, 145, 0, 0.14) 100%);
+  border: 1.5px solid rgba(240, 189, 83, 0.75);
+  box-shadow: 0 0 16px rgba(240, 189, 83, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+  padding: 3px 12px 3px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  user-select: none;
+  animation: authorBadgeGlow 3s ease-in-out infinite alternate;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.brand-author-badge:hover {
+  transform: translateY(-1px) scale(1.04);
+  border-color: rgba(255, 220, 120, 0.95);
+  box-shadow: 0 0 24px rgba(240, 189, 83, 0.60), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.author-spark {
   color: #f0bd53;
-  margin-left: 6px;
+  font-size: 12px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px #f0bd53);
+  animation: authorSparkPulse 2s infinite ease-in-out alternate;
+}
+
+.author-by {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #dbe4d8;
   text-transform: uppercase;
-  opacity: 0.92;
+  opacity: 0.95;
+}
+
+.author-handle {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  background: linear-gradient(90deg, #ffffff 0%, #ffe494 50%, #f0bd53 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 8px rgba(240, 189, 83, 0.45));
+}
+
+@keyframes authorBadgeGlow {
+  0% {
+    border-color: rgba(240, 189, 83, 0.65);
+    box-shadow: 0 0 14px rgba(240, 189, 83, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  }
+  100% {
+    border-color: rgba(255, 225, 125, 0.95);
+    box-shadow: 0 0 24px rgba(240, 189, 83, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.40);
+  }
+}
+
+@keyframes authorSparkPulse {
+  0%, 100% {
+    opacity: 0.88;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 10px #ffcc44);
+  }
 }
 
 .menu-author-banner {
-  margin-top: 10px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: #f0bd53;
-  opacity: 0.85;
-  text-transform: uppercase;
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: linear-gradient(135deg, rgba(240, 189, 83, 0.20) 0%, rgba(255, 145, 0, 0.10) 100%);
+  border: 1px solid rgba(240, 189, 83, 0.55);
+  box-shadow: 0 0 16px rgba(240, 189, 83, 0.25);
+  padding: 5px 16px;
+  border-radius: 999px;
+  user-select: none;
 }
 
 /* Technical Diagnostics & Required Maintenance Card in Results/Failure */

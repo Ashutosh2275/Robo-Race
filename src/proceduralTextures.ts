@@ -561,35 +561,37 @@ export function createMineralPbrMaps(baseHex: string, speckColors: string[], rep
  * "Leonid_op" white strap watermark printed longitudinally along the ribbon.
  */
 export function createRubberTrackPbrMaps(): PbrMapSet {
-  const size = 512;
+  const width = 512;
+  const height = 1024;
   const col = document.createElement('canvas');
   const bmp = document.createElement('canvas');
-  col.width = col.height = bmp.width = bmp.height = size;
+  col.width = bmp.width = width;
+  col.height = bmp.height = height;
   const cx = col.getContext('2d')!;
   const bx = bmp.getContext('2d')!;
 
-  // Base vulcanized cycle-tube rubber
+  // 1. Base vulcanized cycle-tube rubber
   cx.fillStyle = '#141615';
-  cx.fillRect(0, 0, size, size);
+  cx.fillRect(0, 0, width, height);
   bx.fillStyle = '#606060';
-  bx.fillRect(0, 0, size, size);
+  bx.fillRect(0, 0, width, height);
 
-  // Subtle rubber texture grain
-  for (let i = 0; i < 400; i++) {
-    const rx = (i * 37) % size;
-    const ry = (i * 79) % size;
+  // 2. Subtle rubber texture grain across 512x1024
+  for (let i = 0; i < 800; i++) {
+    const rx = (i * 37) % width;
+    const ry = (i * 79) % height;
     cx.fillStyle = i % 2 === 0 ? 'rgba(25, 30, 27, 0.25)' : 'rgba(8, 10, 9, 0.35)';
     cx.fillRect(rx, ry, 2, 2);
   }
 
-  // Tread chevrons on inner and outer margins
+  // 3. Tread chevrons on inner and outer margins
   cx.strokeStyle = '#252926';
   cx.lineWidth = 6;
   cx.lineCap = 'round';
   bx.strokeStyle = '#a0a0a0';
   bx.lineWidth = 7;
   bx.lineCap = 'round';
-  for (let y = 16; y < size; y += 32) {
+  for (let y = 16; y < height; y += 32) {
     cx.beginPath();
     cx.moveTo(10, y);
     cx.lineTo(52, y + 10);
@@ -603,95 +605,102 @@ export function createRubberTrackPbrMaps(): PbrMapSet {
     bx.stroke();
 
     cx.beginPath();
-    cx.moveTo(size - 10, y);
-    cx.lineTo(size - 52, y + 10);
-    cx.lineTo(size - 10, y + 20);
+    cx.moveTo(width - 10, y);
+    cx.lineTo(width - 52, y + 10);
+    cx.lineTo(width - 10, y + 20);
     cx.stroke();
 
     bx.beginPath();
-    bx.moveTo(size - 10, y);
-    bx.lineTo(size - 52, y + 10);
-    bx.lineTo(size - 10, y + 20);
+    bx.moveTo(width - 10, y);
+    bx.lineTo(width - 52, y + 10);
+    bx.lineTo(width - 10, y + 20);
     bx.stroke();
   }
 
-  // Draw continuous lanyard ID straps along the belt length:
-  // Lane 1: X=145 (cambered outer tread face), Lane 2: X=345 (outer sidewall)
-  const strapLanes = [145, 345];
-  for (const laneX of strapLanes) {
-    // Strap background ribbon channel
-    cx.fillStyle = '#101211';
-    cx.fillRect(laneX - 38, 0, 76, size);
-    bx.fillStyle = '#484848';
-    bx.fillRect(laneX - 38, 0, 76, size);
+  // 4. Center lanyard ID strap along outer tread running face (u = 0.25 -> X = 128)
+  const laneX = 128;
+  const ribbonHalfW = 38;
 
-    // Stitched edge pinstripes
-    cx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-    cx.lineWidth = 2.5;
-    cx.beginPath();
-    cx.moveTo(laneX - 34, 0);
-    cx.lineTo(laneX - 34, size);
-    cx.moveTo(laneX + 34, 0);
-    cx.lineTo(laneX + 34, size);
-    cx.stroke();
+  // Strap background ribbon channel
+  cx.fillStyle = '#101211';
+  cx.fillRect(laneX - ribbonHalfW, 0, ribbonHalfW * 2, height);
+  bx.fillStyle = '#484848';
+  bx.fillRect(laneX - ribbonHalfW, 0, ribbonHalfW * 2, height);
 
-    bx.strokeStyle = '#ffffff';
-    bx.lineWidth = 2.5;
-    bx.beginPath();
-    bx.moveTo(laneX - 34, 0);
-    bx.lineTo(laneX - 34, size);
-    bx.moveTo(laneX + 34, 0);
-    bx.lineTo(laneX + 34, size);
-    bx.stroke();
+  // Stitched edge pinstripes
+  cx.strokeStyle = 'rgba(255, 255, 255, 0.60)';
+  cx.lineWidth = 2.5;
+  cx.beginPath();
+  cx.moveTo(laneX - ribbonHalfW + 4, 0);
+  cx.lineTo(laneX - ribbonHalfW + 4, height);
+  cx.moveTo(laneX + ribbonHalfW - 4, 0);
+  cx.lineTo(laneX + ribbonHalfW - 4, height);
+  cx.stroke();
 
-    // High-contrast, crisp pure white continuous lanyard text "Leonid_op"
-    // Repeating along Y in an unbroken ID card strap pattern
+  bx.strokeStyle = '#ffffff';
+  bx.lineWidth = 2.5;
+  bx.beginPath();
+  bx.moveTo(laneX - ribbonHalfW + 4, 0);
+  bx.lineTo(laneX - ribbonHalfW + 4, height);
+  bx.moveTo(laneX + ribbonHalfW - 4, 0);
+  bx.lineTo(laneX + ribbonHalfW - 4, height);
+  bx.stroke();
+
+  // 5. Large, bold, highly legible "Leonid_op" watermark placed exactly 2 times around the loop
+  // Slot 1: centered on top span (Y = 210, in full view on the top deck)
+  // Slot 2: centered on bottom span (Y = 722, exactly 512px / 180-degrees apart)
+  const watermarkSlots = [210, 722];
+  for (const centerY of watermarkSlots) {
     cx.save();
     bx.save();
-    cx.fillStyle = '#ffffff';
-    cx.font = 'bold 22px Inter, system-ui, -apple-system, sans-serif';
+    cx.translate(laneX, centerY);
+    bx.translate(laneX, centerY);
+    // Rotate -90 degrees so text runs along the longitudinal track span
+    cx.rotate(-Math.PI / 2);
+    bx.rotate(-Math.PI / 2);
+
     cx.textAlign = 'center';
     cx.textBaseline = 'middle';
+    cx.font = 'bold 36px "Segoe UI", Inter, system-ui, -apple-system, sans-serif';
 
-    bx.fillStyle = '#ffffff';
-    bx.font = 'bold 22px Inter, system-ui, -apple-system, sans-serif';
     bx.textAlign = 'center';
     bx.textBaseline = 'middle';
+    bx.font = 'bold 36px "Segoe UI", Inter, system-ui, -apple-system, sans-serif';
 
-    // In each 512px tile, repeat the lanyard block 3 times (seamless wrapping)
-    const blockHeight = size / 3;
-    for (let b = 0; b < 3; b++) {
-      const centerY = b * blockHeight + blockHeight / 2;
-      cx.save();
-      bx.save();
-      cx.translate(laneX, centerY);
-      bx.translate(laneX, centerY);
-      // Rotate -90 degrees so text runs longitudinally along the strap ribbon
-      cx.rotate(-Math.PI / 2);
-      bx.rotate(-Math.PI / 2);
+    // Outline for crisp separation from rubber surface
+    cx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+    cx.lineWidth = 5;
+    cx.strokeText('Leonid_op', 0, 0);
 
-      cx.fillText('Leonid_op', 0, 0);
-      bx.fillText('Leonid_op', 0, 0);
+    // Pure white high-contrast fill
+    cx.fillStyle = '#ffffff';
+    cx.fillText('Leonid_op', 0, 0);
 
-      // Separator dots on both sides of the name
-      cx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-      cx.fillText('•', -64, 0);
-      cx.fillText('•', 64, 0);
-      bx.fillStyle = '#ffffff';
-      bx.fillText('•', -64, 0);
-      bx.fillText('•', 64, 0);
+    // Embossed 3D bump height map
+    bx.strokeStyle = '#181818';
+    bx.lineWidth = 4;
+    bx.strokeText('Leonid_op', 0, 0);
+    bx.fillStyle = '#ffffff';
+    bx.fillText('Leonid_op', 0, 0);
 
-      cx.restore();
-      bx.restore();
-    }
+    // Separator accents placed with generous spacing (±115px away)
+    cx.font = 'bold 16px "Segoe UI", Inter, sans-serif';
+    cx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    cx.fillText('◆', -115, 0);
+    cx.fillText('◆', 115, 0);
+
+    bx.font = 'bold 16px "Segoe UI", Inter, sans-serif';
+    bx.fillStyle = '#ffffff';
+    bx.fillText('◆', -115, 0);
+    bx.fillText('◆', 115, 0);
 
     cx.restore();
     bx.restore();
   }
 
   return {
-    map: finalizeTexture(col, true, 1, 4),
-    bumpMap: finalizeTexture(bmp, false, 1, 4),
+    map: finalizeTexture(col, true, 1, 1),
+    bumpMap: finalizeTexture(bmp, false, 1, 1),
   };
 }
 

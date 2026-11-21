@@ -977,7 +977,8 @@ function createDynamicCycleTubeBeltGeometry(sideSign: -1 | 1): THREE.BufferGeome
   const indices: number[] = [];
 
   for (let i = 0; i <= CYCLE_TUBE_LOOP_SEGMENTS; i++) {
-    const vCoord = (i / CYCLE_TUBE_LOOP_SEGMENTS) * 4.0;
+    // 1:1 normalized V coordinate mapping along the entire cycle-tube loop
+    const vCoord = i / CYCLE_TUBE_LOOP_SEGMENTS;
     for (let k = 0; k <= ringPts; k++) {
       const idx = i * ringStride + k;
       uvs[idx * 2] = k / ringPts;
@@ -1054,10 +1055,12 @@ for (const side of [-1, 1] as const) {
   beltMat.map = rubberMaps.map.clone();
   beltMat.map.wrapS = THREE.RepeatWrapping;
   beltMat.map.wrapT = THREE.RepeatWrapping;
+  beltMat.map.repeat.set(1, 1);
   if (rubberMaps.bumpMap) {
     beltMat.bumpMap = rubberMaps.bumpMap.clone();
     beltMat.bumpMap.wrapS = THREE.RepeatWrapping;
     beltMat.bumpMap.wrapT = THREE.RepeatWrapping;
+    beltMat.bumpMap.repeat.set(1, 1);
   }
   const belt = new THREE.Mesh(beltGeo, beltMat);
   belt.castShadow = true;
@@ -1516,7 +1519,14 @@ function toggleDiagnosticsModal(show?: boolean) {
 function renderUI() {
   ui.innerHTML = `
     <div class="topbar">
-      <div class="brand"><b>●</b> ROBO RACE <span style="color:#aab4a8">/ 3D</span> <span class="brand-author-tag">· BUILT BY Leonid_op</span></div>
+      <div class="brand">
+        <div class="brand-logo"><b>●</b> ROBO RACE <span class="brand-sub">/ 3D</span></div>
+        <div class="brand-author-badge" title="Robo Race Proving Ground · Built by Leonid_op">
+          <span class="author-spark">⚡</span>
+          <span class="author-by">BUILT BY</span>
+          <span class="author-handle">Leonid_op</span>
+        </div>
+      </div>
       <div class="hud">
         <div class="pill" id="pillRound"><small>MODE</small><strong id="roundNum">CHALLENGE</strong></div>
         <div class="pill"><small>SCORE</small><strong id="score">0</strong></div>
@@ -1547,7 +1557,6 @@ function renderUI() {
       <span id="hudControlsGuide" class="hud-controls-guide">
         KEYBOARD&nbsp; <kbd>W</kbd><kbd>S</kbd> DRIVE &nbsp; <kbd>A</kbd> LEFT · <kbd>D</kbd> RIGHT &nbsp; <kbd>SPACE</kbd> BRAKE &nbsp; <kbd>R</kbd> RECOVER &nbsp; <kbd>T</kbd> 30s TECH PIT &nbsp; <kbd>K</kbd> SKIP GATE &nbsp; <kbd>C</kbd> CAMERA &nbsp; <kbd>ESC</kbd> MENU / RELEASE MOUSE · 360° MOUSE LOOK
       </span>
-      <span class="author-watermark-pill" title="Robo Race Proving Ground · Built by Leonid_op">⚡ BUILT BY Leonid_op</span>
     </div>
     <div id="floatingSkipContainer" class="floating-skip-container hidden">
       <button id="btnSkipCheckpoint" class="floating-skip-btn" title="Skip to next checkpoint gate (Hotkey: K)">
@@ -2358,7 +2367,11 @@ function showMenu() {
           <span><kbd>K</kbd> Skip</span>
         </footer>
 
-        <div class="menu-author-banner">⚡ BUILT BY Leonid_op</div>
+        <div class="menu-author-banner" title="Robo Race Proving Ground · Built by Leonid_op">
+          <span class="author-spark">⚡</span>
+          <span class="author-by">BUILT BY</span>
+          <span class="author-handle">Leonid_op</span>
+        </div>
       </div>
     </div>
     </div>
@@ -3995,10 +4008,10 @@ function stepPhysics(dt: number) {
       q.rotation.z = point.rollX;
     }
 
-    // Scroll the cycle-tube belt texture with phase so the Leonid_op lanyard text cycles smoothly
+    // Scroll the cycle-tube belt texture with phase so the Leonid_op lanyard text cycles smoothly (1:1 with loop length)
     if (tr.beltMat?.map) {
-      tr.beltMat.map.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH) * 4.0;
-      if (tr.beltMat.bumpMap) tr.beltMat.bumpMap.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH) * 4.0;
+      tr.beltMat.map.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH);
+      if (tr.beltMat.bumpMap) tr.beltMat.bumpMap.offset.y = -(tr.phase / CYCLE_TUBE_LOOP_LENGTH);
     }
 
     for (let wi = 0; wi < tr.wheelSpins.length; wi++) {
